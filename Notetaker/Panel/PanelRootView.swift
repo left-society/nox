@@ -102,7 +102,7 @@ struct PanelRootView: View {
     private var content: some View {
         switch activeTab {
         case .notes:
-            placeholder("Notes tab — coming in Phase 4")
+            NotesListView()
         case .images:
             placeholder("Images tab — coming in Phase 5")
         }
