@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             let env = try AppEnvironment()
             self.environment = env
+            env.retentionService.start()
             panelController = PanelWindowController(environment: env)
         } catch {
             NSLog("Notetaker failed to initialize: \(error)")

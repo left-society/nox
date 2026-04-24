@@ -9,8 +9,10 @@
 /* Begin PBXBuildFile section */
 		1AE947839F28E030B4FA584D /* DatabaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE95BFBB47BCAF71BB996C85 /* DatabaseTests.swift */; };
 		1DF8B62179AB9D609E2640E6 /* Animations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52506B59D6695A520BAEC7B9 /* Animations.swift */; };
+		2392E7D0307561B283550D39 /* RetentionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C727DFD4A4E2C994662FBCD /* RetentionServiceTests.swift */; };
 		2D18EAD4998253D3AF5370D2 /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63B76AECA95EFB795B29131D /* MenuBarController.swift */; };
 		31A8654F476EE3A073A1EE8D /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EB7784BF8F34942FA49CEF3 /* AppDelegate.swift */; };
+		35B4A484A4E1D7230530A7D0 /* RetentionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB0296047884620F7222CFC0 /* RetentionService.swift */; };
 		4E42547CCEB204EE181E2B34 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 717E181C1DF1BF1637911A32 /* Models.swift */; };
 		64E1146E44882F7E940B0274 /* ClipboardService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FB98CADB6E11EE3D5131617 /* ClipboardService.swift */; };
 		65BE75628A3DC39F43A16DCA /* NotetakerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F828A81402E3514A29BEF54D /* NotetakerTests.swift */; };
@@ -59,11 +61,13 @@
 		6A9594FA55B5F9B82FE39166 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		717E181C1DF1BF1637911A32 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		72FB0A59ADBCDA4DC7FCB846 /* PanelRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelRootView.swift; sourceTree = "<group>"; };
+		7C727DFD4A4E2C994662FBCD /* RetentionServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetentionServiceTests.swift; sourceTree = "<group>"; };
 		7EB7784BF8F34942FA49CEF3 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		903C4B5F7E59B2D22822B143 /* ImagesGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagesGridView.swift; sourceTree = "<group>"; };
 		A02695787F35C9A74D9F3B1D /* NotetakerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NotetakerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A3F2B24F63B38FFB038957FF /* PanelWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelWindowController.swift; sourceTree = "<group>"; };
 		C23BC1CC4ACF47017EB87F7D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		CB0296047884620F7222CFC0 /* RetentionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetentionService.swift; sourceTree = "<group>"; };
 		D4B1A65817F2DD32A78B84F4 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
 		DE8C4545B6EB30E073A8D77E /* NoteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteStore.swift; sourceTree = "<group>"; };
 		E781D3811F8402916558BA31 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
@@ -116,6 +120,7 @@
 				F6681424D04E755BA93A783D /* ImageStore.swift */,
 				717E181C1DF1BF1637911A32 /* Models.swift */,
 				DE8C4545B6EB30E073A8D77E /* NoteStore.swift */,
+				CB0296047884620F7222CFC0 /* RetentionService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -178,6 +183,7 @@
 				4E9C789396FD99C877E0100E /* ImageStoreTests.swift */,
 				E97F851F210BDA6D7291F2C4 /* NoteStoreTests.swift */,
 				F828A81402E3514A29BEF54D /* NotetakerTests.swift */,
+				7C727DFD4A4E2C994662FBCD /* RetentionServiceTests.swift */,
 			);
 			path = NotetakerTests;
 			sourceTree = "<group>";
@@ -299,6 +305,7 @@
 				70540AE9B8C62D4CA66E72E1 /* NotetakerApp.swift in Sources */,
 				F3C6E32F2B2FCBE6DE98CE1E /* PanelRootView.swift in Sources */,
 				9C4454DAB3490C57222008FC /* PanelWindowController.swift in Sources */,
+				35B4A484A4E1D7230530A7D0 /* RetentionService.swift in Sources */,
 				D61D1228591E36D78457CCB3 /* Typography.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -312,6 +319,7 @@
 				F29805610AF256CD93788038 /* ImageStoreTests.swift in Sources */,
 				77B704A862EB57DA5E0711D0 /* NoteStoreTests.swift in Sources */,
 				65BE75628A3DC39F43A16DCA /* NotetakerTests.swift in Sources */,
+				2392E7D0307561B283550D39 /* RetentionServiceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
