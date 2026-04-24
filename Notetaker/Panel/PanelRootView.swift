@@ -45,6 +45,8 @@ struct PanelRootView: View {
             Spacer(minLength: DS.Spacing.sm)
 
             KeycapLabel("⌥", "Space")
+
+            SettingsButton()
         }
         .padding(.horizontal, DS.Spacing.md)
         .padding(.top, DS.Spacing.md)
@@ -144,6 +146,26 @@ private struct KeycapLabel: View {
                             .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
                     )
             }
+        }
+    }
+}
+
+// MARK: - Settings button
+
+private struct SettingsButton: View {
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: { SettingsWindow.open() }) {
+            Image(systemName: "gearshape")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(isHovered ? DS.Color.textSecondary : DS.Color.textTertiary)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.rowHover) { isHovered = hovering }
         }
     }
 }

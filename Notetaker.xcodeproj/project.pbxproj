@@ -25,6 +25,7 @@
 		8F1E0C1C56B34BA5A69F027B /* ImagesGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 903C4B5F7E59B2D22822B143 /* ImagesGridView.swift */; };
 		9C4454DAB3490C57222008FC /* PanelWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F2B24F63B38FFB038957FF /* PanelWindowController.swift */; };
 		A9518BBFE8601B16A7F4B893 /* NoteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE8C4545B6EB30E073A8D77E /* NoteStore.swift */; };
+		A9761E0D07D7B9244A40A158 /* SettingsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7EE28A91D3862C54C913D98 /* SettingsWindow.swift */; };
 		B16464DEF3028FDC6FF850EB /* NotesListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AF23A9CA540FCB310042CA3 /* NotesListView.swift */; };
 		B3E37B3CBA9C92C1D08C7ACC /* HotKey in Frameworks */ = {isa = PBXBuildFile; productRef = C16A2E7CC8B24487D4795D88 /* HotKey */; };
 		C70A5360450254FB8A93100F /* ImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6681424D04E755BA93A783D /* ImageStore.swift */; };
@@ -69,6 +70,7 @@
 		C23BC1CC4ACF47017EB87F7D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		CB0296047884620F7222CFC0 /* RetentionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetentionService.swift; sourceTree = "<group>"; };
 		D4B1A65817F2DD32A78B84F4 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
+		D7EE28A91D3862C54C913D98 /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindow.swift; sourceTree = "<group>"; };
 		DE8C4545B6EB30E073A8D77E /* NoteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteStore.swift; sourceTree = "<group>"; };
 		E781D3811F8402916558BA31 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
 		E97F851F210BDA6D7291F2C4 /* NoteStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteStoreTests.swift; sourceTree = "<group>"; };
@@ -107,6 +109,7 @@
 				9CD14C864C0F601FF107EF97 /* Panel */,
 				7EE2B5488AC8E315F38FBDC2 /* Resources */,
 				571C7545D876EC8047A3F420 /* Services */,
+				CDE91B76AB3C54C3BB778D76 /* Settings */,
 			);
 			path = Notetaker;
 			sourceTree = "<group>";
@@ -162,6 +165,14 @@
 				A3F2B24F63B38FFB038957FF /* PanelWindowController.swift */,
 			);
 			path = Panel;
+			sourceTree = "<group>";
+		};
+		CDE91B76AB3C54C3BB778D76 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				D7EE28A91D3862C54C913D98 /* SettingsWindow.swift */,
+			);
+			path = Settings;
 			sourceTree = "<group>";
 		};
 		D5F70257F2B2ADFD93F33C6C /* App */ = {
@@ -306,6 +317,7 @@
 				F3C6E32F2B2FCBE6DE98CE1E /* PanelRootView.swift in Sources */,
 				9C4454DAB3490C57222008FC /* PanelWindowController.swift in Sources */,
 				35B4A484A4E1D7230530A7D0 /* RetentionService.swift in Sources */,
+				A9761E0D07D7B9244A40A158 /* SettingsWindow.swift in Sources */,
 				D61D1228591E36D78457CCB3 /* Typography.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -6,7 +6,14 @@ struct NotetakerApp: App {
 
     var body: some Scene {
         Settings {
-            EmptyView()
+            if let env = appDelegate.environment {
+                SettingsView().environmentObject(env)
+            } else {
+                Text("Loading…")
+                    .font(.nkMeta)
+                    .foregroundStyle(.secondary)
+                    .padding(40)
+            }
         }
     }
 }
