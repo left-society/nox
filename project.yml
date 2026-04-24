@@ -67,6 +67,8 @@ targets:
       - target: Notetaker
     settings:
       base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.aritradebnath.notetakertests
         BUNDLE_LOADER: "$(TEST_HOST)"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Notetaker.app/Contents/MacOS/Notetaker"
 
