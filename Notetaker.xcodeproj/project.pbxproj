@@ -7,12 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		2D18EAD4998253D3AF5370D2 /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63B76AECA95EFB795B29131D /* MenuBarController.swift */; };
 		31A8654F476EE3A073A1EE8D /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EB7784BF8F34942FA49CEF3 /* AppDelegate.swift */; };
 		65BE75628A3DC39F43A16DCA /* NotetakerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F828A81402E3514A29BEF54D /* NotetakerTests.swift */; };
 		70540AE9B8C62D4CA66E72E1 /* NotetakerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5373F33379AA02A7E5679328 /* NotetakerApp.swift */; };
+		7633A806C1D9674E27061185 /* HotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C4728BB0F273F145E4D4DB2 /* HotkeyService.swift */; };
 		83635AA9CA68E7CA34A6423F /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 17C000E0AB2B8576CD22086B /* GRDB */; };
+		9C4454DAB3490C57222008FC /* PanelWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F2B24F63B38FFB038957FF /* PanelWindowController.swift */; };
 		B3E37B3CBA9C92C1D08C7ACC /* HotKey in Frameworks */ = {isa = PBXBuildFile; productRef = C16A2E7CC8B24487D4795D88 /* HotKey */; };
 		D2F9770EBFC65B81DF03B823 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C23BC1CC4ACF47017EB87F7D /* Assets.xcassets */; };
+		F3C6E32F2B2FCBE6DE98CE1E /* PanelRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72FB0A59ADBCDA4DC7FCB846 /* PanelRootView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -26,11 +30,15 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0C4728BB0F273F145E4D4DB2 /* HotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyService.swift; sourceTree = "<group>"; };
 		3DD697F40719E395F5EBE88F /* Notetaker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Notetaker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5373F33379AA02A7E5679328 /* NotetakerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotetakerApp.swift; sourceTree = "<group>"; };
+		63B76AECA95EFB795B29131D /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
 		6A9594FA55B5F9B82FE39166 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		72FB0A59ADBCDA4DC7FCB846 /* PanelRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelRootView.swift; sourceTree = "<group>"; };
 		7EB7784BF8F34942FA49CEF3 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A02695787F35C9A74D9F3B1D /* NotetakerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NotetakerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A3F2B24F63B38FFB038957FF /* PanelWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelWindowController.swift; sourceTree = "<group>"; };
 		C23BC1CC4ACF47017EB87F7D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F828A81402E3514A29BEF54D /* NotetakerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotetakerTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -61,9 +69,19 @@
 			isa = PBXGroup;
 			children = (
 				D5F70257F2B2ADFD93F33C6C /* App */,
+				9CD14C864C0F601FF107EF97 /* Panel */,
 				7EE2B5488AC8E315F38FBDC2 /* Resources */,
+				571C7545D876EC8047A3F420 /* Services */,
 			);
 			path = Notetaker;
+			sourceTree = "<group>";
+		};
+		571C7545D876EC8047A3F420 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				0C4728BB0F273F145E4D4DB2 /* HotkeyService.swift */,
+			);
+			path = Services;
 			sourceTree = "<group>";
 		};
 		7EE2B5488AC8E315F38FBDC2 /* Resources */ = {
@@ -84,10 +102,20 @@
 			);
 			sourceTree = "<group>";
 		};
+		9CD14C864C0F601FF107EF97 /* Panel */ = {
+			isa = PBXGroup;
+			children = (
+				72FB0A59ADBCDA4DC7FCB846 /* PanelRootView.swift */,
+				A3F2B24F63B38FFB038957FF /* PanelWindowController.swift */,
+			);
+			path = Panel;
+			sourceTree = "<group>";
+		};
 		D5F70257F2B2ADFD93F33C6C /* App */ = {
 			isa = PBXGroup;
 			children = (
 				7EB7784BF8F34942FA49CEF3 /* AppDelegate.swift */,
+				63B76AECA95EFB795B29131D /* MenuBarController.swift */,
 				5373F33379AA02A7E5679328 /* NotetakerApp.swift */,
 			);
 			path = App;
@@ -203,7 +231,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				31A8654F476EE3A073A1EE8D /* AppDelegate.swift in Sources */,
+				7633A806C1D9674E27061185 /* HotkeyService.swift in Sources */,
+				2D18EAD4998253D3AF5370D2 /* MenuBarController.swift in Sources */,
 				70540AE9B8C62D4CA66E72E1 /* NotetakerApp.swift in Sources */,
+				F3C6E32F2B2FCBE6DE98CE1E /* PanelRootView.swift in Sources */,
+				9C4454DAB3490C57222008FC /* PanelWindowController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
