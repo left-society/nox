@@ -5,6 +5,7 @@ struct NotesListView: View {
     @State private var composerText: String = ""
     @State private var composerNoteId: String?
     @State private var saveTask: Task<Void, Never>?
+    @State private var focusedNoteId: String?
     @FocusState private var composerFocused: Bool
 
     var body: some View {
@@ -17,7 +18,13 @@ struct NotesListView: View {
             ScrollView {
                 LazyVStack(spacing: 1) {
                     ForEach(env.noteStore.notes) { note in
-                        NoteRow(note: note)
+                        NoteRow(note: note, isFocused: focusedNoteId == note.id)
+                            .onTapGesture {
+                                withAnimation(.rowHover) {
+                                    focusedNoteId = note.id
+                                }
+                                composerFocused = false
+                            }
                             .transition(.asymmetric(
                                 insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
                                 removal: .opacity
@@ -30,7 +37,24 @@ struct NotesListView: View {
             }
             .scrollIndicators(.never)
         }
+        .background(copyShortcut)
         .onAppear { composerFocused = true }
+    }
+
+    private var copyShortcut: some View {
+        Button(action: copyFocusedNote) { EmptyView() }
+            .keyboardShortcut("c", modifiers: .command)
+            .disabled(focusedNoteId == nil || composerFocused)
+            .opacity(0)
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+    }
+
+    private func copyFocusedNote() {
+        guard let id = focusedNoteId,
+              let note = env.noteStore.notes.first(where: { $0.id == id })
+        else { return }
+        ClipboardService.copy(text: note.body)
     }
 
     // MARK: - Composer
@@ -66,6 +90,7 @@ struct NotesListView: View {
                 )
         )
         .animation(.easeOut(duration: 0.15), value: composerFocused)
+        .onTapGesture { composerFocused = true }
     }
 
     private func handleComposerChange(_ newValue: String) {
@@ -101,6 +126,7 @@ struct NotesListView: View {
 
 struct NoteRow: View {
     let note: Note
+    let isFocused: Bool
     @State private var isHovered = false
 
     var body: some View {
@@ -120,12 +146,18 @@ struct NoteRow: View {
         .padding(.vertical, DS.Spacing.sm)
         .background(
             RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous)
-                .fill(isHovered ? DS.Color.bgHover : Color.clear)
+                .fill(backgroundFill)
         )
         .contentShape(RoundedRectangle(cornerRadius: DS.Radius.row))
         .onHover { hovering in
             withAnimation(.rowHover) { isHovered = hovering }
         }
+    }
+
+    private var backgroundFill: Color {
+        if isFocused { return DS.Color.bgSelected }
+        if isHovered { return DS.Color.bgHover }
+        return .clear
     }
 
     private static let relativeFormatter: RelativeDateTimeFormatter = {
