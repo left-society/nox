@@ -16,29 +16,49 @@ struct NotesListView: View {
                 .padding(.bottom, DS.Spacing.sm)
 
             ScrollView {
-                LazyVStack(spacing: 1) {
-                    ForEach(env.noteStore.notes) { note in
-                        NoteRow(note: note, isFocused: focusedNoteId == note.id)
-                            .onTapGesture {
-                                withAnimation(.rowHover) {
-                                    focusedNoteId = note.id
+                if env.noteStore.notes.isEmpty {
+                    emptyState
+                } else {
+                    LazyVStack(spacing: 1) {
+                        ForEach(env.noteStore.notes) { note in
+                            NoteRow(note: note, isFocused: focusedNoteId == note.id)
+                                .onTapGesture {
+                                    withAnimation(.rowHover) {
+                                        focusedNoteId = note.id
+                                    }
+                                    composerFocused = false
                                 }
-                                composerFocused = false
-                            }
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
-                                removal: .opacity
-                            ))
+                                .transition(.asymmetric(
+                                    insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
+                                    removal: .opacity
+                                ))
+                        }
                     }
+                    .padding(.horizontal, DS.Spacing.sm)
+                    .padding(.bottom, DS.Spacing.md)
+                    .animation(.selection, value: env.noteStore.notes.map(\.id))
                 }
-                .padding(.horizontal, DS.Spacing.sm)
-                .padding(.bottom, DS.Spacing.md)
-                .animation(.selection, value: env.noteStore.notes.map(\.id))
             }
             .scrollIndicators(.never)
         }
         .background(copyShortcut)
         .onAppear { composerFocused = true }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: DS.Spacing.sm) {
+            Image(systemName: "square.and.pencil")
+                .font(.system(size: 32, weight: .light))
+                .foregroundStyle(DS.Color.textTertiary)
+            Text("Nothing yet")
+                .font(.nkBody.weight(.medium))
+                .foregroundStyle(DS.Color.textSecondary)
+            Text("Start typing above to capture a thought.")
+                .font(.nkMeta)
+                .foregroundStyle(DS.Color.textTertiary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 72)
     }
 
     private var copyShortcut: some View {

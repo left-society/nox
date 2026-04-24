@@ -13,23 +13,27 @@ struct ImagesGridView: View {
 
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: 6) {
-                ForEach(env.imageStore.images) { record in
-                    ImageCell(
-                        record: record,
-                        isSelected: selected.contains(record.id),
-                        onTap: {
-                            toggleSelection(
-                                record.id,
-                                command: NSEvent.modifierFlags.contains(.command)
-                            )
-                        }
-                    )
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            if env.imageStore.images.isEmpty {
+                emptyState
+            } else {
+                LazyVGrid(columns: columns, spacing: 6) {
+                    ForEach(env.imageStore.images) { record in
+                        ImageCell(
+                            record: record,
+                            isSelected: selected.contains(record.id),
+                            onTap: {
+                                toggleSelection(
+                                    record.id,
+                                    command: NSEvent.modifierFlags.contains(.command)
+                                )
+                            }
+                        )
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    }
                 }
+                .padding(DS.Spacing.sm)
+                .animation(.selection, value: env.imageStore.images.map(\.id))
             }
-            .padding(DS.Spacing.sm)
-            .animation(.selection, value: env.imageStore.images.map(\.id))
         }
         .scrollIndicators(.never)
         .background(shortcuts)
@@ -37,6 +41,24 @@ struct ImagesGridView: View {
             handleDrop(providers: providers)
             return true
         }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: DS.Spacing.sm) {
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.system(size: 32, weight: .light))
+                .foregroundStyle(DS.Color.textTertiary)
+            Text("No images yet")
+                .font(.nkBody.weight(.medium))
+                .foregroundStyle(DS.Color.textSecondary)
+            Text("Paste with ⌘V or drop an image here.")
+                .font(.nkMeta)
+                .foregroundStyle(DS.Color.textTertiary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 72)
+        .padding(.horizontal, 40)
     }
 
     // MARK: - Keyboard shortcuts (hidden buttons)
