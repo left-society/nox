@@ -3,12 +3,11 @@ build/
 DerivedData/
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
-*.xcodeproj/project.xcworkspace/*
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
 
 # macOS
 .DS_Store
-.AppleDouble
-.LSOverride
 
 # SwiftPM
 .swiftpm/
@@ -18,7 +17,7 @@ Package.resolved
 # Superpowers
 .superpowers/
 
-# Code signing and provisioning
+# Secrets
 *.p12
 *.p8
 *.mobileprovision
