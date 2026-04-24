@@ -1,0 +1,90 @@
+name: Notetaker
+options:
+  bundleIdPrefix: com.aritradebnath
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift
+    from: 6.29.0
+  HotKey:
+    url: https://github.com/soffes/HotKey
+    from: 0.2.0
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_HARDENED_RUNTIME: YES
+
+targets:
+  Notetaker:
+    type: application
+    platform: macOS
+    sources:
+      - path: Notetaker
+        excludes:
+          - "Resources/Models/**"
+    resources:
+      - path: Notetaker/Resources/Models
+        optional: true
+    dependencies:
+      - package: GRDB
+      - package: HotKey
+    info:
+      path: Notetaker/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Notetaker
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
+        LSUIElement: true
+        NSMicrophoneUsageDescription: "Notetaker transcribes your voice offline to create notes. Audio never leaves your Mac."
+        NSHumanReadableCopyright: "Copyright © 2026 Aritra Debnath."
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.aritradebnath.notetaker
+        PRODUCT_NAME: Notetaker
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        COMBINE_HIDPI_IMAGES: YES
+        ENABLE_PREVIEWS: YES
+        SWIFT_EMIT_LOC_STRINGS: YES
+
+  NotetakerTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: NotetakerTests
+    dependencies:
+      - target: Notetaker
+    settings:
+      base:
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Notetaker.app/Contents/MacOS/Notetaker"
+
+schemes:
+  Notetaker:
+    build:
+      targets:
+        Notetaker: all
+        NotetakerTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - NotetakerTests
+    archive:
+      config: Release
+    profile:
+      config: Release
+    analyze:
+      config: Debug
