@@ -16,6 +16,7 @@
 		70540AE9B8C62D4CA66E72E1 /* NotetakerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5373F33379AA02A7E5679328 /* NotetakerApp.swift */; };
 		7633A806C1D9674E27061185 /* HotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C4728BB0F273F145E4D4DB2 /* HotkeyService.swift */; };
 		77B704A862EB57DA5E0711D0 /* NoteStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E97F851F210BDA6D7291F2C4 /* NoteStoreTests.swift */; };
+		82DDE6EA7985D2F3965F0E71 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4B1A65817F2DD32A78B84F4 /* AppEnvironment.swift */; };
 		83635AA9CA68E7CA34A6423F /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 17C000E0AB2B8576CD22086B /* GRDB */; };
 		9C4454DAB3490C57222008FC /* PanelWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F2B24F63B38FFB038957FF /* PanelWindowController.swift */; };
 		A9518BBFE8601B16A7F4B893 /* NoteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE8C4545B6EB30E073A8D77E /* NoteStore.swift */; };
@@ -55,6 +56,7 @@
 		A02695787F35C9A74D9F3B1D /* NotetakerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NotetakerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A3F2B24F63B38FFB038957FF /* PanelWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelWindowController.swift; sourceTree = "<group>"; };
 		C23BC1CC4ACF47017EB87F7D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		D4B1A65817F2DD32A78B84F4 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
 		DE8C4545B6EB30E073A8D77E /* NoteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteStore.swift; sourceTree = "<group>"; };
 		E781D3811F8402916558BA31 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
 		E97F851F210BDA6D7291F2C4 /* NoteStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteStoreTests.swift; sourceTree = "<group>"; };
@@ -150,6 +152,7 @@
 			isa = PBXGroup;
 			children = (
 				7EB7784BF8F34942FA49CEF3 /* AppDelegate.swift */,
+				D4B1A65817F2DD32A78B84F4 /* AppEnvironment.swift */,
 				63B76AECA95EFB795B29131D /* MenuBarController.swift */,
 				5373F33379AA02A7E5679328 /* NotetakerApp.swift */,
 			);
@@ -270,6 +273,7 @@
 			files = (
 				1DF8B62179AB9D609E2640E6 /* Animations.swift in Sources */,
 				31A8654F476EE3A073A1EE8D /* AppDelegate.swift in Sources */,
+				82DDE6EA7985D2F3965F0E71 /* AppEnvironment.swift in Sources */,
 				E418674FA029BAC44F847357 /* Database.swift in Sources */,
 				DC2797E25CF433EC7D759CF0 /* DesignTokens.swift in Sources */,
 				7633A806C1D9674E27061185 /* HotkeyService.swift in Sources */,

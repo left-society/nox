@@ -19,7 +19,7 @@ final class PanelWindowController {
 
     weak var menuBarController: MenuBarController?
 
-    init() {
+    init(environment: AppEnvironment) {
         let contentRect = NSRect(origin: .zero, size: PanelWindowController.panelSize)
 
         panel = KeyablePanel(
@@ -52,7 +52,9 @@ final class PanelWindowController {
         visualEffect.layer?.cornerCurve = .continuous
         visualEffect.layer?.masksToBounds = true
 
-        let host = NSHostingView(rootView: PanelRootView())
+        let host = NSHostingView(
+            rootView: PanelRootView().environmentObject(environment)
+        )
         host.frame = contentRect
         host.autoresizingMask = [.width, .height]
         visualEffect.addSubview(host)
