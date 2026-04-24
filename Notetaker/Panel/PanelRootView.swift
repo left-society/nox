@@ -104,7 +104,7 @@ struct PanelRootView: View {
         case .notes:
             NotesListView()
         case .images:
-            placeholder("Images tab — coming in Phase 5")
+            ImagesGridView()
         }
     }
 
