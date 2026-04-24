@@ -1,0 +1,25 @@
+# Xcode
+build/
+DerivedData/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/*
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# SwiftPM
+.swiftpm/
+.build/
+Package.resolved
+
+# Superpowers
+.superpowers/
+
+# Code signing and provisioning
+*.p12
+*.p8
+*.mobileprovision
+ExportOptions.plist
