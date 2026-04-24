@@ -4,6 +4,7 @@ struct NotesListView: View {
     @EnvironmentObject var env: AppEnvironment
     @State private var composerText: String = ""
     @State private var composerNoteId: String?
+    @State private var saveTask: Task<Void, Never>?
     @FocusState private var composerFocused: Bool
 
     var body: some View {
@@ -68,6 +69,15 @@ struct NotesListView: View {
     }
 
     private func handleComposerChange(_ newValue: String) {
+        saveTask?.cancel()
+        saveTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if Task.isCancelled { return }
+            applyComposerChange(newValue)
+        }
+    }
+
+    private func applyComposerChange(_ newValue: String) {
         if composerNoteId == nil && !newValue.isEmpty {
             do {
                 let note = try env.noteStore.createNote()
