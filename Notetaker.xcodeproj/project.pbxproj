@@ -12,7 +12,9 @@
 		2D18EAD4998253D3AF5370D2 /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63B76AECA95EFB795B29131D /* MenuBarController.swift */; };
 		31A8654F476EE3A073A1EE8D /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EB7784BF8F34942FA49CEF3 /* AppDelegate.swift */; };
 		4E42547CCEB204EE181E2B34 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 717E181C1DF1BF1637911A32 /* Models.swift */; };
+		64E1146E44882F7E940B0274 /* ClipboardService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FB98CADB6E11EE3D5131617 /* ClipboardService.swift */; };
 		65BE75628A3DC39F43A16DCA /* NotetakerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F828A81402E3514A29BEF54D /* NotetakerTests.swift */; };
+		6BDA044D6CAD8855082E1541 /* ClipboardServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 121C8981642F47441411BB1A /* ClipboardServiceTests.swift */; };
 		70540AE9B8C62D4CA66E72E1 /* NotetakerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5373F33379AA02A7E5679328 /* NotetakerApp.swift */; };
 		7633A806C1D9674E27061185 /* HotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C4728BB0F273F145E4D4DB2 /* HotkeyService.swift */; };
 		77B704A862EB57DA5E0711D0 /* NoteStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E97F851F210BDA6D7291F2C4 /* NoteStoreTests.swift */; };
@@ -43,6 +45,8 @@
 
 /* Begin PBXFileReference section */
 		0C4728BB0F273F145E4D4DB2 /* HotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyService.swift; sourceTree = "<group>"; };
+		121C8981642F47441411BB1A /* ClipboardServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardServiceTests.swift; sourceTree = "<group>"; };
+		1FB98CADB6E11EE3D5131617 /* ClipboardService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardService.swift; sourceTree = "<group>"; };
 		3DD697F40719E395F5EBE88F /* Notetaker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Notetaker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		46AF7A62FF29F5DC6E5DF564 /* Typography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Typography.swift; sourceTree = "<group>"; };
 		4AF23A9CA540FCB310042CA3 /* NotesListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesListView.swift; sourceTree = "<group>"; };
@@ -104,6 +108,7 @@
 		571C7545D876EC8047A3F420 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				1FB98CADB6E11EE3D5131617 /* ClipboardService.swift */,
 				56F0E884BA061699C7F2CB95 /* Database.swift */,
 				0C4728BB0F273F145E4D4DB2 /* HotkeyService.swift */,
 				F6681424D04E755BA93A783D /* ImageStore.swift */,
@@ -165,6 +170,7 @@
 		E6B54692E4942FCA483A8134 /* NotetakerTests */ = {
 			isa = PBXGroup;
 			children = (
+				121C8981642F47441411BB1A /* ClipboardServiceTests.swift */,
 				FE95BFBB47BCAF71BB996C85 /* DatabaseTests.swift */,
 				4E9C789396FD99C877E0100E /* ImageStoreTests.swift */,
 				E97F851F210BDA6D7291F2C4 /* NoteStoreTests.swift */,
@@ -277,6 +283,7 @@
 				1DF8B62179AB9D609E2640E6 /* Animations.swift in Sources */,
 				31A8654F476EE3A073A1EE8D /* AppDelegate.swift in Sources */,
 				82DDE6EA7985D2F3965F0E71 /* AppEnvironment.swift in Sources */,
+				64E1146E44882F7E940B0274 /* ClipboardService.swift in Sources */,
 				E418674FA029BAC44F847357 /* Database.swift in Sources */,
 				DC2797E25CF433EC7D759CF0 /* DesignTokens.swift in Sources */,
 				7633A806C1D9674E27061185 /* HotkeyService.swift in Sources */,
@@ -296,6 +303,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6BDA044D6CAD8855082E1541 /* ClipboardServiceTests.swift in Sources */,
 				1AE947839F28E030B4FA584D /* DatabaseTests.swift in Sources */,
 				F29805610AF256CD93788038 /* ImageStoreTests.swift in Sources */,
 				77B704A862EB57DA5E0711D0 /* NoteStoreTests.swift in Sources */,
