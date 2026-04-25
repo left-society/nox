@@ -336,6 +336,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleExternalClipboardChange() {
         guard let env = environment, let panel = panelController else { return }
 
+        // If WE are frontmost — i.e. the user is interacting with our own
+        // Settings window or panel and just pasted into a SecureField /
+        // TextField — auto-saving that paste as a note would leak whatever
+        // they typed (e.g. a Gemini API key) into the notes list as plain
+        // text. The clipboard monitor's whole point is to capture content
+        // the user copied for later reference; pastes INTO our own UI are
+        // not that. Bail.
+        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier {
+            return
+        }
+
         // Copying inside an editor / IDE / terminal / writing app is just
         // normal editing — the user isn't capturing something to save. Popping
         // the panel here steals focus and breaks Enter / arrow keys in the
