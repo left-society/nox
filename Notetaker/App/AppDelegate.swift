@@ -175,11 +175,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let pb = NSPasteboard.general
 
-        // Image clipboard FIRST — Ctrl+Shift+Cmd+3/4 (macOS clipboard
-        // screenshot) and "copy image" from browsers don't write a file,
-        // so the FSEvents screenshot watcher never sees them. Catch them
-        // here so the auto-save behavior matches what the user expects:
-        // capture → cell shows up immediately, no extra clicks needed.
+        // Text FIRST. Browser text copies (and most rich-text copies)
+        // ride on the pasteboard with a TIFF preview attached as a
+        // rich-text fallback — if we check images first we'd misroute
+        // a normal Cmd+C into the slow image-save path, which is what
+        // made copies feel sluggish and "not registered." Only fall
+        // through to the image branch when there's no meaningful text.
+        let text = pb.string(forType: .string)
+        let hasText = text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+
+        if hasText, let text = text {
+            if env.noteStore.notes.contains(where: { $0.body == text }) {
+                if !panel.isVisible { panel.show() }
+                return
+            }
+            do {
+                let note = try env.noteStore.createNote()
+                try env.noteStore.updateBody(id: note.id, body: text)
+            } catch {
+                NSLog("Auto-save clipboard failed: \(error)")
+            }
+            if !panel.isVisible { panel.show() }
+            return
+        }
+
+        // No text on the pasteboard → either Ctrl+Shift+Cmd+3/4 (macOS
+        // clipboard screenshot) or "Copy Image" from a browser. Both
+        // give us image data with no string companion, so this branch
+        // is safe.
         if let pngData = pb.data(forType: .png) {
             saveClipboardImage(env: env, data: pngData, mime: "image/png")
             panel.showOnTab(.images)
@@ -192,19 +215,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let text = pb.string(forType: .string)
-        if let text = text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            if env.noteStore.notes.contains(where: { $0.body == text }) {
-                if !panel.isVisible { panel.show() }
-                return
-            }
-            do {
-                let note = try env.noteStore.createNote()
-                try env.noteStore.updateBody(id: note.id, body: text)
-            } catch {
-                NSLog("Auto-save clipboard failed: \(error)")
-            }
-        }
         if !panel.isVisible {
             panel.show()
         }

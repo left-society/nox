@@ -4,59 +4,71 @@ import AppKit
 private struct VisualEffectBackground: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .underWindowBackground
+        // .hudWindow is the floating-glass material macOS uses for HUD
+        // panels — same family as iOS Notification Center / Control Center
+        // where you can see the wallpaper bleed through. `underWindowBackground`
+        // is darker and more solid; we want the wallpaper showing.
+        view.material = .hudWindow
         view.blendingMode = .behindWindow
         view.state = .active
+        view.isEmphasized = true
         return view
     }
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
+/// Bright rim around the entire panel — the "wet glass" rim-light look
+/// from the iOS reference. Stronger at the top so the panel feels lit
+/// from above; thins out at the bottom.
 private struct GlassEdge: View {
     var body: some View {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
+        RoundedRectangle(cornerRadius: 20, style: .continuous)
             .strokeBorder(
                 LinearGradient(
                     colors: [
-                        Color.white.opacity(0.22),
+                        Color.white.opacity(0.42),
+                        Color.white.opacity(0.18),
                         Color.white.opacity(0.06)
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 ),
-                lineWidth: 0.8
+                lineWidth: 0.9
             )
     }
 }
 
+/// Inner top glow — light catching the curved top edge of the glass.
 private struct GlassHighlight: View {
     var body: some View {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
+        RoundedRectangle(cornerRadius: 20, style: .continuous)
             .fill(
                 LinearGradient(
                     colors: [
-                        Color.white.opacity(0.08),
-                        Color.white.opacity(0.015),
+                        Color.white.opacity(0.18),
+                        Color.white.opacity(0.04),
                         Color.clear
                     ],
                     startPoint: .top,
-                    endPoint: UnitPoint(x: 0.5, y: 0.3)
+                    endPoint: UnitPoint(x: 0.5, y: 0.32)
                 )
             )
             .allowsHitTesting(false)
     }
 }
 
+/// Subtle darkening on the bottom half so text near the bottom of the
+/// panel stays legible against bright wallpapers showing through.
 private struct BottomGlassShadow: View {
     var body: some View {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
+        RoundedRectangle(cornerRadius: 20, style: .continuous)
             .fill(
                 LinearGradient(
                     colors: [
                         Color.clear,
-                        Color.black.opacity(0.18)
+                        Color.black.opacity(0.12)
                     ],
-                    startPoint: UnitPoint(x: 0.5, y: 0.68),
+                    startPoint: UnitPoint(x: 0.5, y: 0.65),
                     endPoint: .bottom
                 )
             )
@@ -94,16 +106,35 @@ struct PanelRootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             ZStack {
+                // Backdrop blur of whatever's behind the panel — does
+                // the heavy lifting for the iOS Notification-Center vibe.
                 VisualEffectBackground()
-                Color.black.opacity(0.82)
+                // Soft tint for legibility — was 0.82 (effectively
+                // opaque), which killed the blur entirely. 0.32 keeps
+                // text readable while still letting the wallpaper bleed
+                // through.
+                Color.black.opacity(0.32)
+                // Top-down legibility ramp so the header doesn't compete
+                // with bright wallpapers, and contrast eases off mid-panel.
+                LinearGradient(
+                    colors: [
+                        Color.black.opacity(0.18),
+                        Color.black.opacity(0.04)
+                    ],
+                    startPoint: .top,
+                    endPoint: .center
+                )
+                // Cool purple wash in the top-left corner — same accent
+                // hint we had before, kept subtle so the wallpaper still
+                // dominates the look.
                 RadialGradient(
                     colors: [
-                        Color(red: 0.48, green: 0.36, blue: 0.72).opacity(0.12),
+                        Color(red: 0.55, green: 0.40, blue: 0.82).opacity(0.18),
                         Color.clear
                     ],
-                    center: UnitPoint(x: 0.15, y: 0.08),
+                    center: UnitPoint(x: 0.12, y: 0.04),
                     startRadius: 0,
-                    endRadius: 320
+                    endRadius: 360
                 )
                 GlassHighlight()
                 BottomGlassShadow()
@@ -114,14 +145,19 @@ struct PanelRootView: View {
         // contentView wrapper) which sits below SwiftUI and handles drops
         // before any SwiftUI hit-testing kicks in. Pure cosmetic here.
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .strokeBorder(DS.Color.accent.opacity(presenter.isDropTargeted ? 0.85 : 0), lineWidth: 1.5)
                 .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
                 .allowsHitTesting(false)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .compositingGroup()
-        .offset(x: presenter.isShown ? 0 : 360)
+        // Liquid dissolve: scale + blur + opacity together, anchored
+        // at the top-right corner where the menu bar icon lives, so the
+        // panel feels like it's condensing out of (and back into) the
+        // status item rather than sliding in from off-screen.
+        .scaleEffect(presenter.isShown ? 1.0 : 0.86, anchor: .topTrailing)
+        .blur(radius: presenter.isShown ? 0 : 14)
         .opacity(presenter.isShown ? 1.0 : 0.0)
         .animation(presenter.isShown ? .panelOpen : .panelClose, value: presenter.isShown)
     }
