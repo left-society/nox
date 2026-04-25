@@ -87,10 +87,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Cursor-into-notch → open panel. Bails fast (no-op) when the
         // panel is already visible, so it can fire freely.
+        //
+        // Pass `mode: .hover` so the panel installs cursor-leave
+        // monitors and auto-dismisses when the user moves away — the
+        // user explicitly asked for "when i move my cursor from the
+        // thing it should just close automatically" for hover-opened
+        // panels, while click/hotkey-opened panels stay sticky until
+        // an explicit click-outside.
         let hover = HoverActivator { [weak self] in
             guard let self, let panel = self.panelController else { return }
             if !panel.isVisible {
-                panel.show()
+                panel.show(mode: .hover)
             }
         }
         hover.start()

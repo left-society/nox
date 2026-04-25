@@ -40,13 +40,22 @@ final class PanelWindowController {
     /// even close to soft" — the music widget reference has a wide
     /// cloudy halo extending 60-80pt past the widget. Pushed to 60pt
     /// here so the fade has real distance to play out.
-    static let panelWidth: CGFloat = 440
-    static let panelHeight: CGFloat = 820
+    static let panelWidth: CGFloat = 480
+    static let panelHeight: CGFloat = 680
     /// The visible rounded-glass slab the user sees. Anchored trailing
     /// inside the outer panel so the right edge stays at the same screen
     /// position as before; the halo wraps it on three sides.
-    static let innerPanelWidth: CGFloat = 340
-    static let innerPanelHeight: CGFloat = 620
+    ///
+    /// Width 380 / height 480: previous 340×620 read as a tall column
+    /// that ate a lot of vertical real estate. Bumping the width by 40pt
+    /// gives image/video grids breathing room (two-column layout no
+    /// longer feels cramped) while the 140pt height cut leaves the
+    /// wallpaper visible below — the panel feels like a HUD, not a
+    /// document window. Aspect ratio shifts from 0.55 (very portrait)
+    /// to 0.79 (gentle portrait) — closer to Alcove's roughly square
+    /// expanded state.
+    static let innerPanelWidth: CGFloat = 380
+    static let innerPanelHeight: CGFloat = 480
     /// Distance from the inner panel to the outer NSPanel edges on the
     /// left, top, and bottom. The halo mask blur (see PanelRootView)
     /// has to fully fade to alpha 0 within this distance — otherwise the
@@ -54,11 +63,14 @@ final class PanelWindowController {
     /// and the user sees a boxy edge. 100pt gives a 70pt mask blur ~30pt
     /// of slack to fade cleanly.
     static let haloPadding: CGFloat = 100
-    /// Corner radius of the inner glass panel itself. Bumped from 20 to
-    /// 28 — the user said the previous sharper corners read as "boxy"
-    /// next to Apple's music-widget reference, which has a pillowier
-    /// rounding closer to 28-32pt for a similar-sized container.
-    static let innerCornerRadius: CGFloat = 28
+    /// Corner radius of the inner glass panel itself. Tuned through
+    /// 20 → 28 → 34: the latest bump pushes us into squircle territory
+    /// (radius/min-side ≈ 0.09 at 380pt width) so the bottom corners
+    /// read as a smooth continuous curve instead of a clipped arc.
+    /// This is the same proportion Apple uses on the Dynamic Island
+    /// expanded card on iPhone — the visual cue users associate most
+    /// strongly with "notch HUD" surfaces.
+    static let innerCornerRadius: CGFloat = 34
     private static let edgeGap: CGFloat = 10
     private static let topGap: CGFloat = 40
     /// True Alcove-style placement: the NSPanel's TOP edge sits AT the
@@ -84,14 +96,33 @@ final class PanelWindowController {
         return NSSize(width: panelWidth, height: min(panelHeight, available - topGap - 24))
     }
 
+    /// How the panel was last opened. Drives the dismissal policy:
+    /// click-opened panels stay until the user explicitly clicks
+    /// outside (mirrors how the user described the behavior — "when
+    /// I click to open it, it should stay until I click somewhere").
+    /// Hover-opened panels close as soon as the cursor leaves the
+    /// panel for more than the grace period — same UX as Alcove's
+    /// notch HUD ("when I move my cursor from the thing it should
+    /// just close automatically"). Stored on the controller so hide()
+    /// can be called without knowing the open mode.
+    enum OpenMode: Equatable {
+        case click
+        case hover
+    }
+
     private let panel: NSPanel
     private let presenter: PanelPresenter
     private let environment: AppEnvironment
     private(set) var isVisible = false
+    private var openMode: OpenMode = .click
     private var clickOutsideMonitor: Any?
     private var keyMonitor: Any?
     private var globalKeyMonitor: Any?
     private var quickPasteMonitor: Any?
+    private var hoverGlobalMonitor: Any?
+    private var hoverLocalMonitor: Any?
+    private var hoverHasEnteredPanel = false
+    private var hoverLeaveWorkItem: DispatchWorkItem?
     private var hideWorkItem: DispatchWorkItem?
     /// `NSPasteboard.general.changeCount` captured at the last hide().
     /// Initialized to -1 so the very first show() always evaluates the
@@ -218,7 +249,8 @@ final class PanelWindowController {
         if !isVisible { show() }
     }
 
-    func show() {
+    func show(mode: OpenMode = .click) {
+        openMode = mode
         hideWorkItem?.cancel()
         hideWorkItem = nil
 
@@ -250,13 +282,14 @@ final class PanelWindowController {
         let screens = NSScreen.screens.map { "\($0.frame)" }.joined(separator: " | ")
         NSLog("Notetaker: show() panel.frame=\(panel.frame) main=\(NSScreen.main?.frame ?? .zero) screens=\(screens)")
 
-        // Hold the pill state for ~90ms BEFORE flipping isShown. Without
-        // a hold the pill shows for a single runloop tick and the user
-        // just sees a slab drop into place; the "emerging from the
-        // notch" cue is lost. 90ms (≈ 11 frames at 120Hz) is just long
-        // enough to register as a tiny black blister before the morph
-        // takes over — any longer feels laggy.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) { [weak self] in
+        // Hold the pill state for ~50ms BEFORE flipping isShown.
+        // Without a hold the pill shows for a single runloop tick and
+        // the user just sees a slab drop into place; the "emerging
+        // from the notch" cue is lost. 50ms (≈ 6 frames at 120Hz) is
+        // the minimum that still registers as a deliberate two-stage
+        // bloom. Earlier 90ms felt like an artificial delay before
+        // the panel responded.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             self?.presenter.isShown = true
         }
         isVisible = true
@@ -333,6 +366,55 @@ final class PanelWindowController {
                 self?.hide()
             }
         }
+
+        // Hover-mode dismissal: when opened by cursor-into-notch, the
+        // panel should close as soon as the cursor leaves it (with a
+        // short grace period for accidental side-trips). Click-opened
+        // panels skip this entirely — they're sticky and dismiss only
+        // on click-outside / ESC. Two monitors because cursor events
+        // route differently inside vs outside our panel:
+        //
+        // - Local monitor fires when cursor is inside our panel →
+        //   marks "has entered" + cancels any pending hide.
+        // - Global monitor fires when cursor is in another app →
+        //   if we've registered an entry, schedules a hide.
+        //
+        // The "has entered" flag prevents instant dismissal when a
+        // user skims the cursor across the notch hot zone but doesn't
+        // actually intend to interact (the bloom completes, then
+        // dismisses 200ms later — annoying). Only after the cursor
+        // lands inside the panel do we arm the leave-to-hide path.
+        if mode == .hover {
+            panel.acceptsMouseMovedEvents = true
+            hoverHasEnteredPanel = false
+
+            hoverLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
+                guard let self, self.isVisible, self.openMode == .hover else { return event }
+                self.hoverHasEnteredPanel = true
+                self.hoverLeaveWorkItem?.cancel()
+                self.hoverLeaveWorkItem = nil
+                return event
+            }
+
+            hoverGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
+                guard let self, self.isVisible, self.openMode == .hover else { return }
+                guard self.hoverHasEnteredPanel else { return }
+                // Belt-and-suspenders frame check — if the location is
+                // somehow still inside our rect, don't schedule a hide.
+                if self.panel.frame.contains(NSEvent.mouseLocation) { return }
+                if self.hoverLeaveWorkItem != nil { return }
+                // 250ms grace period — gives the user time to flick the
+                // cursor through a corner and back without triggering
+                // dismissal. Shorter felt jumpy in testing; longer
+                // started feeling sluggish ("when am I going to be free
+                // of this thing").
+                let work = DispatchWorkItem { [weak self] in
+                    self?.hide()
+                }
+                self.hoverLeaveWorkItem = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+            }
+        }
     }
 
     func hide() {
@@ -349,7 +431,13 @@ final class PanelWindowController {
             self?.panel.orderOut(nil)
         }
         hideWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.24, execute: item)
+        // 0.36s matches the close spring (.spring(response: 0.32,
+        // dampingFraction: 0.94)) — close finishes ~4 frames after
+        // the spring's nominal response time. Yanking earlier shows
+        // a snap-cut as the panel disappears mid-collapse; waiting
+        // longer leaves an invisible window in front of clicks for
+        // no visual benefit.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.36, execute: item)
     }
 
     /// ⌘N quick paste — copies the Nth visible item of the currently
@@ -464,6 +552,24 @@ final class PanelWindowController {
             NSEvent.removeMonitor(monitor)
             quickPasteMonitor = nil
         }
+        // Hover monitors only exist when the panel was opened in
+        // .hover mode, but clean them up unconditionally — leaking
+        // a global mouseMoved monitor across show/hide cycles would
+        // cost CPU on every cursor movement system-wide.
+        if let monitor = hoverLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            hoverLocalMonitor = nil
+        }
+        if let monitor = hoverGlobalMonitor {
+            NSEvent.removeMonitor(monitor)
+            hoverGlobalMonitor = nil
+        }
+        hoverLeaveWorkItem?.cancel()
+        hoverLeaveWorkItem = nil
+        hoverHasEnteredPanel = false
+        // Reset the move-event flag so the next click-mode show()
+        // doesn't pay for mouseMoved tracking it doesn't need.
+        panel.acceptsMouseMovedEvents = false
     }
 
     private func originOnRightEdge(for size: NSSize) -> NSPoint {

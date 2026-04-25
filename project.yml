@@ -62,6 +62,7 @@ targets:
         LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
         LSUIElement: true
         NSMicrophoneUsageDescription: "Notetaker transcribes your voice offline to create notes. Audio never leaves your Mac."
+        NSAppleEventsUsageDescription: "Notetaker reads the current tab URL from your browser when you press ⌥⌘V so it can download the video you're watching."
         NSHumanReadableCopyright: "Copyright © 2026 Aritra Debnath."
     settings:
       base:
