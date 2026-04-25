@@ -500,11 +500,36 @@ struct ImageCell: View {
         )
         .contentShape(shape)
         .onTapGesture { onTap() }
+        .contextMenu {
+            Button("Copy Text from Image") {
+                handleOCR()
+            }
+        }
         .onHover { hovering in
             withAnimation(.rowHover) { isHovered = hovering }
         }
         .animation(.rowHover, value: isSelected)
         .animation(.rowHover, value: isHovered)
+    }
+
+    private func handleOCR() {
+        let url = imageStore.fullURL(for: record)
+        Task {
+            if let text = await ImageOCRService.extractText(from: url) {
+                await MainActor.run {
+                    ClipboardService.copy(text: text)
+                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+                }
+            } else {
+                // Quiet failure — Vision found no text, or the image
+                // couldn't be loaded. A levelChange haptic feels right
+                // for "tried but nothing happened" without yelling at
+                // the user.
+                await MainActor.run {
+                    NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+                }
+            }
+        }
     }
 
     /// Far-shadow color picks up the accent tint when the card is

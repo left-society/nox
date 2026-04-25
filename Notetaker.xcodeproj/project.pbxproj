@@ -33,6 +33,8 @@
 		AB99000000000000000F5B01 /* FileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99000000000000000F5A01 /* FileStoreTests.swift */; };
 		AB99000000000000000F6B01 /* QuickPasteRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99000000000000000F6A01 /* QuickPasteRouter.swift */; };
 		AB99000000000000000F7B01 /* QuickPasteRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99000000000000000F7A01 /* QuickPasteRouterTests.swift */; };
+		AB99000000000000000F8B01 /* ImageOCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99000000000000000F8A01 /* ImageOCRService.swift */; };
+		AB99000000000000000F9B01 /* ImageOCRServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99000000000000000F9A01 /* ImageOCRServiceTests.swift */; };
 		AB12CD34EF567890FEDC0001 /* ThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB12CD34EF567890FEDC0002 /* ThumbnailCache.swift */; };
 		AB12CD34EF567890FEDC0003 /* LocalThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB12CD34EF567890FEDC0004 /* LocalThumbnailView.swift */; };
 		9C4454DAB3490C57222008FC /* PanelWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F2B24F63B38FFB038957FF /* PanelWindowController.swift */; };
@@ -95,6 +97,8 @@
 		AB99000000000000000F5A01 /* FileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileStoreTests.swift; sourceTree = "<group>"; };
 		AB99000000000000000F6A01 /* QuickPasteRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPasteRouter.swift; sourceTree = "<group>"; };
 		AB99000000000000000F7A01 /* QuickPasteRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPasteRouterTests.swift; sourceTree = "<group>"; };
+		AB99000000000000000F8A01 /* ImageOCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageOCRService.swift; sourceTree = "<group>"; };
+		AB99000000000000000F9A01 /* ImageOCRServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageOCRServiceTests.swift; sourceTree = "<group>"; };
 		AB12CD34EF567890FEDC0002 /* ThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailCache.swift; sourceTree = "<group>"; };
 		AB12CD34EF567890FEDC0004 /* LocalThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalThumbnailView.swift; sourceTree = "<group>"; };
 		98E3F8A6AFB9CFA5A2888105 /* VideosGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideosGridView.swift; sourceTree = "<group>"; };
@@ -157,6 +161,7 @@
 				56F0E884BA061699C7F2CB95 /* Database.swift */,
 				AB99000000000000000F1A01 /* FileStore.swift */,
 				0C4728BB0F273F145E4D4DB2 /* HotkeyService.swift */,
+				AB99000000000000000F8A01 /* ImageOCRService.swift */,
 				F6681424D04E755BA93A783D /* ImageStore.swift */,
 				717E181C1DF1BF1637911A32 /* Models.swift */,
 				DE8C4545B6EB30E073A8D77E /* NoteStore.swift */,
@@ -241,6 +246,7 @@
 				121C8981642F47441411BB1A /* ClipboardServiceTests.swift */,
 				FE95BFBB47BCAF71BB996C85 /* DatabaseTests.swift */,
 				AB99000000000000000F5A01 /* FileStoreTests.swift */,
+				AB99000000000000000F9A01 /* ImageOCRServiceTests.swift */,
 				4E9C789396FD99C877E0100E /* ImageStoreTests.swift */,
 				E97F851F210BDA6D7291F2C4 /* NoteStoreTests.swift */,
 				F828A81402E3514A29BEF54D /* NotetakerTests.swift */,
@@ -388,6 +394,7 @@
 				AB99000000000000000F1B01 /* FileStore.swift in Sources */,
 				AB99000000000000000F2B01 /* FilesGridView.swift in Sources */,
 				7633A806C1D9674E27061185 /* HotkeyService.swift in Sources */,
+				AB99000000000000000F8B01 /* ImageOCRService.swift in Sources */,
 				C70A5360450254FB8A93100F /* ImageStore.swift in Sources */,
 				8F1E0C1C56B34BA5A69F027B /* ImagesGridView.swift in Sources */,
 				AB12CD34EF567890FEDC0003 /* LocalThumbnailView.swift in Sources */,
@@ -421,6 +428,7 @@
 				6BDA044D6CAD8855082E1541 /* ClipboardServiceTests.swift in Sources */,
 				1AE947839F28E030B4FA584D /* DatabaseTests.swift in Sources */,
 				AB99000000000000000F5B01 /* FileStoreTests.swift in Sources */,
+				AB99000000000000000F9B01 /* ImageOCRServiceTests.swift in Sources */,
 				F29805610AF256CD93788038 /* ImageStoreTests.swift in Sources */,
 				77B704A862EB57DA5E0711D0 /* NoteStoreTests.swift in Sources */,
 				65BE75628A3DC39F43A16DCA /* NotetakerTests.swift in Sources */,
