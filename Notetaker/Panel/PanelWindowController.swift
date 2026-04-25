@@ -152,7 +152,13 @@ final class PanelWindowController {
     }
 
     private let panel: NSPanel
-    private let presenter: PanelPresenter
+    /// Exposed (read-only) so AppDelegate can wire external observers
+    /// into the panel's published state — specifically, NotchOrchestrator's
+    /// now-playing stream → presenter.nowPlaying, and the orchestrator's
+    /// `sendMediaCommand` → presenter.onMediaCommand. Keeping the field
+    /// itself `let` (vs a public setter) means external code can subscribe
+    /// to the existing presenter but can't swap it out from under us.
+    let presenter: PanelPresenter
     private let environment: AppEnvironment
     private(set) var isVisible = false
     /// True between `tease()` and either `dismissTease()` or
@@ -330,16 +336,39 @@ final class PanelWindowController {
         isTeasing = false
         openMode = mode
 
-        // Smart auto-routing — only fires if the clipboard has
-        // changed since the last hide(). Avoids the annoying case
-        // where the user closes the panel on Notes, switches apps,
-        // and reopens the panel only to be teleported off Notes
-        // because there's still a stale text payload on the clipboard.
-        let currentCount = NSPasteboard.general.changeCount
-        if currentCount != lastSeenChangeCount {
-            applyAutoRouting()
+        // Music-first auto-routing. When music is actively playing,
+        // open the panel onto MusicPanelView regardless of what was
+        // active last. The user described the desired behavior:
+        // "When the music is opened, it will be very smooth because
+        // we are only loading the music player, which is already
+        // playing." MusicPanelView's first-paint cost is dominated
+        // by one optional NSImage decode for the artwork — orders of
+        // magnitude lighter than NotesListView (composer + LazyVStack
+        // + onAppear hooks for link previews) or the image / video
+        // grids (thumbnail decode + ScrollView content-size calc).
+        //
+        // We check this BEFORE the clipboard auto-routing so that if
+        // a user copies text and music is also playing, music still
+        // wins — the residual lag from a heavy first-paint dwarfs
+        // the inconvenience of an extra tab tap to get to a freshly
+        // captured note. Once on the panel the user can switch to
+        // Notes manually, by which point the morph is settled and
+        // the per-tab mount hitch is no longer visible inside the
+        // open animation.
+        if let info = presenter.nowPlaying, info.isPlaying {
+            presenter.activeTab = .music
+        } else {
+            // Smart auto-routing — only fires if the clipboard has
+            // changed since the last hide(). Avoids the annoying case
+            // where the user closes the panel on Notes, switches apps,
+            // and reopens the panel only to be teleported off Notes
+            // because there's still a stale text payload on the clipboard.
+            let currentCount = NSPasteboard.general.changeCount
+            if currentCount != lastSeenChangeCount {
+                applyAutoRouting()
+            }
+            lastSeenChangeCount = currentCount
         }
-        lastSeenChangeCount = currentCount
 
         let screen = NSScreen.main
         let pillFrame = closedPillFrame(for: screen)
@@ -634,6 +663,12 @@ final class PanelWindowController {
     @discardableResult
     private func handleQuickPaste(index: Int) -> Bool {
         switch presenter.activeTab {
+        case .music:
+            // ⌘1–⌘9 has no meaningful target on the music page —
+            // there's no list of items to copy, just the now-playing
+            // info and 3 transport buttons. Pass the keystroke through
+            // so the user's underlying app still sees ⌘1 / ⌘2 / etc.
+            return false
         case .notes:
             let texts = environment.noteStore.notes.prefix(9).map(\.body)
             if case .text(let s) = QuickPasteRouter.itemAt(index: index, texts: Array(texts)) {

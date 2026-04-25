@@ -129,6 +129,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // a charging pill on plug-in / unplug, ready to grow with
         // music/AirPods/focus presentations later.
         let orchestrator = NotchOrchestrator()
+
+        // Bridge MediaRemote → PanelPresenter so the panel's music
+        // page (MusicPanelView) can observe the same now-playing
+        // stream the notch HUD uses. We fire on every snapshot
+        // (including nil) so the presenter's `visibleTabs` and the
+        // "auto-bounce off .music when playback stops" logic stay
+        // in sync without polling.
+        orchestrator.onNowPlayingChange = { [weak self] info in
+            self?.panelController?.presenter.nowPlaying = info
+        }
+
+        // Reverse bridge: MusicPanelView's transport buttons (prev /
+        // play-pause / next) route through PanelPresenter.onMediaCommand,
+        // which we point at the orchestrator's MediaRemoteService. This
+        // closure is captured for the lifetime of the panel controller —
+        // both objects live for the whole app lifetime, so a strong
+        // reference here is fine and avoids a [weak] dance during
+        // every button tap.
+        panelController?.presenter.onMediaCommand = { [weak orchestrator] command in
+            orchestrator?.sendMediaCommand(command)
+        }
+
         orchestrator.start()
         self.notchOrchestrator = orchestrator
 

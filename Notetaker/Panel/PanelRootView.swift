@@ -29,16 +29,40 @@ import AppKit
 // open-source notch HUD, which we benchmarked against.
 
 enum PanelTab: String, CaseIterable, Identifiable {
-    case notes, images, videos, files
+    /// `.music` is special: it only appears in the segmented bar when
+    /// `PanelPresenter.nowPlaying` is non-nil. It exists to give the
+    /// panel a *very light* first-paint surface when the user opens
+    /// while music is playing — the alternative (defaulting to .notes
+    /// every open) pays the heavy NotesListView mount cost during the
+    /// open animation, which the user reported as residual lag even
+    /// after the always-mount + opacity-gate refactor. With Music as
+    /// the auto-routed default during playback, the first frame the
+    /// user sees is just album art + title + 3 buttons. The heavier
+    /// tabs (Notes, Images, Videos, Files) lazy-mount only when the
+    /// user explicitly switches to them — by which point the panel
+    /// is already at rest and the mount hitch is far less perceptible.
+    case music, notes, images, videos, files
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .music: return "Music"
         case .notes: return "Notes"
         case .images: return "Images"
         case .videos: return "Videos"
         case .files: return "Files"
+        }
+    }
+
+    /// SF Symbol used in the segmented bar for icon-only tabs (Music
+    /// is icon-only because the segmented bar is already tight at 4
+    /// labels — adding a 5th text label compresses every segment to
+    /// the point of unreadability).
+    var icon: String? {
+        switch self {
+        case .music: return "music.note"
+        default: return nil
         }
     }
 }
@@ -228,8 +252,14 @@ struct PanelRootView: View {
     // MARK: - Segmented
 
     private var segmented: some View {
+        // `presenter.visibleTabs` injects the .music tab at the head
+        // when something is playing, otherwise returns the original
+        // 4-tab strip. Animating on the visible-tab list ID gives a
+        // tidy slide-in / slide-out when music starts or stops mid-
+        // session — without it, the row would just pop new segments
+        // into existence and feel jittery.
         HStack(spacing: 2) {
-            ForEach(PanelTab.allCases) { tab in
+            ForEach(presenter.visibleTabs) { tab in
                 segmentButton(for: tab)
             }
         }
@@ -238,6 +268,7 @@ struct PanelRootView: View {
             RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous)
                 .fill(DS.Color.bgSubtle)
         )
+        .animation(.selection, value: presenter.visibleTabs)
     }
 
     private func segmentButton(for tab: PanelTab) -> some View {
@@ -245,21 +276,34 @@ struct PanelRootView: View {
         return Button {
             withAnimation(.selection) { presenter.activeTab = tab }
         } label: {
-            Text(tab.title)
-                .font(.nkMeta.weight(isSelected ? .semibold : .regular))
-                .foregroundStyle(isSelected ? DS.Color.textPrimary : DS.Color.textSecondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 4)
-                .background(
-                    ZStack {
-                        if isSelected {
-                            RoundedRectangle(cornerRadius: DS.Radius.pill, style: .continuous)
-                                .fill(DS.Color.bgSelected)
-                                .matchedGeometryEffect(id: "pill", in: segmentedPill)
-                        }
+            // Icon-only when the tab provides one (currently Music) —
+            // the segmented bar gets cramped at 5 text labels, so
+            // collapsing Music to a 12pt music.note keeps every text
+            // label readable. The icon's intrinsic width is also
+            // narrower than a label like "Files," which lets the
+            // remaining tabs spread evenly.
+            Group {
+                if let icon = tab.icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                } else {
+                    Text(tab.title)
+                        .font(.nkMeta.weight(isSelected ? .semibold : .regular))
+                }
+            }
+            .foregroundStyle(isSelected ? DS.Color.textPrimary : DS.Color.textSecondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+            .background(
+                ZStack {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: DS.Radius.pill, style: .continuous)
+                            .fill(DS.Color.bgSelected)
+                            .matchedGeometryEffect(id: "pill", in: segmentedPill)
                     }
-                )
-                .contentShape(Rectangle())
+                }
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -274,7 +318,18 @@ struct PanelRootView: View {
 
     @ViewBuilder
     private var content: some View {
+        // SwiftUI's switch-based ViewBuilder is already lazy: only the
+        // active case is in the view tree, the others aren't mounted
+        // at all. That's the foundation of the open-lag fix — when
+        // `activeTab` is .music on open, NotesListView / ImagesGridView
+        // / VideosGridView / FilesGridView are NOT instantiated, so
+        // their first-paint cost (composer + LazyVStack + image decode
+        // + ScrollView content-size calc + onAppear hooks for link
+        // previews) is paid lazily on the first deliberate tab tap,
+        // not during the panel-open animation.
         switch presenter.activeTab {
+        case .music:
+            MusicPanelView()
         case .notes:
             NotesListView()
         case .images:

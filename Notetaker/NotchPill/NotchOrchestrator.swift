@@ -21,6 +21,26 @@ final class NotchOrchestrator {
     private let powerWatcher: PowerSourceWatcher
     private let mediaService: MediaRemoteService
 
+    /// External now-playing observer. AppDelegate installs this to
+    /// forward MediaRemote snapshots into PanelPresenter so the
+    /// notes-panel can render its own music page (MusicPanelView)
+    /// without having to know about the orchestrator. Fires for
+    /// every snapshot — including nil when nothing's playing —
+    /// because PanelPresenter's `visibleTabs` and "auto-bounce off
+    /// .music when playback stops" logic both depend on the nil
+    /// transition arriving promptly.
+    var onNowPlayingChange: ((NowPlayingInfo?) -> Void)?
+
+    /// Send a media command (play/pause/skip) into whichever app owns
+    /// the now-playing slot. Exposed publicly so MusicPanelView's
+    /// transport buttons (routed via `PanelPresenter.onMediaCommand`)
+    /// can drive playback the same way the notch HUD's transport
+    /// buttons already do. Both paths terminate at the same
+    /// `MediaRemoteService.send` call.
+    func sendMediaCommand(_ command: MediaRemoteService.Command) {
+        mediaService.send(command)
+    }
+
     /// Tracked separately from PowerSourceWatcher's internal dedup so
     /// we can apply orchestrator-level rules (only show on transition,
     /// not on every IOKit emit). Nil until the first state lands.
@@ -152,6 +172,17 @@ final class NotchOrchestrator {
     /// which ones merit an auto-hide timer.
     private func handleNowPlayingChange(_ info: NowPlayingInfo?) {
         defer { lastNowPlaying = info }
+
+        // Forward EVERY snapshot to the external subscriber (currently
+        // PanelPresenter via AppDelegate). We do this at the top of the
+        // method, before any of the HUD-specific dedup logic, because
+        // PanelPresenter's responsibilities are different from the
+        // HUD's — the panel needs to know about pause / unpause /
+        // artwork-only changes to keep its `nowPlaying` published var
+        // current, even though the notch HUD wouldn't bloom for those.
+        // Decoupling the two keeps each surface in charge of its own
+        // dedup policy.
+        onNowPlayingChange?(info)
 
         let isInitial = !didReceiveInitialNowPlaying
         if isInitial {
