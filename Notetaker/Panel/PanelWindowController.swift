@@ -42,9 +42,12 @@ final class PanelWindowController {
     static let innerCornerRadius: CGFloat = 28
     private static let edgeGap: CGFloat = 10
     private static let topGap: CGFloat = 40
-    /// Alcove-style: panel emerges from the notch (top-center) and
-    /// settles a few pixels below the menu bar. Was right-edge before.
-    private static let notchTopGap: CGFloat = 4
+    /// Alcove-style: panel emerges FROM the notch — its top edge sits
+    /// flush with the menu bar's bottom (visible.maxY), so the pill
+    /// reads as the physical notch extending downward. Any gap here
+    /// breaks the illusion (the pill looks like a floating window
+    /// instead of an extension of the menu bar).
+    private static let notchTopGap: CGFloat = 0
 
     static func panelSize(for screen: NSScreen?) -> NSSize {
         let available = (screen ?? NSScreen.main)?.visibleFrame.height ?? 800
