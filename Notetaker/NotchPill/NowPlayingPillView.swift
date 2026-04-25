@@ -84,11 +84,28 @@ struct NowPlayingPillView: View {
     // MARK: - Inner pill
 
     private var innerPill: some View {
+        // Closed-pill layout follows the Alcove vocabulary the user
+        // explicitly asked for: artwork on the FAR LEFT, waveform on
+        // the FAR RIGHT, with title + artist filling the middle. No
+        // transport buttons here on purpose — the closed pill is a
+        // status indicator, not a remote. The user reaches for the
+        // main panel (Music page) when they want to pause / skip;
+        // mirroring Alcove keeps the notch HUD glanceable instead of
+        // crowded.
         HStack(spacing: 10) {
             artwork
             titleStack
                 .frame(maxWidth: .infinity, alignment: .leading)
-            controls
+            WaveformView(
+                isPlaying: info.isPlaying,
+                barCount: 4,
+                barWidth: 2.5,
+                spacing: 2.5,
+                maxHeight: 16,
+                tint: .white,
+                opacity: 0.78
+            )
+            .padding(.trailing, 4)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)

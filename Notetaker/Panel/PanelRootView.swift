@@ -81,7 +81,7 @@ struct PanelRootView: View {
     // MARK: - Body
 
     var body: some View {
-        // Static black slab, fixed bottom-corner radius. The visible
+        // Layered background, fixed bottom-corner radius. The visible
         // silhouette tracks the NSPanel frame via SwiftUI re-clipping
         // — when the panel is at pill size, the 34pt bottom corners
         // dominate the visible area, reading as a wide soft bump
@@ -89,10 +89,23 @@ struct PanelRootView: View {
         // the same 34pt corners read as a subtle Dynamic-Island-style
         // bottom rounding. Continuous morph driven entirely by frame
         // change — zero SwiftUI state animation involved.
-        Color.black
+        //
+        // Layer stack (bottom → top):
+        //   1. `panelBackground`: vertical gradient, slightly lifted
+        //      near the top so the slab doesn't read as flat black
+        //   2. `notchHighlight`: thin curved sheen just below the
+        //      notch zone — sells the "emerging from the hardware"
+        //      illusion that's flat panels miss
+        //   3. `contentOverlay`: the actual UI (header/tabs/content)
+        //   4. `borderStroke`: 0.6pt inner border with top-to-bottom
+        //      gradient — catches ambient light against dark wallpapers
+        //   5. `dropRingOverlay`: drag-and-drop accent ring (existing)
+        panelBackground
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipShape(panelSilhouette)
+            .overlay(alignment: .top) { notchHighlight }
             .overlay(alignment: .top) { contentOverlay }
+            .overlay { borderStroke }
             .overlay { dropRingOverlay }
             .ignoresSafeArea(.all, edges: .top)
             // Single-axis state animation: only the content opacity
@@ -192,6 +205,82 @@ struct PanelRootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .opacity(presenter.isShown ? 1 : 0)
         .allowsHitTesting(presenter.isShown)
+    }
+
+    // MARK: - Background layers
+
+    /// Vertical gradient that gives the slab depth without losing the
+    /// "deep black" reading. The top is lifted to ~9% white so the
+    /// notch zone reads as if a hint of ambient light is catching the
+    /// glass; the lift rolls off through ~20% of the height back to
+    /// near-pure black, so the bulk of the panel still reads as the
+    /// premium dark surface the user expects. Without the gradient the
+    /// panel was a flat black slab — the user explicitly called this
+    /// out as "looking black bar nothing else."
+    private var panelBackground: some View {
+        LinearGradient(
+            stops: [
+                .init(color: Color(white: 0.085), location: 0.0),
+                .init(color: Color(white: 0.045), location: 0.18),
+                .init(color: Color(white: 0.018), location: 0.55),
+                .init(color: Color.black, location: 1.0)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    /// Thin band of light right below the menu-bar / notch zone. Reads
+    /// as a soft sheen kissing the top edge — the same trick Alcove and
+    /// Apple's Dynamic Island use to make a flat 2D pill feel like a
+    /// piece of darkly-glowing hardware. The band starts at the notch
+    /// overlap (so it's visible right where the panel exits the notch)
+    /// and fades to clear over ~70pt.
+    ///
+    /// `.blendMode(.plusLighter)` blends additively against the dark
+    /// gradient beneath — multiplicative blending would crush the lift
+    /// back to black; plusLighter genuinely brightens.
+    @ViewBuilder
+    private var notchHighlight: some View {
+        LinearGradient(
+            colors: [
+                Color.white.opacity(0.16),
+                Color.white.opacity(0.04),
+                Color.clear
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: 70)
+        .blendMode(.plusLighter)
+        .padding(.top, notchOverlap)
+        .allowsHitTesting(false)
+        .opacity(presenter.isShown ? 1 : 0)
+    }
+
+    /// 0.6pt inner border that traces the panel silhouette. The stroke
+    /// uses a top-to-bottom white-opacity gradient (12% → 4%) so the
+    /// edge reads as catching light from above — same physical model as
+    /// the gradient background. Without this the panel's outline gets
+    /// lost against dark wallpapers (the user's setup is "Sonoma
+    /// Horizon" per `MEMORY.md`); the border defines the slab even
+    /// when the wallpaper is near-black at the edges.
+    @ViewBuilder
+    private var borderStroke: some View {
+        panelSilhouette
+            .stroke(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.14),
+                        Color.white.opacity(0.04)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ),
+                lineWidth: 0.6
+            )
+            .allowsHitTesting(false)
+            .opacity(presenter.isShown ? 1 : 0)
     }
 
     // MARK: - Drop-target accent ring

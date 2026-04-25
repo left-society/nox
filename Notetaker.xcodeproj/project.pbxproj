@@ -54,6 +54,7 @@
 		C70A5360450254FB8A93100F /* ImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6681424D04E755BA93A783D /* ImageStore.swift */; };
 		D2F9770EBFC65B81DF03B823 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C23BC1CC4ACF47017EB87F7D /* Assets.xcassets */; };
 		D4171E2B1CDA439E191E758C /* MediaRemoteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00C5B5E090DF52C4555A5BE6 /* MediaRemoteService.swift */; };
+		7C9E1F2D3A4B5C8E7F6D2B9A /* WaveformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D2A3B4C5E9F7068F1C2D3E4 /* WaveformView.swift */; };
 		D61D1228591E36D78457CCB3 /* Typography.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46AF7A62FF29F5DC6E5DF564 /* Typography.swift */; };
 		DC2797E25CF433EC7D759CF0 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = E781D3811F8402916558BA31 /* DesignTokens.swift */; };
 		DC55240346ACAEEBF428B17E /* ImageOCRServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 867331DB44596A5B24B3FE8E /* ImageOCRServiceTests.swift */; };
@@ -79,6 +80,7 @@
 
 /* Begin PBXFileReference section */
 		00C5B5E090DF52C4555A5BE6 /* MediaRemoteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaRemoteService.swift; sourceTree = "<group>"; };
+		8D2A3B4C5E9F7068F1C2D3E4 /* WaveformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformView.swift; sourceTree = "<group>"; };
 		0A9EC1A0C0928D65BA1DFF10 /* QuickPasteRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPasteRouter.swift; sourceTree = "<group>"; };
 		0C4728BB0F273F145E4D4DB2 /* HotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyService.swift; sourceTree = "<group>"; };
 		105DAC9A68D37183682F6108 /* VideoDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoDownloader.swift; sourceTree = "<group>"; };
@@ -264,6 +266,7 @@
 				ED6E1C9240C3085DE78845B0 /* NotchOrchestrator.swift */,
 				D5E0BED164D7AFFA6B737096 /* NowPlayingPillView.swift */,
 				5D24E1670632A6E0A9B6AE18 /* PowerSourceWatcher.swift */,
+				8D2A3B4C5E9F7068F1C2D3E4 /* WaveformView.swift */,
 			);
 			path = NotchPill;
 			sourceTree = "<group>";
@@ -476,6 +479,7 @@
 				0AA2269E81CA671E2D69789B /* VideoDropScanner.swift in Sources */,
 				426F8F11BA6716078628C93E /* VideoStore.swift in Sources */,
 				57CB3FF58705FAF285235AFA /* VideosGridView.swift in Sources */,
+				7C9E1F2D3A4B5C8E7F6D2B9A /* WaveformView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

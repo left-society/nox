@@ -31,6 +31,21 @@ struct NowPlayingInfo: Equatable {
     var isPresentable: Bool {
         !title.isEmpty || !artist.isEmpty
     }
+
+    /// Return a copy with `artworkData` replaced. Used by the artwork
+    /// fetcher to re-publish a snapshot once the iTunes Search lookup
+    /// lands, without forcing every other call site to know about the
+    /// fetch lifecycle. NowPlayingInfo stays immutable everywhere else.
+    func with(artworkData newArtwork: Data?) -> NowPlayingInfo {
+        NowPlayingInfo(
+            title: title,
+            artist: artist,
+            album: album,
+            artworkData: newArtwork,
+            isPlaying: isPlaying,
+            sourceBundleID: sourceBundleID
+        )
+    }
 }
 
 /// Wrapper around macOS's private MediaRemote framework, which is the
@@ -79,6 +94,23 @@ final class MediaRemoteService {
     /// for command callbacks that want to read state synchronously.
     private var lastInfo: NowPlayingInfo?
     private var observers: [NSObjectProtocol] = []
+
+    /// In-memory cache of artwork bytes keyed by `title|artist` (lower-
+    /// cased, trimmed). Avoids re-querying iTunes Search every time the
+    /// user pauses and resumes the same track, switches tracks back to
+    /// one we've already fetched, or relaunches the app within the same
+    /// listening session. Bounded organically by the user's actual play
+    /// history — a typical session touches at most a few dozen tracks,
+    /// each ~30-100KB, so the cache stays in low MB territory and never
+    /// needs explicit eviction.
+    private var artworkCache: [String: Data] = [:]
+
+    /// Set of cache keys for fetches currently in flight. Spotify's
+    /// PlaybackStateChanged and MediaRemote's NowPlayingInfoDidChange
+    /// often fire near-simultaneously for the same track; this set
+    /// suppresses the duplicate HTTP request the second one would
+    /// otherwise trigger.
+    private var artworkInFlight: Set<String> = []
 
     // MARK: - Lifecycle
 
@@ -362,7 +394,7 @@ final class MediaRemoteService {
     }
 
     private func publish(_ info: NowPlayingInfo) {
-        NSLog("Notetaker: MediaRemote.publish title=\"\(info.title)\" artist=\"\(info.artist)\" isPlaying=\(info.isPlaying)")
+        NSLog("Notetaker: MediaRemote.publish title=\"\(info.title)\" artist=\"\(info.artist)\" isPlaying=\(info.isPlaying) hasArt=\(info.artworkData != nil)")
         // Dedup — many notifications fire spurious refreshes (every
         // ~1s for elapsed-time updates on some sources). Without this
         // check the HUD would re-bloom every second during playback.
@@ -378,5 +410,110 @@ final class MediaRemoteService {
         }
         lastInfo = info
         onChange?(info)
+        // Kick off async artwork fill after the synchronous publish so
+        // subscribers see the title/artist update immediately while the
+        // image bytes are still in flight. fetchArtworkIfNeeded is a
+        // no-op when artwork is already present or when we're already
+        // fetching the same track.
+        fetchArtworkIfNeeded(for: info)
+    }
+
+    // MARK: - Artwork lookup
+
+    /// Build a normalized cache key from title + artist. Lowercased and
+    /// trimmed so the same track surfaced from two slightly different
+    /// payloads (Spotify includes a trailing space on some albums; some
+    /// tracks vary "feat." capitalization between sources) hits the
+    /// same slot.
+    private func artworkKey(for info: NowPlayingInfo) -> String? {
+        let title = info.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let artist = info.artist.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if title.isEmpty && artist.isEmpty { return nil }
+        return "\(title)|\(artist)"
+    }
+
+    /// Fill in artwork via iTunes Search if the snapshot lacks it. The
+    /// path here covers both restricted-MediaRemote macOS versions
+    /// (15.4+ where `kMRMediaRemoteNowPlayingInfoArtworkData` comes back
+    /// nil) AND the app-specific notification fallback (Spotify and
+    /// Apple Music's distributed notifications never carry artwork
+    /// bytes — they'd blow the notification size limit). On a cache
+    /// hit we re-publish synchronously; on a miss we dispatch a
+    /// detached Task and re-publish from its completion.
+    private func fetchArtworkIfNeeded(for info: NowPlayingInfo) {
+        guard info.artworkData == nil else { return }
+        guard let key = artworkKey(for: info) else { return }
+
+        if let cached = artworkCache[key] {
+            // Re-publish with the cached bytes. publish() will dedup
+            // against lastInfo (which lacks artworkData), so the new
+            // info is genuinely different and onChange fires once more
+            // with the artwork filled in.
+            publish(info.with(artworkData: cached))
+            return
+        }
+        if artworkInFlight.contains(key) { return }
+        artworkInFlight.insert(key)
+
+        let title = info.title
+        let artist = info.artist
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let data = await Self.lookupArtwork(title: title, artist: artist)
+            await MainActor.run {
+                guard let self else { return }
+                self.artworkInFlight.remove(key)
+                guard let data else { return }
+                self.artworkCache[key] = data
+                // Only re-publish if this is still the current track.
+                // The user may have skipped to a different song while
+                // the lookup was in flight; we don't want to slap the
+                // wrong artwork onto a fresh snapshot.
+                guard let last = self.lastInfo,
+                      last.title == title,
+                      last.artist == artist else { return }
+                self.publish(last.with(artworkData: data))
+            }
+        }
+    }
+
+    /// One-shot iTunes Search query. Returns the first matching song's
+    /// artwork as JPEG/PNG bytes, or nil if anything along the way
+    /// failed (no matches, network timeout, decode error). iTunes
+    /// serves 100×100 by default; URL-substituting `100x100bb` for
+    /// `600x600bb` gets us a sharp asset for the panel's 180pt artwork
+    /// at retina densities without any extra round trip.
+    private static func lookupArtwork(title: String, artist: String) async -> Data? {
+        let term = "\(title) \(artist)".trimmingCharacters(in: .whitespaces)
+        guard !term.isEmpty else { return nil }
+
+        var components = URLComponents(string: "https://itunes.apple.com/search")
+        components?.queryItems = [
+            URLQueryItem(name: "term", value: term),
+            URLQueryItem(name: "media", value: "music"),
+            URLQueryItem(name: "entity", value: "song"),
+            URLQueryItem(name: "limit", value: "1")
+        ]
+        guard let url = components?.url else { return nil }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let results = json["results"] as? [[String: Any]],
+                  let first = results.first,
+                  let artUrl100 = first["artworkUrl100"] as? String else {
+                NSLog("Notetaker: artwork lookup miss for \"\(term)\"")
+                return nil
+            }
+            // 100×100 → 600×600. iTunes serves the larger asset off the
+            // same CDN; this is just a URL rewrite, no extra negotiation.
+            let upscaled = artUrl100.replacingOccurrences(of: "100x100bb", with: "600x600bb")
+            guard let imageURL = URL(string: upscaled) else { return nil }
+            let (imgData, _) = try await URLSession.shared.data(from: imageURL)
+            NSLog("Notetaker: artwork lookup hit for \"\(term)\" (\(imgData.count) bytes)")
+            return imgData
+        } catch {
+            NSLog("Notetaker: artwork lookup error for \"\(term)\": \(error)")
+            return nil
+        }
     }
 }

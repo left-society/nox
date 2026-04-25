@@ -177,18 +177,29 @@ struct MusicPanelView: View {
         )
     }
 
-    /// Tiny "playing in <App>" credit at the bottom. Helps the user
-    /// orient when multiple media apps are open simultaneously
-    /// (Spotify in the background, Safari with a YouTube tab in
-    /// front, etc.) — the source bundle is the only reliable signal
-    /// for which app a play/pause command will land on.
+    /// Tiny "playing in <App>" credit at the bottom plus a small
+    /// audio-bar visualizer. Helps the user orient when multiple media
+    /// apps are open simultaneously (Spotify in the background, Safari
+    /// with a YouTube tab in front, etc.) — the source bundle is the
+    /// only reliable signal for which app a play/pause command will
+    /// land on. The visualizer is the same primitive as the notch HUD
+    /// pill (WaveformView) so the two surfaces share the same "audio
+    /// is alive" tell.
     @ViewBuilder
     private var sourceBadge: some View {
-        if let bundleID = presenter.nowPlaying?.sourceBundleID,
+        if let info = presenter.nowPlaying,
+           let bundleID = info.sourceBundleID,
            let appName = Self.localizedAppName(forBundleID: bundleID) {
-            HStack(spacing: 5) {
-                Image(systemName: "speaker.wave.2.fill")
-                    .font(.system(size: 9, weight: .semibold))
+            HStack(spacing: 8) {
+                WaveformView(
+                    isPlaying: info.isPlaying,
+                    barCount: 3,
+                    barWidth: 2,
+                    spacing: 2,
+                    maxHeight: 10,
+                    tint: DS.Color.textSecondary,
+                    opacity: 0.9
+                )
                 Text("Playing in \(appName)")
                     .font(.nkLabel)
             }
