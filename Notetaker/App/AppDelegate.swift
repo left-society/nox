@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -15,6 +16,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Owns the separate notch HUD pills (charging, music, etc.) that
     /// auto-bloom on system events independent of the notes panel.
     var notchOrchestrator: NotchOrchestrator?
+
+    /// Reusable Settings window. We manage this ourselves rather than
+    /// relying on the SwiftUI `Settings { }` scene because that scene's
+    /// open mechanism (`SettingsLink`, `\.openSettings`, or
+    /// `NSApp.sendAction("showSettingsWindow:", …)`) is unreliable when
+    /// the only visible UI is an `NSPanel` hosted via
+    /// `NSHostingController`. The hosting controller's SwiftUI tree
+    /// doesn't share the App scene's environment, so `\.openSettings`
+    /// is unbound there; and with `LSUIElement = true` there's no main
+    /// window in the responder chain to handle the action selector
+    /// either. Net result: the gear icon was a dead pixel. Owning the
+    /// window directly here makes "click gear → Settings appears" a
+    /// straight call into AppKit, which Just Works.
+    private var settingsWindow: NSWindow?
 
     /// Sliding window of recent screenshots for burst detection. A "burst"
     /// (≥2 shots within `burstWindow`) opens the panel; otherwise the shot
@@ -172,6 +187,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.panelController?.showOnTab(.videos)
             }
         }
+    }
+
+    /// Opens (or refocuses) the Settings window. Builds the SwiftUI tree
+    /// directly with `NSHostingController` and hands its environmentObject
+    /// the same `AppEnvironment` the panel uses, so the API key field,
+    /// retention toggles, etc. all read/write the live state. The window
+    /// is cached so repeated clicks just bring the existing one forward
+    /// instead of stacking duplicates.
+    func openSettings() {
+        if #available(macOS 14, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+
+        if let window = settingsWindow {
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        guard let env = environment else {
+            NSLog("Notetaker: openSettings called before environment ready")
+            return
+        }
+
+        let host = NSHostingController(rootView: SettingsView().environmentObject(env))
+        let window = NSWindow(contentViewController: host)
+        window.title = "Notetaker Settings"
+        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.setFrameAutosaveName("NotetakerSettingsWindow")
+        settingsWindow = window
+        window.makeKeyAndOrderFront(nil)
     }
 
     private func grabCurrentBrowserTab() {

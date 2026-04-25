@@ -421,41 +421,32 @@ private struct SettingsButton: View {
     @State private var isHovered = false
 
     var body: some View {
-        // `SettingsLink` (macOS 14+) is the canonical way to open the
-        // SwiftUI `Settings` scene — it goes through the proper
-        // environment plumbing instead of guessing at the responder
-        // chain via `NSApp.sendAction(...)`. The earlier imperative
-        // call silently no-oped on this LSUIElement app because the
-        // panel isn't a main/key window, so the action selector
-        // couldn't find a handler. The legacy fallback below is a
-        // courtesy for macOS 13 (technically still our deployment
-        // target, though we expect ~zero users on it).
-        Group {
-            if #available(macOS 14, *) {
-                SettingsLink {
-                    gearGlyph
-                }
-                .buttonStyle(.plain)
-            } else {
-                Button {
-                    SettingsWindow.open()
-                } label: {
-                    gearGlyph
-                }
-                .buttonStyle(.plain)
-            }
+        // We deliberately do NOT use `SettingsLink` or the SwiftUI
+        // `Settings { }` scene. The panel's SwiftUI tree is mounted via
+        // `NSHostingController` inside an `NSPanel`, which creates a
+        // separate SwiftUI root that does not inherit the App scene's
+        // environment. `SettingsLink` resolves an unbound `\.openSettings`
+        // there and silently no-ops; the legacy `showSettingsWindow:`
+        // action selector also fails because `LSUIElement = true` means
+        // there's no main window in the responder chain.
+        //
+        // `SettingsWindow.open()` instead routes to AppDelegate, which
+        // owns an `NSWindow` directly and pushes a SwiftUI `SettingsView`
+        // into it via `NSHostingController` — bypassing the scene
+        // plumbing entirely.
+        Button {
+            SettingsWindow.open()
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(isHovered ? DS.Color.textSecondary : DS.Color.textTertiary)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .onHover { hovering in
             withAnimation(.rowHover) { isHovered = hovering }
         }
-    }
-
-    private var gearGlyph: some View {
-        Image(systemName: "gearshape")
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(isHovered ? DS.Color.textSecondary : DS.Color.textTertiary)
-            .frame(width: 20, height: 20)
-            .contentShape(Rectangle())
     }
 }
 
