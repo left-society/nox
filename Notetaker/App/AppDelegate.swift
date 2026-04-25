@@ -9,6 +9,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var clipboardMonitor: ClipboardMonitor?
     var dragMonitor: DragMonitor?
     var screenshotWatcher: ScreenshotWatcher?
+    /// Cursor-on-notch auto-open. Mirrors Alcove's hover gesture so the
+    /// panel is reachable without remembering ⌥Space.
+    var hoverActivator: HoverActivator?
+    /// Owns the separate notch HUD pills (charging, music, etc.) that
+    /// auto-bloom on system events independent of the notes panel.
+    var notchOrchestrator: NotchOrchestrator?
 
     /// Sliding window of recent screenshots for burst detection. A "burst"
     /// (≥2 shots within `burstWindow`) opens the panel; otherwise the shot
@@ -78,6 +84,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         screenshots.start()
         self.screenshotWatcher = screenshots
+
+        // Cursor-into-notch → open panel. Bails fast (no-op) when the
+        // panel is already visible, so it can fire freely.
+        let hover = HoverActivator { [weak self] in
+            guard let self, let panel = self.panelController else { return }
+            if !panel.isVisible {
+                panel.show()
+            }
+        }
+        hover.start()
+        self.hoverActivator = hover
+
+        // Notch HUD subsystem — independent of the notes panel. Pops
+        // a charging pill on plug-in / unplug, ready to grow with
+        // music/AirPods/focus presentations later.
+        let orchestrator = NotchOrchestrator()
+        orchestrator.start()
+        self.notchOrchestrator = orchestrator
 
         // Dev-only: auto-show the panel on launch for visual verification.
         if ProcessInfo.processInfo.environment["NOTETAKER_AUTOSHOW"] == "1" {
