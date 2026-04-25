@@ -80,7 +80,9 @@ enum PanelTab: String, CaseIterable, Identifiable {
 
 struct PanelRootView: View {
     @EnvironmentObject var presenter: PanelPresenter
+    @EnvironmentObject var env: AppEnvironment
     @Namespace private var segmentedPill
+    @State private var isDropTargeted = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -110,11 +112,51 @@ struct PanelRootView: View {
             }
         )
         .overlay(GlassEdge())
+        // Panel-wide drop zone — sits above content but lets clicks fall
+        // through (DropView.hitTest returns nil). Routes videos and images
+        // to the right store and switches to the destination tab. Lives at
+        // root level so users can drop onto any tab without the panel
+        // silently rejecting the drag.
+        .overlay(
+            PanelDropCatcher(
+                isTargeted: $isDropTargeted,
+                onVideo: handleVideoDrop,
+                onImage: handleImageDrop
+            )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(DS.Color.accent.opacity(isDropTargeted ? 0.85 : 0), lineWidth: 1.5)
+                .animation(.easeInOut(duration: 0.12), value: isDropTargeted)
+                .allowsHitTesting(false)
+        )
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .compositingGroup()
         .offset(x: presenter.isShown ? 0 : 360)
         .opacity(presenter.isShown ? 1.0 : 0.0)
         .animation(presenter.isShown ? .panelOpen : .panelClose, value: presenter.isShown)
+    }
+
+    // MARK: - Drop handlers
+
+    private func handleVideoDrop(_ candidate: VideoDropScanner.Candidate) {
+        switch candidate {
+        case .localFile(let url):
+            _ = try? env.videoStore.saveLocalFile(url)
+        case .remoteURL(let s):
+            _ = env.videoStore.startDownload(url: s)
+        }
+        withAnimation(.selection) { presenter.activeTab = .videos }
+    }
+
+    private func handleImageDrop(_ data: Data, _ mime: String) {
+        _ = try? env.imageStore.saveImage(
+            data: data,
+            mimeType: mime,
+            noteId: nil,
+            source: "drop"
+        )
+        withAnimation(.selection) { presenter.activeTab = .images }
     }
 
     // MARK: - Header

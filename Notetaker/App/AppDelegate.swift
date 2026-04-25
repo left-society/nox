@@ -16,7 +16,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var recentScreenshots: [(time: TimeInterval, id: String)] = []
     private let burstWindow: TimeInterval = 3.0
     private let burstCount = 2
-    private let soloTTL: TimeInterval = 3600
+    // "few hours" per user spec — auto-saved screenshots without a follow-up
+    // burst evaporate after 4 hours so the panel doesn't slowly fill with
+    // every screenshot the user ever took.
+    private let soloTTL: TimeInterval = 14400
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)

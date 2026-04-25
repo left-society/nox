@@ -53,10 +53,9 @@ struct ImagesGridView: View {
             .scrollIndicators(.never)
         }
         .background(shortcuts)
-        .onDrop(of: [.image, .fileURL, .png, .jpeg, .tiff, .gif], isTargeted: nil) { providers in
-            handleDrop(providers: providers)
-            return true
-        }
+        // Drag-and-drop handling lives at PanelRootView level now (see
+        // PanelDropCatcher) so users can drop onto any tab and the panel
+        // routes to the correct store + switches to the right tab.
         .alert("Clear all images?", isPresented: $showClearConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Clear", role: .destructive) {
@@ -321,49 +320,6 @@ struct ImagesGridView: View {
         )
     }
 
-    // MARK: - Drop-in
-
-    private func handleDrop(providers: [NSItemProvider]) {
-        Task { @MainActor in
-            for provider in providers {
-                await saveProvider(provider)
-            }
-        }
-    }
-
-    private func saveProvider(_ provider: NSItemProvider) async {
-        // Try concrete image types that we can save directly
-        let direct: [(UTType, String)] = [
-            (.png, "image/png"),
-            (.jpeg, "image/jpeg"),
-            (.gif, "image/gif"),
-            (.webP, "image/webp")
-        ]
-        for (utType, mime) in direct {
-            if provider.hasItemConformingToTypeIdentifier(utType.identifier),
-               let data = try? await provider.loadData(for: utType) {
-                _ = try? env.imageStore.saveImage(data: data, mimeType: mime,
-                                              noteId: nil, source: "drop")
-                return
-            }
-        }
-        // TIFF → convert to PNG (most web images come through as TIFF)
-        if provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier),
-           let data = try? await provider.loadData(for: .tiff),
-           let png = Self.tiffToPNG(data) {
-            _ = try? env.imageStore.saveImage(data: png, mimeType: "image/png",
-                                          noteId: nil, source: "drop")
-            return
-        }
-        // Fallback: file URL
-        if let url = try? await provider.loadURL(),
-           let data = try? Data(contentsOf: url) {
-            let mime = Self.mime(for: url)
-            _ = try? env.imageStore.saveImage(data: data, mimeType: mime,
-                                          noteId: nil, source: "drop")
-        }
-    }
-
     // MARK: - Drag-out
 
     private func dragProvider(for record: ImageRecord) -> NSItemProvider {
@@ -487,34 +443,3 @@ struct ImageCell: View {
     }
 }
 
-// MARK: - NSItemProvider helpers
-
-private extension NSItemProvider {
-    func loadData(for type: UTType) async throws -> Data {
-        try await withCheckedThrowingContinuation { cont in
-            self.loadDataRepresentation(forTypeIdentifier: type.identifier) { data, err in
-                if let data = data {
-                    cont.resume(returning: data)
-                } else {
-                    cont.resume(throwing: err ?? NSError(domain: "drop", code: 1))
-                }
-            }
-        }
-    }
-
-    func loadURL() async throws -> URL {
-        try await withCheckedThrowingContinuation { cont in
-            self.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, err in
-                if let url = item as? URL {
-                    cont.resume(returning: url)
-                } else if let data = item as? Data,
-                          let str = String(data: data, encoding: .utf8),
-                          let url = URL(string: str) {
-                    cont.resume(returning: url)
-                } else {
-                    cont.resume(throwing: err ?? NSError(domain: "drop", code: 2))
-                }
-            }
-        }
-    }
-}

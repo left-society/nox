@@ -6,7 +6,6 @@ import UniformTypeIdentifiers
 struct VideosGridView: View {
     @EnvironmentObject var env: AppEnvironment
     @State private var showClearConfirm = false
-    @State private var isDropTargeted = false
     /// The video currently being played inline at the top of the tab. nil
     /// means the panel is back in its normal "grid of thumbnails" mode.
     @State private var playingRecord: VideoRecord?
@@ -80,25 +79,6 @@ struct VideosGridView: View {
             .scrollIndicators(.never)
         }
         .background(shortcuts)
-        .background(
-            RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous)
-                .strokeBorder(
-                    isDropTargeted ? DS.Color.accent.opacity(0.6) : Color.clear,
-                    lineWidth: isDropTargeted ? 2 : 0
-                )
-                .padding(.horizontal, DS.Spacing.sm)
-                .animation(.rowHover, value: isDropTargeted)
-        )
-        .overlay(
-            VideoDropCatcher(isTargeted: $isDropTargeted) { candidate in
-                switch candidate {
-                case .localFile(let url):
-                    _ = try? env.videoStore.saveLocalFile(url)
-                case .remoteURL(let s):
-                    env.videoStore.startDownload(url: s)
-                }
-            }
-        )
         .alert("Clear all videos?", isPresented: $showClearConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Clear", role: .destructive) {
