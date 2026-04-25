@@ -131,18 +131,18 @@ private struct LiquidSpecular: View {
 private struct EdgeVignette: View {
     var body: some View {
         ZStack {
-            // Primary radial — center clear, corners darken to ~50%
+            // Primary radial — center clear, corners darken to ~62%
             // black. Center biased slightly upward (y: 0.40) so the
             // bottom darkens more than the top, matching a real overhead
-            // light source. Tighter inner stop (clear out to 0.4) keeps
-            // the lit area focused so the vignette reads as a "halo of
-            // shadow around the rim" rather than a global dimming.
+            // light source. Tighter inner stop keeps the lit area
+            // focused so the vignette reads as a "halo of shadow around
+            // the rim" rather than a global dimming.
             RadialGradient(
                 colors: [
                     Color.clear,
                     Color.clear,
-                    Color.black.opacity(0.30),
-                    Color.black.opacity(0.50)
+                    Color.black.opacity(0.38),
+                    Color.black.opacity(0.62)
                 ],
                 center: UnitPoint(x: 0.5, y: 0.40),
                 startRadius: 50,
@@ -152,31 +152,32 @@ private struct EdgeVignette: View {
             // darkens the LEFT and RIGHT edges specifically, since a
             // pure radial only catches the corners and the straight
             // side panels would still look flat. Symmetric horizontal
-            // mask hits both sides equally. Pushed hard (0.48) so the
-            // long vertical sides read as clearly black — that's the
-            // cue the user pointed to in the iOS music widget. Falls
-            // off quickly (clear by 25% in) so the visible dark band
-            // is a tight rim, not a global dim.
+            // mask hits both sides equally. Pushed to 0.62 — the long
+            // vertical sides now read as nearly fully black, matching
+            // the iOS music widget's pronounced rim shadow. Falls off
+            // quickly (clear by 25% in) so the dark band is a tight
+            // rim, not a global dim that flattens the center.
             LinearGradient(
                 stops: [
-                    .init(color: Color.black.opacity(0.48), location: 0.0),
-                    .init(color: Color.black.opacity(0.18), location: 0.10),
+                    .init(color: Color.black.opacity(0.62), location: 0.0),
+                    .init(color: Color.black.opacity(0.26), location: 0.10),
                     .init(color: Color.clear, location: 0.25),
                     .init(color: Color.clear, location: 0.75),
-                    .init(color: Color.black.opacity(0.18), location: 0.90),
-                    .init(color: Color.black.opacity(0.48), location: 1.0)
+                    .init(color: Color.black.opacity(0.26), location: 0.90),
+                    .init(color: Color.black.opacity(0.62), location: 1.0)
                 ],
                 startPoint: .leading,
                 endPoint: .trailing
             )
-            // Bottom lift — softer extra darkening on just the bottom
-            // edge. Sells the "light comes from above" lighting model
-            // and keeps the panel from feeling bottom-heavy.
+            // Bottom lift — extra darkening on the bottom edge.
+            // Sells the "light comes from above" lighting model and
+            // keeps the panel from feeling bottom-heavy. Pushed to
+            // 0.32 to match the stronger side rims.
             LinearGradient(
                 stops: [
                     .init(color: Color.clear, location: 0.0),
-                    .init(color: Color.clear, location: 0.78),
-                    .init(color: Color.black.opacity(0.22), location: 1.0)
+                    .init(color: Color.clear, location: 0.74),
+                    .init(color: Color.black.opacity(0.32), location: 1.0)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -253,13 +254,11 @@ struct PanelRootView: View {
                 // the dark layer has to carry some of the obscuring;
                 // (2) wallpaper hue must still bleed through visibly so
                 // the panel reads as "glass on top of the desktop"
-                // rather than a solid sheet. 0.20 leans toward bleed:
-                // wallpaper color is clearly visible in the center,
-                // body text smears into a soft gradient (with the
-                // .hudWindow blur doing the heavy lifting), and the
-                // vignette layer below adds back the necessary darkness
-                // at the periphery for the rich premium feel.
-                Color.black.opacity(0.20)
+                // rather than a solid sheet. Dropped to 0.12 to lean
+                // hard on bleed-through — wallpaper color now clearly
+                // tints the center, with the much-stronger vignette
+                // below carrying the rim darkness instead.
+                Color.black.opacity(0.12)
                 // Edge vignette — darker sides + bottom for the "rich
                 // premium" vibe the user pointed to in the music widget.
                 // A real glass slab catches less light at its periphery
