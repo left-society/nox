@@ -26,6 +26,19 @@ enum RoutingDecision: Equatable {
 
 enum ClipboardRouter {
     static func decide(pasteboard pb: NSPasteboard = .general) -> RoutingDecision {
+        // Privacy markers, courtesy of nspasteboard.org. Password
+        // managers (1Password, Keychain, Bitwarden) tag concealed
+        // copies; colour pickers and similar transient writers tag
+        // ephemeral copies. Either marker means "don't archive
+        // this anywhere" — so we hard-bail before any auto-routing
+        // takes place. The user opening the panel after copying a
+        // password just lands on whatever tab they were on.
+        let concealed = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+        let transient = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
+        if let types = pb.types, types.contains(concealed) || types.contains(transient) {
+            return .none
+        }
+
         // Video first — yt-dlp-able links pasted as plain text or
         // local mp4/mov file URLs.
         if let candidate = VideoDropScanner.findCandidate(in: pb) {

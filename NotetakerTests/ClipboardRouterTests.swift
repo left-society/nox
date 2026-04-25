@@ -111,6 +111,26 @@ final class ClipboardRouterTests: XCTestCase {
         }
     }
 
+    // MARK: - Privacy markers (org.nspasteboard.*)
+
+    func test_concealedType_returnsNone() {
+        let pb = freshPasteboard()
+        let concealed = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+        pb.declareTypes([.string, concealed], owner: nil)
+        pb.setString("supersecret", forType: .string)
+        pb.setData(Data([0x01]), forType: concealed)
+        XCTAssertEqual(ClipboardRouter.decide(pasteboard: pb), .none)
+    }
+
+    func test_transientType_returnsNone() {
+        let pb = freshPasteboard()
+        let transient = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
+        pb.declareTypes([.string, transient], owner: nil)
+        pb.setString("ephemeral", forType: .string)
+        pb.setData(Data([0x01]), forType: transient)
+        XCTAssertEqual(ClipboardRouter.decide(pasteboard: pb), .none)
+    }
+
     // MARK: - Helpers
 
     private static func makeTinyPNG() -> Data {
