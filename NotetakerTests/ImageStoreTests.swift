@@ -67,4 +67,69 @@ final class ImageStoreTests: XCTestCase {
         let thumb = NSImage(contentsOf: root.appendingPathComponent(rec.thumbPath))
         XCTAssertNotNil(thumb)
     }
+
+    /// Two saves of the same bytes should resolve to the same record —
+    /// hash-based dedup short-circuits the second save before any file
+    /// or DB write happens.
+    func test_saveImage_dedupesByContentHash() throws {
+        let (store, _) = try makeStore()
+        let data = tinyPNGData()
+        let first = try store.saveImage(
+            data: data,
+            mimeType: "image/png",
+            noteId: nil,
+            source: "paste"
+        )
+        let second = try store.saveImage(
+            data: data,
+            mimeType: "image/png",
+            noteId: nil,
+            source: "paste"
+        )
+        XCTAssertEqual(first.id, second.id, "Same bytes must dedup to the same record id")
+        XCTAssertEqual(store.images.count, 1, "Library must contain exactly one row for one unique image")
+        XCTAssertNotNil(first.sha256)
+        XCTAssertEqual(first.sha256?.count, 64, "SHA-256 hex digest is 64 chars")
+    }
+
+    func test_saveImage_distinctBytesProduceDistinctRecords() throws {
+        let (store, _) = try makeStore()
+        let red = tinyPNGData()
+        // A tiny blue PNG so the bytes differ from the red one.
+        let bluePNG: Data = {
+            let rep = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: 10,
+                pixelsHigh: 10,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 40,
+                bitsPerPixel: 32
+            )!
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            NSColor.blue.setFill()
+            NSRect(x: 0, y: 0, width: 10, height: 10).fill()
+            NSGraphicsContext.restoreGraphicsState()
+            return rep.representation(using: .png, properties: [:])!
+        }()
+        let r1 = try store.saveImage(
+            data: red,
+            mimeType: "image/png",
+            noteId: nil,
+            source: "paste"
+        )
+        let r2 = try store.saveImage(
+            data: bluePNG,
+            mimeType: "image/png",
+            noteId: nil,
+            source: "paste"
+        )
+        XCTAssertNotEqual(r1.id, r2.id)
+        XCTAssertNotEqual(r1.sha256, r2.sha256)
+        XCTAssertEqual(store.images.count, 2)
+    }
 }

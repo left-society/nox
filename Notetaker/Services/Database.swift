@@ -132,6 +132,24 @@ final class Database {
             )
         }
 
+        m.registerMigration("v4_image_sha256") { db in
+            // Content hash for duplicate detection. Nullable so legacy
+            // rows from before this migration don't blow up — they
+            // simply don't dedup against new pastes (and the next
+            // duplicate save will produce one redundant record before
+            // it self-heals on subsequent saves of the same content).
+            // Composite index `(sha256, status)` matches the lookup
+            // shape `WHERE sha256 = ? AND status = 'active'`.
+            try db.alter(table: "images") { t in
+                t.add(column: "sha256", .text)
+            }
+            try db.create(
+                index: "idx_images_sha256_status",
+                on: "images",
+                columns: ["sha256", "status"]
+            )
+        }
+
         return m
     }
 }

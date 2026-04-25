@@ -43,6 +43,10 @@ struct ImageRecord: Identifiable, Codable, FetchableRecord, MutablePersistableRe
     var status: String
     var trashedAt: Double?
     var expiresAt: Double?
+    /// Content hash (SHA-256, lowercase hex) for duplicate detection.
+    /// Optional because rows created before migration v4 won't have it
+    /// — those rows simply don't participate in dedup until rewritten.
+    var sha256: String?
 
     static let databaseTableName = "images"
 
@@ -55,10 +59,11 @@ struct ImageRecord: Identifiable, Codable, FetchableRecord, MutablePersistableRe
         static let createdAt = Column("created_at")
         static let trashedAt = Column("trashed_at")
         static let expiresAt = Column("expires_at")
+        static let sha256 = Column("sha256")
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, width, height, source, status
+        case id, width, height, source, status, sha256
         case noteId = "note_id"
         case filePath = "file_path"
         case thumbPath = "thumb_path"

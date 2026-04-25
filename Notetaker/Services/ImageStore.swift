@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CryptoKit
 import GRDB
 import ImageIO
 import UniformTypeIdentifiers
@@ -19,6 +20,14 @@ final class ImageStore: ObservableObject {
     /// after `performSave` completes and applies the clear before
     /// publishing the record.
     private var pendingClearExpiry: Set<String> = []
+    /// Content hashes of saves currently mid-flight, keyed by the
+    /// placeholder id. Two near-simultaneous pastes/screenshots of the
+    /// same image (e.g. screenshot autosave racing the user's manual
+    /// paste of the same screenshot) would both pass the DB check
+    /// before either's `performSave` lands. Tracking inflight hashes
+    /// on the @MainActor closes that window — the second arrival sees
+    /// the first one's claim and bails before writing a duplicate row.
+    private var inflightHashes: [String: String] = [:]
 
     struct InflightUpload: Identifiable {
         let id: String
@@ -70,13 +79,15 @@ final class ImageStore: ObservableObject {
         source: String,
         expiresAt: Double? = nil
     ) throws -> ImageRecord {
-        if let existing = duplicateRecord(for: data) {
+        let sha = Self.sha256Hex(of: data)
+        if let existing = try duplicateRecord(forHash: sha) {
             return existing
         }
         let id = UUID().uuidString
         let record = try Self.performSave(
             id: id,
             data: data,
+            sha256: sha,
             mimeType: mimeType,
             noteId: noteId,
             source: source,
@@ -123,10 +134,50 @@ final class ImageStore: ObservableObject {
                     self.inflight[idx] = InflightUpload(id: id, preview: preview)
                 }
             }
+            // Hash off-main — CryptoKit's SHA-256 is ~1GB/sec on M1
+            // but a 10MB browser TIFF would still cost ~10ms which we
+            // don't want on the main actor.
+            let sha = Self.sha256Hex(of: data)
+
+            // Atomic dedup gate on the main actor: check for any
+            // existing active record OR another save mid-flight with
+            // the same hash, and claim our own slot in the same hop
+            // so a concurrent task can't sneak past.
+            let claim: ClaimResult = await MainActor.run {
+                if self.inflightHashes.values.contains(sha) {
+                    return .duplicate
+                }
+                let existing: ImageRecord?
+                do {
+                    existing = try Self.duplicateRecord(
+                        forHash: sha,
+                        db: db
+                    )
+                } catch {
+                    NSLog("dedup query failed: \(error)")
+                    existing = nil
+                }
+                if existing != nil {
+                    return .duplicate
+                }
+                self.inflightHashes[id] = sha
+                return .claimed
+            }
+
+            if case .duplicate = claim {
+                NSLog("saveImageDeferred dedup hit sha=\(sha.prefix(12))… — dropping placeholder")
+                await MainActor.run {
+                    self.inflight.removeAll { $0.id == id }
+                    self.pendingClearExpiry.remove(id)
+                }
+                return
+            }
+
             do {
                 let record = try Self.performSave(
                     id: id,
                     data: data,
+                    sha256: sha,
                     mimeType: mimeType,
                     noteId: noteId,
                     source: source,
@@ -168,12 +219,14 @@ final class ImageStore: ObservableObject {
                 // captured-var-in-concurrent-code is a Swift 6 hard error.
                 let finalRecord = pendingRecord
                 await MainActor.run {
+                    self.inflightHashes.removeValue(forKey: id)
                     self.inflight.removeAll { $0.id == id }
                     self.images.insert(finalRecord, at: 0)
                 }
             } catch {
                 NSLog("saveImageDeferred failed: \(error)")
                 await MainActor.run {
+                    self.inflightHashes.removeValue(forKey: id)
                     self.inflight.removeAll { $0.id == id }
                     self.pendingClearExpiry.remove(id)
                 }
@@ -182,12 +235,20 @@ final class ImageStore: ObservableObject {
         return id
     }
 
+    /// Result of the atomic check-and-claim performed by the deferred
+    /// save path before it commits to writing a row.
+    private enum ClaimResult {
+        case claimed
+        case duplicate
+    }
+
     /// Heavy-lifting body shared by the sync and deferred save paths.
     /// `nonisolated static` so it can run from any actor — only depends
     /// on its arguments.
     private nonisolated static func performSave(
         id: String,
         data: Data,
+        sha256: String,
         mimeType: String,
         noteId: String?,
         source: String,
@@ -218,7 +279,8 @@ final class ImageStore: ObservableObject {
             createdAt: Date().timeIntervalSince1970,
             status: "active",
             trashedAt: nil,
-            expiresAt: expiresAt
+            expiresAt: expiresAt,
+            sha256: sha256
         )
         try db.dbQueue.write { try record.insert($0) }
         return record
@@ -318,17 +380,32 @@ final class ImageStore: ObservableObject {
 
     // MARK: - Helpers
 
-    // Scans the most recent active images and returns the first one whose
-    // bytes match the incoming data. Stops after a small window so this stays
-    // cheap even with large libraries.
-    private func duplicateRecord(for data: Data) -> ImageRecord? {
-        let window = 8
-        for record in images.prefix(window) {
-            let url = fullURL(for: record)
-            guard let existing = try? Data(contentsOf: url) else { continue }
-            if existing == data { return record }
+    /// Looks up an existing active image by SHA-256 hash. Indexed query
+    /// — O(log N) regardless of library size, and ignores the in-memory
+    /// `images` array so it works the same on the @MainActor and from
+    /// detached tasks (the latter pass `db` directly).
+    private func duplicateRecord(forHash sha: String) throws -> ImageRecord? {
+        try Self.duplicateRecord(forHash: sha, db: db)
+    }
+
+    private nonisolated static func duplicateRecord(
+        forHash sha: String,
+        db: Database
+    ) throws -> ImageRecord? {
+        try db.dbQueue.read { conn in
+            try ImageRecord
+                .filter(ImageRecord.Columns.sha256 == sha)
+                .filter(ImageRecord.Columns.status == "active")
+                .fetchOne(conn)
         }
-        return nil
+    }
+
+    /// SHA-256 hex digest of `data`. CryptoKit-backed, ~1GB/sec on
+    /// Apple silicon — fast enough to call from the sync path on
+    /// reasonable image sizes; the deferred path runs it off-main
+    /// anyway as defense against multi-MB browser drags.
+    nonisolated static func sha256Hex(of data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private nonisolated static func ext(for mime: String) -> String {
