@@ -40,27 +40,46 @@ private struct NowPlayingNotchShape: Shape {
     }
 }
 
-/// Alcove-style now-playing HUD pill. Extends out of the notch with the
-/// current track artwork, title, artist, and a play/pause + skip control
-/// strip. Same vocabulary as the charging pill (solid black slab, flat
-/// top, rounded bottom, downward shadow) — just bigger and interactive.
+/// Alcove-style now-playing HUD pill — the COLLAPSED indicator that
+/// emerges out of the notch / top-middle of the screen whenever the
+/// user has audio playing. It is intentionally minimal: a tiny album-art
+/// tile on the left, a tiny waveform on the right, and nothing else.
 ///
-/// The view receives a fully-resolved `NowPlayingInfo` from the
-/// orchestrator. Commands are dispatched up via `onCommand` so the
-/// view stays free of MediaRemote dependencies (testable in previews
-/// without the framework loaded).
+/// Why so small? The user wants Alcove parity ("we need exactly the
+/// same as theirs"). Alcove's collapsed HUD is a status indicator first,
+/// not a remote control. Title, artist, and transport buttons live on
+/// the EXPANDED music panel (PanelRootView's .music tab) — the user
+/// reaches them by tapping the pill, which opens the full panel via
+/// the orchestrator's hover-intent dwell.
+///
+/// The earlier version of this view rendered a 380×56 strip with title,
+/// artist, waveform, and three transport buttons all in the closed
+/// state. The user described that as "Down one is ours top one is their,
+/// we need exactly the same as theirs" — i.e. shrink to a glanceable
+/// indicator and let the panel handle the heavy lifting. This rewrite
+/// strips the closed pill back to the artwork + waveform pair shown in
+/// Alcove.
 struct NowPlayingPillView: View {
     let info: NowPlayingInfo
     let isShown: Bool
     let onCommand: (MediaRemoteService.Command) -> Void
 
-    /// Inner pill geometry. Wider than the charging pill (380 vs 240)
-    /// because we have artwork + two text rows + waveform + three transport
-    /// buttons to fit. Height 56 vs charging's 40 — a hair taller so the
-    /// artwork has room to breathe without choking the text rows.
-    private static let pillWidth: CGFloat = 380
-    private static let pillHeight: CGFloat = 56
-    private static let pillBottomRadius: CGFloat = 22
+    /// Inner pill geometry. Matches Alcove's resting pill — about 320pt
+    /// wide, ~32pt tall, with a 16pt bottom-corner radius. On notched
+    /// MacBooks (M1/M2/M3 Pro) the ~210pt notch sits inside the middle
+    /// of this width: artwork on the LEFT of the notch, waveform on
+    /// the RIGHT, black middle bleeding across (and behind) the notch
+    /// hardware. That wraparound is what makes the pill read as a
+    /// Dynamic Island, not a floating bar. On non-notched displays it
+    /// just reads as a wide compact pill fused with the menu bar.
+    ///
+    /// The earlier 600pt value was too wide — the user pointed out
+    /// "now it's too large and not even on the top." 320pt matches
+    /// Alcove's exact geometry and reads correctly on both notched
+    /// and non-notched displays.
+    private static let pillWidth: CGFloat = 320
+    private static let pillHeight: CGFloat = 32
+    private static let pillBottomRadius: CGFloat = 16
 
     private var currentWidth: CGFloat { isShown ? Self.pillWidth : 0 }
     private var currentHeight: CGFloat { isShown ? Self.pillHeight : 0 }
@@ -69,24 +88,13 @@ struct NowPlayingPillView: View {
     /// Motion-blur radius keyed to `isShown`. When the pill is settled
     /// (steady-state visible OR fully collapsed) the value is 0 so the
     /// content reads crisp; during the spring transition this animates
-    /// past a peak of ~7pt, which masks per-frame jank that's otherwise
-    /// visible when the spring crosses zero. Same trick the user
-    /// explicitly asked for ("use motion blur, sometimes small lags can
-    /// be fixed by the motion blur") — and the same trick Apple uses
-    /// on Dynamic Island morphs and Stage Manager card transitions.
-    ///
-    /// We can't simply do `isShown ? 0 : 7` because that would leave the
-    /// pill stuck at 7pt blur when collapsed, smearing the briefly-
-    /// visible silhouette during orderOut. Driving via a derived
-    /// keyframe-style value (peak during transit, zero at both ends)
-    /// gives us a true motion-blur arc.
+    /// past a peak of ~5pt, which masks per-frame jank that's otherwise
+    /// visible when the spring crosses zero. Smaller peak than the old
+    /// fat pill (was 7pt) because the smaller silhouette has less area
+    /// for the eye to read jank in — too much blur on a 30pt-tall pill
+    /// reads as broken rendering instead of motion.
     private var motionBlurRadius: CGFloat {
-        // Single Boolean source → simple two-state mapping. The blur
-        // animates between these two values along the same spring as
-        // the size, so the peak value lands at the height of the spring
-        // overshoot (where jank is most visible) and falls to 0 as the
-        // spring settles.
-        isShown ? 0 : 7
+        isShown ? 0 : 5
     }
 
     var body: some View {
@@ -114,32 +122,24 @@ struct NowPlayingPillView: View {
     // MARK: - Inner pill
 
     private var innerPill: some View {
-        // Closed-pill layout: artwork on the FAR LEFT, title+artist
-        // filling the middle, then a small waveform tell, and finally
-        // a 3-button transport cluster (back / play-pause / forward) on
-        // the FAR RIGHT. The user reported the prior layout (waveform
-        // only, no transport) as missing functionality — they want to
-        // be able to pause/skip without opening the main panel. This
-        // mirrors the OPEN state of Alcove's pill, which IS a remote;
-        // the slight loss of glanceability vs the strict "status only"
-        // interpretation is worth it for the one-cursor-flick control
-        // surface the user explicitly asked for.
+        // Closed-pill layout: just artwork on the left, waveform on the
+        // right. Title, artist, and transport controls intentionally
+        // omitted — they live in the EXPANDED music panel. The user
+        // explicitly compared this against Alcove and asked for parity.
         HStack(spacing: 8) {
             artwork
-            titleStack
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 0)
             WaveformView(
                 isPlaying: info.isPlaying,
                 width: 22,
                 height: 14,
                 lineWidth: 1.4,
                 tint: .white,
-                opacity: 0.78
+                opacity: 0.85
             )
-            controls
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
         // Content fades in AFTER the shell finishes growing — same
         // pattern as ChargingPillView and the main panel. Mirrors the
         // perceived "shell first, then UI" sequence the user reads as
@@ -152,68 +152,10 @@ struct NowPlayingPillView: View {
             value: isShown
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(pillBackground)
+        .background(Color.black)
         .clipShape(NowPlayingNotchShape(bottomRadius: currentRadius))
         // Downward-only drop shadow, same as charging pill.
-        .shadow(color: Color.black.opacity(0.45), radius: 14, x: 0, y: 8)
-    }
-
-    // MARK: - Gradient artwork backdrop
-    //
-    // The user asked for the pill to "take the color from the thumbnail
-    // with gradient" — Alcove parity. We achieve that by stacking three
-    // layers behind the content row:
-    //
-    //   1. Color.black — the fallback / unconditional base, so when no
-    //      artwork is published (Safari without og:image, podcasts with
-    //      missing art) the pill still reads as the same solid slab the
-    //      charging pill uses. Also acts as the "cake" the artwork blur
-    //      sits on top of, so a partially-transparent blur composites
-    //      against black instead of the desktop wallpaper.
-    //
-    //   2. The blurred artwork itself, scaled to fill and blurred at a
-    //      large radius (40pt). The aspect-fill + blur produces an
-    //      organic colored wash — dominant hues bleed across the whole
-    //      pill instead of showing a recognizable mini album cover. The
-    //      0.7 opacity keeps colors saturated enough to read as "this
-    //      pill belongs to the song" without overwhelming the text.
-    //
-    //   3. A horizontal black gradient layered ON TOP of the artwork
-    //      backdrop. The gradient is lightest at the leading edge (where
-    //      the actual album thumbnail lives — letting the artwork's
-    //      colors visibly blend with the blurred wash behind it) and
-    //      darkest at the trailing edge (where the title/artist text
-    //      and transport controls live — guaranteeing legibility against
-    //      light/colorful artwork like Sabrina Carpenter's pink covers).
-    //      Without this gradient, white text on a busy bright artwork
-    //      would smear into illegibility.
-    //
-    // The crisp foreground album-art tile (rendered by `artwork` above
-    // and clipped to a small rounded rect) sits ON TOP of all of this,
-    // so the user sees both the recognizable thumbnail AND the colorful
-    // backdrop derived from it — same dual-layer trick Apple Music's
-    // mini-player uses.
-    private var pillBackground: some View {
-        ZStack {
-            Color.black
-            if let data = info.artworkData, let img = NSImage(data: data) {
-                Image(nsImage: img)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .blur(radius: 40, opaque: true)
-                    .opacity(0.7)
-                    .allowsHitTesting(false)
-                LinearGradient(
-                    colors: [
-                        Color.black.opacity(0.25),
-                        Color.black.opacity(0.50),
-                        Color.black.opacity(0.65)
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            }
-        }
+        .shadow(color: Color.black.opacity(0.45), radius: 10, x: 0, y: 6)
     }
 
     // MARK: - Artwork
@@ -233,109 +175,13 @@ struct NowPlayingPillView: View {
                 ZStack {
                     Color.white.opacity(0.08)
                     Image(systemName: "music.note")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.55))
                 }
             }
         }
-        .frame(width: 40, height: 40)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-
-    // MARK: - Title / artist text
-
-    private var titleStack: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(info.title.isEmpty ? "Unknown title" : info.title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            Text(info.artist.isEmpty ? " " : info.artist)
-                .font(.system(size: 10.5))
-                .foregroundStyle(.white.opacity(0.6))
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-    }
-
-    // MARK: - Playback controls
-
-    private var controls: some View {
-        HStack(spacing: 2) {
-            ControlButton(
-                systemName: "backward.fill",
-                size: 10,
-                action: { onCommand(.previous) }
-            )
-            ControlButton(
-                // Filled glyph swap on play state. Apple uses the same
-                // pattern in Control Center — viewers parse it as
-                // "press here to do the OPPOSITE of what's shown".
-                systemName: info.isPlaying ? "pause.fill" : "play.fill",
-                size: 13,
-                action: { onCommand(.togglePlayPause) }
-            )
-            ControlButton(
-                systemName: "forward.fill",
-                size: 10,
-                action: { onCommand(.next) }
-            )
-        }
-    }
-}
-
-/// Round, hover-tinted icon button. Sized to fit the 56-tall pill
-/// without crowding the artwork or text. Each button is its own
-/// invisible 24×24 hit target so users with larger cursors don't
-/// miss-click between glyphs.
-private struct ControlButton: View {
-    let systemName: String
-    let size: CGFloat
-    let action: () -> Void
-
-    @State private var isHovered = false
-    @State private var isPressed = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: size, weight: .semibold))
-                .foregroundStyle(.white.opacity(isHovered ? 0.95 : 0.78))
-                .frame(width: 24, height: 24)
-                .background(
-                    Circle()
-                        .fill(Color.white.opacity(isHovered ? 0.10 : 0))
-                )
-                .scaleEffect(isPressed ? 0.92 : 1.0)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.12)) {
-                isHovered = hovering
-            }
-        }
-        // Press visual feedback — gives the button some life on click,
-        // since macOS buttons don't get the auto-tilt that iOS gives
-        // them. Tracks via a TapGesture wrapped in DragGesture so we
-        // catch press-in/press-out states.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    if !isPressed {
-                        withAnimation(.easeOut(duration: 0.08)) {
-                            isPressed = true
-                        }
-                    }
-                }
-                .onEnded { _ in
-                    withAnimation(.easeOut(duration: 0.12)) {
-                        isPressed = false
-                    }
-                }
-        )
+        .frame(width: 22, height: 22)
+        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
     }
 }
 
@@ -358,8 +204,8 @@ private struct ControlButton: View {
         )
         NowPlayingPillView(
             info: NowPlayingInfo(
-                title: "A Really Long Track Title That Will Truncate",
-                artist: "Some Long Artist Name",
+                title: "Paused",
+                artist: "—",
                 album: nil,
                 artworkData: nil,
                 isPlaying: false,
@@ -372,6 +218,6 @@ private struct ControlButton: View {
             onCommand: { _ in }
         )
     }
-    .frame(width: 380, height: 200)
+    .frame(width: 200, height: 120)
     .background(Color.gray.opacity(0.2))
 }

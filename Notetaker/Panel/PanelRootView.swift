@@ -78,6 +78,25 @@ struct PanelRootView: View {
     /// content-fade transition.
     @State private var notchOverlap: CGFloat = PanelWindowController.notchOverlap(for: NSScreen.main)
 
+    /// Bottom-corner radius for the panel silhouette. 16pt when sitting
+    /// at the resting closed-pill geometry (gives quarter-circle corners
+    /// reading as a pill), 34pt when expanded into the slab (subtle
+    /// squircle reading as a HUD card). SwiftUI animates this via the
+    /// chained `.animation(.easeOut(duration: 0.18), value: presenter.isShown)`
+    /// modifier on the parent — `UnevenRoundedRectangle` interpolates
+    /// `RectangleCornerRadii` continuously, so the corners morph in
+    /// lockstep with the panel-frame morph driven by Core Animation.
+    /// During the ~450ms expand animation the SwiftUI radius animation
+    /// (0.18s) lands first, but the corners are barely visible during
+    /// the early part of the morph (panel still close to pill size, so
+    /// the bottom edge fills the visible silhouette regardless of
+    /// radius) — the visual handoff reads as one continuous shape change.
+    private var panelBottomRadius: CGFloat {
+        presenter.isShown
+            ? PanelWindowController.innerCornerRadius
+            : PanelWindowController.pillCornerRadius
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -112,18 +131,27 @@ struct PanelRootView: View {
         panelBackground
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipShape(panelSilhouette)
+            .overlay(alignment: .top) { pillContentOverlay }
             .overlay(alignment: .top) { contentOverlay }
             .overlay { borderStroke }
             .overlay { dropRingOverlay }
             .padding(.horizontal, PanelWindowController.haloPadding)
             .padding(.bottom, PanelWindowController.haloPadding)
             .ignoresSafeArea(.all, edges: .top)
-            // Single-axis state animation: only the content opacity
-            // (shown / hidden) and the shadow params interpolate when
-            // `presenter.isShown` flips. Frame and radius DO NOT
-            // animate here — those are NSPanel-level Core Animation
-            // (see PanelWindowController.animateOpen / animateClose).
-            .animation(.easeOut(duration: 0.18), value: presenter.isShown)
+            // Single-axis state animation: content opacity, shadow
+            // params, AND the bottom-corner radius interpolation
+            // (UnevenRoundedRectangle's `RectangleCornerRadii` is
+            // animatable) all run on this one timeline. Frame morph
+            // is driven separately at the NSPanel level via Core
+            // Animation (see PanelWindowController.animateOpen).
+            //
+            // `.smooth` is SwiftUI's interpolating-spring preset —
+            // settled landing, no overshoot. Same Animation value
+            // Alcove uses (the literal `smooth` is in their binary
+            // alongside damping/stiffness symbols), and it gives the
+            // radius morph a calmer, more "premium hardware" feel
+            // than a linear ease-out on the corner shape.
+            .animation(.smooth, value: presenter.isShown)
             .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
             // PERF GATE: both shadows render only when isShown=true.
             // During the morph itself both radii are 0 — SwiftUI's
@@ -208,7 +236,123 @@ struct PanelRootView: View {
         .padding(.top, notchOverlap)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .opacity(presenter.isShown ? 1 : 0)
+        // Progressive-blur materialization. When the panel is closed
+        // (or morphing toward closed), the content tree is rendered
+        // with a 10pt gaussian blur; as `presenter.isShown` flips true
+        // the blur animates to 0 alongside the parent's `.smooth`
+        // animation. The user sees the header / segmented bar / list
+        // dissolve INTO focus rather than fade in flat — same
+        // "progressive blur" effect Alcove ships (its binary contains
+        // a `progressiveBlurTransitionTask` symbol). The 10pt radius
+        // is heavy enough to feel like the content is materializing
+        // (not just appearing), but light enough that mid-morph reads
+        // are still legible — typography stays decipherable through
+        // the blur, so the transition feels like a focus pull rather
+        // than a fog-of-war reveal.
+        //
+        // SwiftUI's `.blur` runs as a Metal filter on the off-screen
+        // surface for this overlay only. Cost is proportional to the
+        // surface area × radius²; at 10pt with a ~380×480 slab this
+        // is well under one frame's GPU budget on Apple Silicon. We
+        // pay it only during the ~0.5s morph (radius 0 outside the
+        // animation, so the steady-state cost is zero).
+        .blur(radius: presenter.isShown ? 0 : 10)
         .allowsHitTesting(presenter.isShown)
+    }
+
+    // MARK: - Pill content overlay (resting now-playing indicator)
+
+    /// Artwork + waveform pill body — rendered inside the SAME NSPanel
+    /// that hosts the full slab content, so the resting pill and the
+    /// expanded slab are literally one window morphing. This is the
+    /// architectural shift the user asked for: "the pill should be
+    /// always there... when you press the cursor to that, it just
+    /// expands the music thing." Confirmed against Alcove's binary
+    /// (NotchController + NotchPanel + _isExpanded/_isHovering flags
+    /// in `/Applications/Alcove.app/Contents/MacOS/Alcove`).
+    ///
+    /// Visibility gate: `isResting && !isShown`. Mutually exclusive with
+    /// `contentOverlay` (which is gated on `isShown`). When the panel
+    /// expands, isShown flips true → pill fades out as the full content
+    /// fades in. The 0.18s easeOut on the parent runs both crossfades
+    /// in lockstep alongside the Core Animation frame morph.
+    ///
+    /// Layout: the pill content (artwork + waveform) sits ENTIRELY
+    /// within the notch+menu-bar zone (the upper `notchOverlap` of the
+    /// panel, ~32pt on a 16"/14" notched Mac). With closedPillBump=0pt
+    /// there is no visible-below-menu-bar strip — the content reads as
+    /// if it's PART OF the notch hardware itself, the same trick Alcove
+    /// uses. Pixel measurement of `/Applications/Alcove.app` showed
+    /// their resting pill silhouette ends at y=31.5pt — half a point
+    /// shy of the menu-bar bottom — and content is rendered in the
+    /// lower portion of the notch zone (below the camera lens). HStack
+    /// with 14pt artwork + 16×8 waveform, centered vertically within
+    /// the 32pt notch zone with horizontal padding tuned so the pair
+    /// reads as integrated rather than crammed.
+    @ViewBuilder
+    private var pillContentOverlay: some View {
+        HStack(spacing: 6) {
+            pillArtwork
+            Spacer(minLength: 0)
+            WaveformView(
+                isPlaying: presenter.nowPlaying?.isPlaying ?? false,
+                width: 16,
+                height: 8,
+                lineWidth: 1.2,
+                tint: .white,
+                opacity: 0.85
+            )
+        }
+        .padding(.horizontal, 10)
+        // Content fills exactly the notch+menu-bar zone (notchOverlap),
+        // centered vertically. The HStack's children (14pt artwork +
+        // 16×8 waveform) end up roughly centered vertically inside the
+        // 32pt zone — clears the camera lens (top of notch) AND the
+        // menu-bar bottom edge with a few points of breathing room
+        // above and below.
+        .frame(height: notchOverlap)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .opacity(presenter.isResting && !presenter.isShown ? 1 : 0)
+        // Symmetric dissolve on the pill artwork+waveform during
+        // the morph TO slab. At rest (isResting && !isShown) the
+        // pill body is sharp; the moment isShown flips the pill
+        // content blurs out alongside its opacity fade so it dissolves
+        // INTO the materializing slab content rather than just popping
+        // out. Smaller radius (6pt) than the slab's 10pt because the
+        // pill content is tiny (16×16 artwork + 16×10 waveform) — a
+        // larger blur would smear it into invisibility instantly,
+        // whereas 6pt lets it ghost briefly during the cross-fade.
+        .blur(radius: presenter.isResting && !presenter.isShown ? 0 : 6)
+        .allowsHitTesting(false)
+    }
+
+    /// 14×14 album-art tile sized to fit inside the 32pt notch zone
+    /// (downsized from 16pt to clear the camera lens above and the
+    /// menu-bar bottom below with a few points of breathing room).
+    /// Reads cleanly at retina without dominating — proportions match
+    /// Alcove's resting-pill thumbnail. Kept inline rather than
+    /// imported because NowPlayingPillView is gated on its own isShown /
+    /// motion-blur state machine that doesn't apply inside the unified
+    /// panel.
+    @ViewBuilder
+    private var pillArtwork: some View {
+        Group {
+            if let data = presenter.nowPlaying?.artworkData,
+               let img = NSImage(data: data) {
+                Image(nsImage: img)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                ZStack {
+                    Color.white.opacity(0.08)
+                    Image(systemName: "music.note")
+                        .font(.system(size: 7, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+            }
+        }
+        .frame(width: 14, height: 14)
+        .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
     }
 
     // MARK: - Background layers
@@ -251,18 +395,20 @@ struct PanelRootView: View {
 
     // MARK: - Silhouette
 
-    /// Static panel silhouette — flat top edge fused with the menu-bar
-    /// zone (top corners square), squircle-style 34pt rounded bottom
-    /// corners. Fixed radius (no `currentRadius` morph state). Apple's
-    /// `UnevenRoundedRectangle` is internally optimized for per-corner
-    /// rendering; SwiftUI re-clips against new NSHostingView bounds
-    /// each frame of the NSPanel.frame morph for free.
+    /// Panel silhouette — flat top edge fused with the menu-bar zone
+    /// (top corners square), and a state-dependent bottom-corner radius.
+    /// 16pt when resting (closed-pill quarter-circle corners), 34pt
+    /// when expanded (slab squircle). SwiftUI re-clips against the
+    /// morphing NSHostingView bounds each frame of the NSPanel.frame
+    /// Core Animation morph, and the `RectangleCornerRadii`
+    /// interpolation handles the radius transition so the silhouette
+    /// shape changes smoothly alongside the size morph.
     private var panelSilhouette: some Shape {
         UnevenRoundedRectangle(
             cornerRadii: RectangleCornerRadii(
                 topLeading: 0,
-                bottomLeading: PanelWindowController.innerCornerRadius,
-                bottomTrailing: PanelWindowController.innerCornerRadius,
+                bottomLeading: panelBottomRadius,
+                bottomTrailing: panelBottomRadius,
                 topTrailing: 0
             ),
             style: .continuous

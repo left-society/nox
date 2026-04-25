@@ -1,35 +1,37 @@
 import SwiftUI
 import AppKit
 
-/// The "music page" surface — a deliberately lightweight view that
-/// mounts in well under one frame so it can serve as the first content
-/// the user sees when opening the panel during playback.
+/// Alcove-style compact music HUD — small album-art tile on the left,
+/// title/artist stacked next to it, a small live-audio waveform on the
+/// trailing edge, then a scrubbable progress bar and the three transport
+/// controls beneath. This is the "music page" surface the panel routes
+/// to when audio is playing.
 ///
-/// Why this exists at all: the previous open path defaulted the user
-/// onto NotesListView (or whichever auto-route fired), and that view's
-/// first paint is heavy — composer with @FocusState, ScrollView with
-/// LazyVStack of NoteRows, each NoteRow firing `onAppear` to ensure
-/// link previews, FaviconView decoding NSImages async. Even with the
-/// always-mount + opacity-gate refactor, that first-visibility burst
-/// of work landed inside the panel-morph window and read as residual
-/// lag. The user described the desired behavior plainly: "when music
-/// is playing, it should only open the music player… in the background
-/// it will load everything else."
+/// Why this shape (vs. the earlier tall vertical column with a 180pt
+/// album-art tile and a ~480pt total content height): the fixed-height
+/// slab couldn't contain the previous layout — the bottom row of
+/// controls and source badge spilled past the silhouette's rounded
+/// bottom corners and into the haloPadding margin where the black
+/// background was no longer painted. The user explicitly referenced
+/// Alcove ("the alcove one is what i want") with a screenshot showing
+/// a dense horizontal info-row + linear progress + 3-button cluster
+/// that fits in roughly 200pt of vertical content. This file matches
+/// that shape; `PanelWindowController.innerPanelHeight(for:)` separately
+/// shrinks the slab when `.music` is the active tab so the black
+/// background actually wraps the content.
 ///
-/// MusicPanelView is the answer: when music is playing, the panel
-/// auto-routes to this surface on open. Mount cost is dominated by
-/// one optional `NSImage(data:)` for the artwork — no scroll content,
-/// no list, no async fetches, no focus state. The user sees the
-/// panel arrive and the player is already painted; switching to
-/// Notes / Images / Videos / Files is then a deliberate click
-/// further along, by which point the morph is long settled and any
-/// per-tab mount cost is invisible.
+/// Mount cost is still tiny — the heaviest thing in here is the
+/// optional `NSImage(data:)` decode for artwork, which is fast because
+/// the data is already in memory (came across the MediaRemote
+/// notification payload). No async fetches, no scroll content, no
+/// list — same lightweight first-paint posture that made this view the
+/// auto-route default during playback.
 ///
 /// Bindings:
 /// - `presenter.nowPlaying`: source of truth, forwarded here from
-///   `MediaRemoteService` via `NotchOrchestrator` (see AppDelegate
-///   wiring). Re-renders happen exactly when the snapshot changes —
-///   title flip, play↔pause, artwork swap.
+///   `MediaRemoteService` via `NotchOrchestrator`. Re-renders happen
+///   exactly when the snapshot changes — title flip, play↔pause,
+///   artwork swap.
 /// - `presenter.onMediaCommand`: closure to dispatch play/pause/skip.
 ///   Owned by NotchOrchestrator's MediaRemoteService; wired in once
 ///   at launch.
@@ -37,80 +39,66 @@ struct MusicPanelView: View {
     @EnvironmentObject var presenter: PanelPresenter
 
     var body: some View {
-        ZStack {
-            gradientBackdrop
-            VStack(spacing: 16) {
-                artwork
-                metadata
-                progressBar
-                controls
-                sourceBadge
-                Spacer(minLength: 0)
+        VStack(spacing: 14) {
+            infoRow
+            progressBar
+            transportControls
+            sourceBadge
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, DS.Spacing.md)
+        .padding(.top, DS.Spacing.md)
+        .padding(.bottom, DS.Spacing.md)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    // MARK: - Top info row
+    //
+    // Artwork + title/artist + waveform, all in a single horizontal
+    // strip. This is the primary visual anchor of the music HUD —
+    // mirrors the Alcove reference where the art tile reads as the
+    // "what's playing" surface and the text reads to the right of it.
+    // The waveform on the trailing edge is the same primitive the closed
+    // notch pill uses, giving the two surfaces a shared "audio is
+    // alive" tell.
+
+    private var infoRow: some View {
+        HStack(alignment: .center, spacing: 12) {
+            artwork
+            VStack(alignment: .leading, spacing: 2) {
+                Text(presenter.nowPlaying?.title ?? "Nothing playing")
+                    .font(.nkBody.weight(.semibold))
+                    .foregroundStyle(DS.Color.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(artistLine)
+                    .font(.nkLabel)
+                    .foregroundStyle(DS.Color.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
-            .padding(.horizontal, DS.Spacing.md)
-            .padding(.top, DS.Spacing.md)
-            .padding(.bottom, DS.Spacing.md)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            WaveformView(
+                isPlaying: presenter.nowPlaying?.isPlaying ?? false,
+                width: 22,
+                height: 12,
+                lineWidth: 1.4,
+                tint: DS.Color.textPrimary,
+                opacity: 0.85
+            )
         }
     }
 
-    // MARK: - Gradient artwork backdrop
-    //
-    // Same vocabulary as the closed notch pill — when album artwork is
-    // available, paint a heavily-blurred copy of it behind the music
-    // page content so the dominant colors of the song bleed into the
-    // surface itself. Alcove parity. Bigger blur radius (70pt vs the
-    // pill's 40pt) because the canvas is much larger here and a tighter
-    // blur would let recognizable shapes from the artwork peek through;
-    // we want a smooth wash of color, not a visible smeared thumbnail.
-    //
-    // The vertical gradient over the top is darker on the BOTTOM half
-    // because that's where the metadata text, scrubber digits, and
-    // transport-button glyphs live — those need contrast against the
-    // potentially-bright artwork wash. The top half stays lighter so
-    // the user sees the artwork's colors at full saturation directly
-    // behind the crisp album-art tile (the artwork view above sits
-    // ON TOP of this backdrop, doubling up the visual association
-    // between the song and its color palette).
-    //
-    // The whole layer is gated on artwork being present — when there's
-    // no artwork (Safari without og:image, podcasts with missing art)
-    // the backdrop collapses to nothing and the panel's regular black
-    // background shows through, so the music page degrades gracefully
-    // to look identical to the other panel pages.
-    @ViewBuilder
-    private var gradientBackdrop: some View {
-        if let data = presenter.nowPlaying?.artworkData,
-           let img = NSImage(data: data) {
-            ZStack {
-                Image(nsImage: img)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .blur(radius: 70, opaque: true)
-                    .opacity(0.55)
-                    .allowsHitTesting(false)
-                LinearGradient(
-                    colors: [
-                        Color.black.opacity(0.30),
-                        Color.black.opacity(0.55),
-                        Color.black.opacity(0.65)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
-            .allowsHitTesting(false)
-        }
-    }
+    // MARK: - Artwork
 
-    // MARK: - Subviews
-
-    /// Square album art with a soft drop shadow. Decoded inline because
-    /// the data is already in memory (came across the MediaRemote
-    /// notification payload) — no disk I/O, no network fetch, no
-    /// expensive transforms. Falls back to a styled placeholder so the
-    /// view still mounts cleanly when artwork hasn't arrived yet (some
-    /// apps send the title burst first, then artwork on a follow-up).
+    /// Square album art at a fixed 72pt — small enough to leave room
+    /// for the title/artist strip, large enough to read as the visual
+    /// anchor of the row. Decoded inline because the data is already
+    /// in memory (came across the MediaRemote payload). Falls back to
+    /// a styled placeholder so the view still mounts cleanly when
+    /// artwork hasn't arrived yet (some apps send title burst first,
+    /// artwork on a follow-up notification).
     private var artwork: some View {
         Group {
             if let data = presenter.nowPlaying?.artworkData,
@@ -123,14 +111,13 @@ struct MusicPanelView: View {
                 placeholderArt
             }
         }
-        .aspectRatio(1, contentMode: .fit)
-        .frame(maxWidth: 180)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .frame(width: 72, height: 72)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
         )
-        .shadow(color: Color.black.opacity(0.45), radius: 14, x: 0, y: 8)
+        .shadow(color: Color.black.opacity(0.45), radius: 10, x: 0, y: 6)
     }
 
     private var placeholderArt: some View {
@@ -144,27 +131,9 @@ struct MusicPanelView: View {
                 endPoint: .bottomTrailing
             )
             Image(systemName: "music.note")
-                .font(.system(size: 40, weight: .light))
+                .font(.system(size: 24, weight: .light))
                 .foregroundStyle(DS.Color.textTertiary)
         }
-    }
-
-    private var metadata: some View {
-        VStack(spacing: 2) {
-            Text(presenter.nowPlaying?.title ?? "Nothing playing")
-                .font(.nkBody.weight(.semibold))
-                .foregroundStyle(DS.Color.textPrimary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .multilineTextAlignment(.center)
-            Text(artistLine)
-                .font(.nkLabel)
-                .foregroundStyle(DS.Color.textSecondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
     }
 
     /// Combines artist + album when both are present, falls back to
@@ -180,21 +149,23 @@ struct MusicPanelView: View {
         return artist
     }
 
-    /// Alcove-style horizontal scrubber. We render it whenever the
-    /// MediaRemote payload includes both a duration and a positional
-    /// snapshot (Spotify and Apple Music always do; YouTube tabs in
-    /// Safari typically don't, and the bar collapses gracefully when
-    /// timing isn't available — controls and metadata still stand
-    /// alone).
-    ///
-    /// Smoothness: MediaRemote only refreshes its snapshot every ~1s
-    /// during playback, so naïvely binding to `elapsedTime` would step
-    /// the bar in 1s jumps. Instead we drive a `TimelineView` that
-    /// re-evaluates `info.currentPosition(at:)` four times a second —
-    /// cheap, since the helper is just `elapsedTime + drift` arithmetic.
-    /// When the user pauses, `currentPosition` returns the snapshot's
-    /// elapsedTime as a constant, so the bar freezes in place without
-    /// us doing anything special.
+    // MARK: - Progress bar
+    //
+    // Alcove-style horizontal scrubber. We render it whenever the
+    // MediaRemote payload includes both a duration and a positional
+    // snapshot (Spotify and Apple Music always do; YouTube tabs in
+    // Safari typically don't, and the bar collapses gracefully when
+    // timing isn't available — controls and metadata still stand alone).
+    //
+    // Smoothness: MediaRemote only refreshes its snapshot every ~1s
+    // during playback, so naïvely binding to `elapsedTime` would step
+    // the bar in 1s jumps. Instead we drive a `TimelineView` that
+    // re-evaluates `info.currentPosition(at:)` four times a second —
+    // cheap, since the helper is just `elapsedTime + drift` arithmetic.
+    // When the user pauses, `currentPosition` returns the snapshot's
+    // elapsedTime as a constant, so the bar freezes in place without
+    // us doing anything special.
+
     @ViewBuilder
     private var progressBar: some View {
         if let info = presenter.nowPlaying,
@@ -257,7 +228,15 @@ struct MusicPanelView: View {
         return String(format: "%d:%02d", mins, secs)
     }
 
-    private var controls: some View {
+    // MARK: - Transport controls
+
+    /// Three buttons — prev / play-pause / next — sized identically to
+    /// the previous vertical layout (44pt hit area, 18 / 26 / 18pt
+    /// glyphs). Spacing is wider here than the old design because the
+    /// row sits in a much shorter content area and needs to read as
+    /// the focal point; clustering the three buttons closer would make
+    /// the row feel cramped against the progress bar above it.
+    private var transportControls: some View {
         HStack(spacing: 28) {
             controlButton(
                 systemImage: "backward.fill",
@@ -285,13 +264,8 @@ struct MusicPanelView: View {
                 presenter.onMediaCommand?(.next)
             }
         }
-        .padding(.top, 4)
     }
 
-    /// Hover-aware circular button. The buttons are visually quiet
-    /// (no chip background by default) so the metadata reads as the
-    /// primary content; hovering brings up a subtle disc to confirm
-    /// the hit target.
     @ViewBuilder
     private func controlButton(
         systemImage: String,
@@ -307,33 +281,25 @@ struct MusicPanelView: View {
         )
     }
 
-    /// Tiny "playing in <App>" credit at the bottom plus a small
-    /// audio-bar visualizer. Helps the user orient when multiple media
-    /// apps are open simultaneously (Spotify in the background, Safari
-    /// with a YouTube tab in front, etc.) — the source bundle is the
-    /// only reliable signal for which app a play/pause command will
-    /// land on. The visualizer is the same primitive as the notch HUD
-    /// pill (WaveformView) so the two surfaces share the same "audio
-    /// is alive" tell.
+    // MARK: - Source badge
+    //
+    // Tiny "playing in <App>" credit underneath the controls — helps
+    // the user orient when multiple media apps are open simultaneously
+    // (Spotify in the background, Safari with a YouTube tab in front,
+    // etc.); the source bundle is the only reliable signal for which
+    // app a play/pause command will land on. Smaller and more recessed
+    // here than in the previous layout because the compact HUD doesn't
+    // have the room — kept anyway because removing it makes the multi-
+    // source case opaque.
+
     @ViewBuilder
     private var sourceBadge: some View {
         if let info = presenter.nowPlaying,
            let bundleID = info.sourceBundleID,
            let appName = Self.localizedAppName(forBundleID: bundleID) {
-            HStack(spacing: 8) {
-                WaveformView(
-                    isPlaying: info.isPlaying,
-                    width: 18,
-                    height: 10,
-                    lineWidth: 1.2,
-                    tint: DS.Color.textSecondary,
-                    opacity: 0.9
-                )
-                Text("Playing in \(appName)")
-                    .font(.nkLabel)
-            }
-            .foregroundStyle(DS.Color.textTertiary)
-            .padding(.top, 2)
+            Text("Playing in \(appName)")
+                .font(.nkLabel)
+                .foregroundStyle(DS.Color.textTertiary)
         }
     }
 
@@ -401,9 +367,9 @@ private struct MusicControlButton: View {
 #Preview {
     let presenter = PanelPresenter()
     presenter.nowPlaying = NowPlayingInfo(
-        title: "Sapphire",
-        artist: "Mac DeMarco",
-        album: "This Old Dog",
+        title: "SMILEY (Feat. BIBI)",
+        artist: "YENA",
+        album: "˙ᵕ˙ (SMiLEY)",
         artworkData: nil,
         isPlaying: true,
         sourceBundleID: "com.spotify.client",
@@ -414,6 +380,6 @@ private struct MusicControlButton: View {
     return MusicPanelView()
         .environmentObject(presenter)
         .preferredColorScheme(.dark)
-        .frame(width: 340, height: 480)
+        .frame(width: 380, height: 230)
         .background(Color.black)
 }

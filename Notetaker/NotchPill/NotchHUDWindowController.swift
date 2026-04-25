@@ -124,7 +124,14 @@ final class NotchHUDWindowController {
     /// for downward shadow + 24pt horizontal slack for animation
     /// breathing room) so the morph never gets clipped against the
     /// window edge during a smaller-pill (charging) presentation.
-    private static let windowWidth: CGFloat = 380
+    /// Outer NSPanel size. The window must be wider than the visible
+    /// pill so the Core Animation drop-shadow has room to bleed past
+    /// the pill's edges before hitting the panel boundary. With a
+    /// 600pt pill we give 40pt of horizontal slack on each side
+    /// (= 680pt window), and 100pt of vertical slack for the downward
+    /// shadow + the upper region that hides behind the notch / menu
+    /// bar.
+    private static let windowWidth: CGFloat = 680
     private static let windowHeight: CGFloat = 140
     /// Auto-dismiss after this many seconds. Long enough to read
     /// "100% Charging" without rushing, short enough that the HUD
@@ -192,7 +199,23 @@ final class NotchHUDWindowController {
         // the dead zone around the notch (no app menus there to
         // trample), so this is safe.
         panel.level = .popUpMenu
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // .canJoinAllSpaces — pill stays visible across every Space.
+        // .fullScreenAuxiliary — pill stays visible during fullscreen apps.
+        // .stationary — pill does NOT animate during three-finger swipe
+        //   between Spaces or during Mission Control. Without this the
+        //   window slides off and back with the desktop, which the user
+        //   described as "the whole thing just got like different
+        //   phases, like different windows for different applications."
+        //   Alcove's pill stays rock-solid in screen space; this flag is
+        //   how it does that.
+        // .ignoresCycle — Cmd+` doesn't cycle to the pill (it's a HUD,
+        //   not a window the user wants to focus).
+        panel.collectionBehavior = [
+            .canJoinAllSpaces,
+            .fullScreenAuxiliary,
+            .stationary,
+            .ignoresCycle
+        ]
         panel.isOpaque = false
         panel.backgroundColor = .clear
         // System shadow is rectangular — would show as a hard rectangle

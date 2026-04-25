@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 private final class KeyablePanel: NSPanel {
@@ -60,6 +61,28 @@ final class PanelWindowController {
     /// expanded state.
     static let innerPanelWidth: CGFloat = 380
     static let innerPanelHeight: CGFloat = 480
+    /// Music tab gets a much shorter slab — the Alcove-style layout
+    /// (small artwork tile + title/artist + waveform → progress bar →
+    /// transport row → source badge) packs into ~210pt of content,
+    /// vs the ~410pt the heavier tabs (Notes, Images, Videos, Files)
+    /// need for their grids and lists. Sizing the slab to the content
+    /// is the user-visible reason: the previous fixed 480pt slab left
+    /// a ~250pt empty band below the music HUD, which read as the
+    /// content "spilling" or "not filling" — when really the slab
+    /// just couldn't shrink. Per-tab heights make the black silhouette
+    /// always wrap its content, no awkward empty space.
+    static let innerPanelHeightMusic: CGFloat = 330
+
+    /// Inner slab height for a given active tab. Single source of truth
+    /// for the per-tab sizing — `openSlabFrame(for:tab:)` uses it on
+    /// open, and `handleActiveTabChange(to:)` uses it to animate the
+    /// resize when the user switches tabs while the panel is open.
+    static func innerPanelHeight(for tab: PanelTab) -> CGFloat {
+        switch tab {
+        case .music: return innerPanelHeightMusic
+        default: return innerPanelHeight
+        }
+    }
     /// Transparent margin baked into the NSPanel frame on left/right/bottom
     /// (top stays anchored to the menu bar). Gives SwiftUI's `.shadow`
     /// modifier room to bleed the soft drop-shadow halo OUTSIDE the visible
@@ -97,29 +120,63 @@ final class PanelWindowController {
     /// `ScrollOpening.swift` (open-source notch HUD), which we
     /// benchmarked against after the user said the previous SwiftUI-
     /// only morph was "not even close to smooth."
-    static let closedPillWidth: CGFloat = 200
-    /// How far the closed pill extends below the menu-bar bottom. The
-    /// upper `notchOverlap` portion of the panel sits BEHIND the menu
-    /// bar / notch hardware; only this 14pt bump is visible on screen,
-    /// reading as the notch hardware itself growing a tiny black
-    /// blister rather than a separate window dropping below the bar.
-    static let closedPillBump: CGFloat = 14
+    /// Closed-pill width. **Locked at 259pt — pixel-measured Alcove
+    /// parity, do not tweak without re-running the side-by-side
+    /// screenshot test against `/Applications/Alcove.app`.** This value
+    /// comes from a fresh PIL pixel measurement of Alcove's resting
+    /// pill captured against a colored wallpaper: the dark silhouette
+    /// is 518px = 259pt wide at its body, with rounded bottom corners
+    /// curving in to ~229pt by the time it meets the menu-bar bottom
+    /// edge. Wider than the M-series notch hardware (~190pt physical),
+    /// so the pill paints OVER the menu bar on both sides of the notch
+    /// — that horizontal extension is what reads as "the notch got
+    /// bigger / there's a media widget integrated with the bar". The
+    /// user iterated through 380 → 100 → 600 → 320 → 290 → 280 → 260 →
+    /// 240 → 220 across many rounds of eyeballed A/B comparison before
+    /// we measured pixels and discovered the right answer was 259.
+    static let closedPillWidth: CGFloat = 259
+    /// Visible bump height below the menu-bar bottom. **Locked at 0pt
+    /// — pixel-measured Alcove parity.** This was the missing insight
+    /// across nine rounds of width tweaking: Alcove's resting pill
+    /// doesn't extend below the menu bar AT ALL. The dark silhouette
+    /// in our pixel measurement of `/Applications/Alcove.app` ends at
+    /// y=31.5pt — half a point shy of the menu-bar bottom (32pt). The
+    /// pill sits ENTIRELY within the notch + menu-bar zone, painting
+    /// over part of the menu bar around the notch hardware to look
+    /// like an extended notch with content in it. That's why the user
+    /// described Alcove as "running only on the menu" and "doesn't
+    /// affect any other thing" — windowed apps below lose zero real
+    /// estate because the pill never touches the desktop area. We had
+    /// 20pt of bump previously (creating a 19.5pt visible strip below
+    /// the bar), which is exactly what made our pill feel too tall.
+    static let closedPillBump: CGFloat = 0
+    /// Bottom-corner radius for the closed pill silhouette. With
+    /// bump=0pt the silhouette's bottom edge sits at the menu-bar
+    /// bottom, and the 16pt corner radius makes it taper from the
+    /// 259pt full body width down to ~229pt at the bottom — matching
+    /// the curvature we measured from Alcove's pill (which tapers
+    /// from 258pt at y=20px down to 229pt at y=63px, a ~12-15pt
+    /// effective corner radius). Slab uses `innerCornerRadius` (34pt)
+    /// instead; the silhouette morphs between the two as the panel
+    /// expands. Animatable via SwiftUI's `.smooth` implicit animation
+    /// (PanelRootView), matching the literal `smooth` Animation
+    /// preset Alcove ships in their binary.
+    static let pillCornerRadius: CGFloat = 16
     /// Tease (hover-intent) geometry. When the cursor enters the notch
-    /// hot zone, we orderFront the panel at a slightly-wider, slightly-
-    /// taller pill to give immediate visual feedback that the system
-    /// noticed. If the cursor stays for `HoverActivator.dwellSeconds`,
-    /// the tease promotes to a full slab open. If the cursor leaves
-    /// first, the tease retracts.
+    /// hot zone, we animate the panel from resting closed-pill geometry
+    /// to a slightly-wider, slightly-taller pill to give immediate visual
+    /// feedback that the system noticed. If the cursor stays for
+    /// `HoverActivator.dwellSeconds`, the tease promotes to a full slab
+    /// open. If the cursor leaves first, the tease retracts to closed.
     ///
     /// The size delta is small on purpose — the user described the
     /// reference behavior (Alcove / Elkhob) as "it just moves a little
-    /// bit; it doesn't open the whole thing." 220×24 vs the resting
-    /// 200×14 reads as the notch hardware noticing the cursor — same
-    /// visual vocabulary as the closed pill, just with a hint of
-    /// "pre-bloom" energy. Anything bigger reads as a misfired full
-    /// open; anything smaller is invisible feedback.
-    static let teasePillWidth: CGFloat = 220
-    static let teasePillBump: CGFloat = 24
+    /// bit; it doesn't open the whole thing." Bumped from 220×24 →
+    /// 340×40 to track the new 320×32 closed pill: the proportional
+    /// delta (~6% width, +25% height) is what reads as "noticed you"
+    /// without misfiring as a full open.
+    static let teasePillWidth: CGFloat = 340
+    static let teasePillBump: CGFloat = 40
     private static let edgeGap: CGFloat = 10
     private static let topGap: CGFloat = 40
     /// True Alcove-style placement: the NSPanel's TOP edge sits AT the
@@ -218,6 +275,12 @@ final class PanelWindowController {
     /// clipboard. Updated on every hide() so we only re-route when
     /// the user has actually copied something new in between.
     private var lastSeenChangeCount: Int = -1
+    /// Subscription that listens for `presenter.activeTab` changes and
+    /// resizes the panel to that tab's preferred slab height. Lives for
+    /// the controller's lifetime — the panel itself is created once and
+    /// reused across show/hide cycles, so a single subscription is
+    /// enough; we don't tear it down on hide().
+    private var activeTabSubscription: AnyCancellable?
 
     weak var menuBarController: MenuBarController?
 
@@ -256,7 +319,17 @@ final class PanelWindowController {
         // We only overlap the menu bar's empty middle area (around the
         // notch), so this doesn't trample app/system menu items.
         panel.level = .popUpMenu
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // .stationary keeps the panel anchored in screen space during
+        // three-finger swipes between Spaces and during Mission Control
+        // — the panel is part of the system surface (like the menu bar
+        // / notch / Dynamic Island), not part of any one Space's
+        // window contents. .ignoresCycle keeps Cmd+` from focusing it.
+        panel.collectionBehavior = [
+            .canJoinAllSpaces,
+            .fullScreenAuxiliary,
+            .stationary,
+            .ignoresCycle
+        ]
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         panel.standardWindowButton(.closeButton)?.isHidden = true
@@ -335,6 +408,19 @@ final class PanelWindowController {
         container.autoresizingMask = [.width, .height]
 
         panel.contentView = container
+
+        // Resize the slab when the user switches tabs while the panel
+        // is open. The music tab gets a much shorter inner height than
+        // the data-tab grids; without this hook, switching from .notes
+        // to .music while open would leave a tall empty slab with the
+        // compact music HUD floating at the top. `removeDuplicates`
+        // protects against redundant body re-evals (SwiftUI fires the
+        // publisher on every set, equal or not).
+        activeTabSubscription = presenter.$activeTab
+            .removeDuplicates()
+            .sink { [weak self] newTab in
+                self?.handleActiveTabChange(to: newTab)
+            }
     }
 
     func toggle() {
@@ -380,7 +466,17 @@ final class PanelWindowController {
         // Notes manually, by which point the morph is settled and
         // the per-tab mount hitch is no longer visible inside the
         // open animation.
-        if let info = presenter.nowPlaying, info.isPlaying {
+        // Auto-route to .music whenever there's a live now-playing
+        // session — playing OR paused. The original gate required
+        // isPlaying=true, which made the music page unreachable
+        // through the open-the-panel flow whenever the user had
+        // paused Spotify a second ago. The expanded music view is
+        // still the most useful surface in that state (it's where
+        // you'd hit Play to resume), so paused-but-loaded should
+        // win for the same reasons playing does. The panel still
+        // hides .music entirely when nowPlaying is nil — no risk
+        // of routing to an empty page.
+        if presenter.nowPlaying != nil {
             presenter.activeTab = .music
         } else {
             // Smart auto-routing — only fires if the clipboard has
@@ -397,7 +493,7 @@ final class PanelWindowController {
 
         let screen = NSScreen.main
         let pillFrame = closedPillFrame(for: screen)
-        let slabFrame = openSlabFrame(for: screen)
+        let slabFrame = openSlabFrame(for: screen, tab: presenter.activeTab)
 
         // Position the panel at its CLOSED-pill geometry BEFORE
         // ordering it front — but only if the panel is not currently
@@ -627,6 +723,13 @@ final class PanelWindowController {
 
     /// Order the panel front at tease geometry. No-op if already
     /// teasing or if a full panel is open.
+    ///
+    /// In RESTING mode (panel already on screen at closed-pill frame
+    /// because music is playing), we skip the orderFront / setFrame
+    /// snap and just animate from the current frame to teaseFrame.
+    /// That's how Alcove reads as "the pill noticed you" rather than
+    /// "a new window appeared" — the persistent pill IS the same
+    /// element that grows on hover.
     func tease() {
         if isTeasing { return }
         if isVisible { return }
@@ -636,13 +739,20 @@ final class PanelWindowController {
         let closedFrame = closedPillFrame(for: screen)
         let teaseFrame = teasePillFrame(for: screen)
 
-        // Start at the closed-pill frame (almost invisible bump), then
-        // animate the small grow to tease size. Without this initial
-        // snap the panel would pop in at full tease size, which reads
-        // as "appeared" rather than "noticed." Even a 60ms grow makes
-        // the cursor entry feel acknowledged rather than declared.
-        panel.setFrame(closedFrame, display: false)
-        panel.alphaValue = 1
+        // Only snap to closed-pill frame if the panel isn't already on
+        // screen. In resting mode the panel is ALREADY at closedFrame
+        // (PanelPresenter.isResting == true, `enterRestingMode` did the
+        // orderFront), so a redundant setFrame here would force AppKit
+        // to repaint the existing pill identically right before the
+        // animator starts — burning a frame for no visual gain. Letting
+        // animateTease blend from the panel's current frame is what
+        // makes the resting-pill → tease feel like one continuous
+        // surface.
+        if !panel.isVisible {
+            panel.setFrame(closedFrame, display: false)
+            panel.alphaValue = 1
+            panel.orderFrontRegardless()
+        }
         // Content overlay must stay invisible — tease should NOT include
         // a flash of header/segmented content. PanelRootView's content
         // overlay is always-mounted now (one-time launch cost) and gated
@@ -650,13 +760,18 @@ final class PanelWindowController {
         // the overlay at alpha 0 during the tease in case some path
         // left it true.
         presenter.isShown = false
-        panel.orderFrontRegardless()
 
         animateTease(to: teaseFrame)
     }
 
     /// Cursor left the notch zone before dwell completed — collapse the
-    /// tease and order the panel out. No-op if not currently teasing.
+    /// tease and either return to resting (if music is playing) or order
+    /// the panel out. No-op if not currently teasing.
+    ///
+    /// In RESTING mode (now-playing pill always on screen), the panel
+    /// stays visible at closedFrame after the tease retracts — the user
+    /// just gets the pill back. orderOut would yank the persistent pill
+    /// off screen, contradicting the always-on contract.
     func dismissTease() {
         guard isTeasing else { return }
         isTeasing = false
@@ -676,7 +791,14 @@ final class PanelWindowController {
             self.panel.animator().setFrame(closedFrame, display: true)
         }, completionHandler: { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
-            self.panel.orderOut(nil)
+            // Stay visible at closedFrame if we're an always-on now-
+            // playing pill. orderOut would visually remove the pill
+            // and force enterRestingMode to re-orderFront on the next
+            // mouse twitch, which is both wasted work and a visible
+            // flicker.
+            if !self.presenter.isResting {
+                self.panel.orderOut(nil)
+            }
         })
     }
 
@@ -861,15 +983,18 @@ final class PanelWindowController {
         )
     }
 
-    /// Open-slab frame: the full HUD silhouette. Same upper-edge
-    /// anchoring as the pill — the top sits at screen.frame.maxY so the
-    /// notch-overlap portion stays hidden, and only the
-    /// `innerPanelHeight` (480pt) bump emerges below the menu bar.
-    private func openSlabFrame(for screen: NSScreen?) -> NSRect {
+    /// Open-slab frame: the full HUD silhouette for a given tab. Same
+    /// upper-edge anchoring as the pill — the top sits at
+    /// `screen.frame.maxY` so the notch-overlap portion stays hidden,
+    /// and only `innerPanelHeight(for:)` of bump emerges below the
+    /// menu bar. Tab-aware because `.music` uses a much shorter slab
+    /// (Alcove-style compact HUD) than the grid/list tabs.
+    private func openSlabFrame(for screen: NSScreen?, tab: PanelTab) -> NSRect {
         let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let overlap = PanelWindowController.notchOverlap(for: screen)
         let halo = PanelWindowController.haloPadding
-        let height = overlap + PanelWindowController.innerPanelHeight + halo
+        let inner = PanelWindowController.innerPanelHeight(for: tab)
+        let height = overlap + inner + halo
         let width = PanelWindowController.innerPanelWidth + 2 * halo
         return NSRect(
             x: frame.midX - width / 2,
@@ -877,6 +1002,49 @@ final class PanelWindowController {
             width: width,
             height: height
         )
+    }
+
+    // MARK: - Tab-change resize
+    //
+    // When the user picks a different tab in the segmented bar, the
+    // slab animates from the current frame to the new tab's preferred
+    // frame. This is intentionally a SHORTER animation than
+    // open/close: the panel is already visible and stable, so the
+    // resize should feel like a confident snap, not a fresh bloom.
+
+    private func handleActiveTabChange(to newTab: PanelTab) {
+        // Bail when not visible — show()/animateOpen handles sizing
+        // for fresh opens (they read presenter.activeTab directly when
+        // computing the target frame, so a mid-close tab change still
+        // gets picked up on the next open).
+        guard isVisible else { return }
+        // Skip if the tab change didn't actually require a height change
+        // (e.g., notes→images→files all use the same default height).
+        let screen = panel.screen ?? NSScreen.main
+        let target = openSlabFrame(for: screen, tab: newTab)
+        if panel.frame == target { return }
+
+        // Bump the generation token so any in-flight open/close
+        // completion handlers from before the tab change skip their
+        // setFrame work — we don't want a stale recoil step from
+        // animateOpen yanking the panel back to the prior tab's size
+        // while we're animating to the new one.
+        animationGeneration &+= 1
+        let myGen = animationGeneration
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.28
+            // EaseInOut — the slab starts and ends at rest, no kick.
+            // A spring/overshoot here would feel showy; this is a
+            // calm "panel adjusted to fit" gesture.
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            ctx.allowsImplicitAnimation = true
+            self.panel.animator().setFrame(target, display: true)
+        }, completionHandler: { [weak self] in
+            guard let self, self.animationGeneration == myGen else { return }
+            // Sub-pixel snap to defeat any Core Animation residual.
+            self.panel.setFrame(target, display: true)
+        })
     }
 
     // MARK: - Two-stage Core Animation morph
@@ -920,61 +1088,45 @@ final class PanelWindowController {
         animationGeneration &+= 1
         let myGen = animationGeneration
 
-        // 2pt overshoot in width and height. The frame is anchored at
-        // `screen.frame.maxY` (top edge) so we extend `down` (smaller y)
-        // for the height overshoot, and outward symmetrically (smaller
-        // minX, larger maxX) for the width overshoot.
-        let overshoot: CGFloat = 2
-        let overFrame = NSRect(
-            x: target.minX - overshoot / 2,
-            y: target.minY - overshoot,
-            width: target.width + overshoot,
-            height: target.height + overshoot
-        )
-
-        let diveDuration: TimeInterval = 0.25
-        let recoilDuration: TimeInterval = 0.20
-        // Dive curve overshoots: y2=1.2 means the curve passes ABOVE
-        // the linear interpolation, kicking the panel past `target` to
-        // `overFrame` with a hint of momentum.
-        let diveCurve = CAMediaTimingFunction(controlPoints: 0.2, 1.2, 0.4, 1.0)
-        // Recoil curve has a strong early bias (y2=1.8) so the settle
-        // arrives quickly without a visible second bounce — reads as
-        // "lands cleanly," not "wobbles."
-        let recoilCurve = CAMediaTimingFunction(controlPoints: 0.6, 1.8, 0.4, 1.0)
-
-        // No `panel.setFrame(start, display: false)` here — show()
-        // already positioned the panel at the pill frame (only when the
-        // panel was not visible). Calling animator().setFrame from the
-        // panel's CURRENT frame is what gives us free handover when a
-        // re-open lands mid-close: the animator blends from wherever
-        // the close had reached.
+        // SINGLE-STAGE critically-damped spring morph. The previous
+        // two-stage dive/recoil (y2=1.2 overshoot then y2=1.8 recoil)
+        // gave the panel a "boingy" personality — easy to feel as
+        // out-of-character once you A/B against Alcove. Alcove's
+        // binary contains the literal `smooth` Animation preset plus
+        // `alignmentSpringDamping` / `alignmentSpringStiffness`
+        // symbols — a damping fraction near 1.0 (no perceptible
+        // overshoot, just a settled landing). We match that with a
+        // single-stage cubic-bezier whose control points approximate
+        // SwiftUI's `.smooth(duration: 0.5)`: starts gently, builds
+        // momentum through the middle, and decelerates into the
+        // target without passing through it.
+        //
+        // 0.5s aligns with the SwiftUI radius animation (`.smooth` on
+        // PanelRootView's body), so the frame and the bottom-corner
+        // morph land on the same beat. Both timelines are still
+        // independent (NSPanel Core Animation vs SwiftUI implicit
+        // animation), matching Alcove's `expandedTransitionTask` /
+        // `expandedRadiusTransitionTask` split.
+        let duration: TimeInterval = 0.5
+        let springCurve = CAMediaTimingFunction(controlPoints: 0.32, 0.72, 0.32, 1.0)
 
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = diveDuration
-            ctx.timingFunction = diveCurve
+            ctx.duration = duration
+            ctx.timingFunction = springCurve
             ctx.allowsImplicitAnimation = true
-            self.panel.animator().setFrame(overFrame, display: true)
+            self.panel.animator().setFrame(target, display: true)
         }, completionHandler: { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
-            NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = recoilDuration
-                ctx.timingFunction = recoilCurve
-                ctx.allowsImplicitAnimation = true
-                self.panel.animator().setFrame(target, display: true)
-            }, completionHandler: { [weak self] in
-                guard let self, self.animationGeneration == myGen else { return }
-                // Snap the frame exactly to target. Core Animation can
-                // leave sub-pixel residuals after a recoil; an explicit
-                // setFrame fixes that without a visible jump.
-                //
-                // Note: `presenter.isShown=true` was already flipped at
-                // the START of show() (before animateOpen). The content
-                // tree is always-mounted (see PanelRootView), so by the
-                // time we get here the opacity fade has already run to
-                // completion alongside the morph — nothing left to do.
-                self.panel.setFrame(target, display: true)
-            })
+            // Snap the frame exactly to target. Core Animation can
+            // leave sub-pixel residuals at the end of a long ease;
+            // an explicit setFrame fixes that without a visible jump.
+            //
+            // Note: `presenter.isShown=true` was already flipped at
+            // the START of show() (before animateOpen). The content
+            // tree is always-mounted (see PanelRootView), so by the
+            // time we get here the opacity fade has already run to
+            // completion alongside the morph — nothing left to do.
+            self.panel.setFrame(target, display: true)
         })
     }
 
@@ -1020,13 +1172,99 @@ final class PanelWindowController {
                 self.panel.animator().setFrame(target, display: true)
             }, completionHandler: { [weak self] in
                 guard let self, self.animationGeneration == myGen else { return }
-                // orderOut in the completion handler so the panel
-                // disappears exactly as the morph settles — no
-                // invisible window left intercepting clicks, no
-                // visible snap-cut mid-shrink.
+                // Settle exactly at target — Core Animation can leave
+                // sub-pixel residuals after a recoil; an explicit
+                // setFrame fixes that without a visible jump.
                 self.panel.setFrame(target, display: true)
-                self.panel.orderOut(nil)
+                // RESTING mode: panel stays on screen at closedFrame
+                // as the persistent now-playing pill. orderOut would
+                // dismiss the always-on indicator, which is exactly
+                // the contract the user described ("the pill should
+                // be always there"). The shown↔resting transition is
+                // pure frame morph — no window lifecycle change.
+                //
+                // Non-resting (music has stopped, or panel was opened
+                // standalone via ⌥Space): orderOut so we don't leave
+                // an invisible window intercepting clicks.
+                if !self.presenter.isResting {
+                    self.panel.orderOut(nil)
+                }
             })
         })
+    }
+
+    // MARK: - Resting mode (always-on now-playing pill)
+
+    /// Bring the panel up at closed-pill geometry as a persistent now-
+    /// playing indicator. Idempotent — repeat calls just verify the
+    /// flag and return.
+    ///
+    /// This is the entry into Alcove's "pill is always there" contract:
+    /// once the user has music loaded (playing OR paused), the pill is
+    /// on screen continuously, and hovering over it expands to the
+    /// music slab. AppDelegate calls this from the orchestrator's
+    /// onNowPlayingChange callback when `info != nil`.
+    ///
+    /// Three states this method handles:
+    /// - Panel hidden, no music yet → orderFront at closedFrame, set
+    ///   isResting=true. Pill content (artwork+waveform) appears via
+    ///   PanelRootView's pill overlay.
+    /// - Panel already shown (user has music slab open via hotkey or
+    ///   hover) → just flip isResting=true. The next hide()/animateClose
+    ///   will land at closedFrame and stay there instead of orderOut'ing.
+    /// - Panel teasing → flip isResting=true. Either dismissTease (cursor
+    ///   left) keeps the pill, or activate (dwell completed) opens the
+    ///   slab and isResting carries through to the eventual close.
+    func enterRestingMode() {
+        if presenter.isResting { return }
+        presenter.isResting = true
+
+        // If a full panel is currently shown, the user is interacting
+        // with it — don't reach in and forcibly resize. The next hide()
+        // path will collapse to pill geometry naturally now that
+        // isResting=true.
+        if isVisible { return }
+        // Same logic for teasing — animateTease is in flight; let it
+        // play out, dismissTease/activate now know to keep the panel
+        // visible after the morph settles.
+        if isTeasing { return }
+
+        let screen = NSScreen.main
+        let pillFrame = closedPillFrame(for: screen)
+        // Snap into pill geometry BEFORE orderFront so the pill doesn't
+        // pop in at any default frame and then jump to position.
+        panel.setFrame(pillFrame, display: false)
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+        // Defensive: make sure isShown is false so PanelRootView's
+        // content overlay doesn't render full panel UI on top of the
+        // pill body. The pill content is gated on
+        // `isResting && !isShown`.
+        presenter.isShown = false
+
+        NSLog("Notetaker: enterRestingMode — panel shown at pillFrame=\(pillFrame)")
+    }
+
+    /// Tear down the persistent pill — music has stopped or the source
+    /// app went away, so the always-on contract no longer holds. Hides
+    /// the panel UNLESS the user has a full slab open / teasing right
+    /// now (in which case we just flip the flag; the next dismiss will
+    /// orderOut as in pre-resting behavior).
+    func exitRestingMode() {
+        if !presenter.isResting { return }
+        presenter.isResting = false
+
+        if isVisible { return }   // active full panel → dismiss handles orderOut
+        if isTeasing { return }   // tease in flight → its completion handles orderOut
+
+        // Resting pill currently on screen → collapse it off. We don't
+        // run a full close animation here; the music stopped, the pill
+        // is already at its smallest geometry, an immediate orderOut
+        // reads as "music ended" without any drawn-out theatrics. If
+        // we ever want to fade it out, do alphaValue + orderOut on a
+        // 0.15s ease-out — but plain orderOut matches Alcove's behavior
+        // (the pill just isn't there anymore once the source quits).
+        panel.orderOut(nil)
+        NSLog("Notetaker: exitRestingMode — panel ordered out")
     }
 }

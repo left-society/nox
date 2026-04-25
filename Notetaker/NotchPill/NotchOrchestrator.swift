@@ -47,13 +47,15 @@ final class NotchOrchestrator {
     private var lastPowerState: PowerState?
     private var didReceiveInitialPowerState = false
 
-    /// Most recent now-playing snapshot we received from the media
-    /// service. Used to decide whether a fresh notification represents
-    /// a meaningful enough change to bloom the HUD again — title swap
-    /// or play↔pause warrants a re-bloom; an artwork-only update
-    /// (which some apps fire frequently) does not.
-    private var lastNowPlaying: NowPlayingInfo?
-    private var didReceiveInitialNowPlaying = false
+    // Now-playing dedup state used to live here, when the orchestrator
+    // also bloomed the notch HUD on title / play-state changes. After
+    // unifying the pill with the main panel (Alcove-style), the panel
+    // itself owns now-playing presentation: it sits at resting-pill
+    // geometry whenever there's a current track and morphs into the
+    // full music page on hover. The orchestrator's only remaining
+    // responsibility for now-playing is to forward every snapshot to
+    // the external subscriber (PanelPresenter via AppDelegate), so
+    // there is no decision left for it to make and no state to track.
 
     init() {
         self.hudController = NotchHUDWindowController()
@@ -104,8 +106,6 @@ final class NotchOrchestrator {
         hudController.hide()
         lastPowerState = nil
         didReceiveInitialPowerState = false
-        lastNowPlaying = nil
-        didReceiveInitialNowPlaying = false
     }
 
     // MARK: - Power events
@@ -148,95 +148,22 @@ final class NotchOrchestrator {
 
     // MARK: - Now-playing events
 
-    /// Decide whether the latest now-playing snapshot warrants a HUD
-    /// bloom. Rules:
-    /// - **First emission after start() is silent UNLESS music is
-    ///   actively playing.** The user explicitly asked for Alcove-style
-    ///   ambient behavior — if tunes are going when the app launches,
-    ///   the pill should already be on screen reflecting that, not wait
-    ///   for the next track change. A *paused* track on launch still
-    ///   stays silent because blooming for music the user isn't actively
-    ///   listening to would feel intrusive.
-    /// - Title or play-state change → bloom. Those are the moments
-    ///   the user is glancing at the notch for confirmation.
-    /// - Artwork-only or artist-only change without a title flip is
-    ///   ignored — some apps reload the artwork mid-playback (Spotify
-    ///   does this when the device finishes prefetching the next track),
-    ///   and we don't want the HUD to chatter on those.
-    /// - nil snapshot (nothing playing) collapses the now-playing pill
-    ///   without disturbing a charging pill that happens to be up.
+    /// Forward the latest now-playing snapshot to the external
+    /// subscriber (PanelPresenter via AppDelegate). The orchestrator no
+    /// longer drives a separate now-playing HUD pill — that role moved
+    /// to the unified panel/pill, which sits at resting-pill geometry
+    /// whenever a track is current and morphs into the full music page
+    /// on hover. AppDelegate observes this stream to call
+    /// `enterRestingMode` / `exitRestingMode` on the panel controller.
     ///
-    /// The HUD's *persistence* (stays visible while music plays) is
-    /// enforced inside `NotchHUDWindowController.scheduleAutoHide` —
-    /// the orchestrator just emits presentations; the controller decides
-    /// which ones merit an auto-hide timer.
+    /// We forward EVERY snapshot — including artwork-only updates and
+    /// nil — so the panel's `nowPlaying` published var (and the
+    /// resting-mode lifecycle) stay in sync without dedup. The pill
+    /// shows whenever info is non-nil (playing or paused, matching
+    /// Alcove's "ambient indicator" behavior); it collapses the
+    /// instant the source app stops publishing.
     private func handleNowPlayingChange(_ info: NowPlayingInfo?) {
-        defer { lastNowPlaying = info }
-
-        // Forward EVERY snapshot to the external subscriber (currently
-        // PanelPresenter via AppDelegate). We do this at the top of the
-        // method, before any of the HUD-specific dedup logic, because
-        // PanelPresenter's responsibilities are different from the
-        // HUD's — the panel needs to know about pause / unpause /
-        // artwork-only changes to keep its `nowPlaying` published var
-        // current, even though the notch HUD wouldn't bloom for those.
-        // Decoupling the two keeps each surface in charge of its own
-        // dedup policy.
+        NSLog("Notetaker: orchestrator forwarding nowPlaying title=\(info?.title ?? "nil") isPlaying=\(info?.isPlaying ?? false)")
         onNowPlayingChange?(info)
-
-        let isInitial = !didReceiveInitialNowPlaying
-        if isInitial {
-            didReceiveInitialNowPlaying = true
-        }
-
-        guard let info else {
-            // Nothing playing → collapse the now-playing pill (charging
-            // pill unaffected). Also handles the "music app closed" /
-            // "queue exhausted" edge cases; without this the previous
-            // track's pill could linger forever in persistent mode.
-            NSLog("Notetaker: orchestrator nowPlaying=nil isInitial=\(isInitial) → hideIfShowingNowPlaying")
-            hudController.hideIfShowingNowPlaying()
-            return
-        }
-
-        if isInitial {
-            // Launch-time emission. Show iff music is actively playing
-            // (ambient pill, Alcove parity); silence if paused so the
-            // app doesn't loudly announce itself with stale music data.
-            NSLog("Notetaker: orchestrator INITIAL nowPlaying isPlaying=\(info.isPlaying) → \(info.isPlaying ? "show" : "silent")")
-            if info.isPlaying {
-                hudController.show(presentation: .nowPlaying(info))
-            }
-            return
-        }
-
-        let titleChanged = info.title != lastNowPlaying?.title
-            || info.artist != lastNowPlaying?.artist
-        let playStateChanged = info.isPlaying != (lastNowPlaying?.isPlaying ?? !info.isPlaying)
-        NSLog("Notetaker: orchestrator nowPlaying titleChanged=\(titleChanged) playStateChanged=\(playStateChanged) isPlaying=\(info.isPlaying)")
-
-        if titleChanged || playStateChanged {
-            // Real user-visible event — bloom the HUD (or re-bloom
-            // with the new info if it's already up).
-            hudController.show(presentation: .nowPlaying(info))
-            return
-        }
-
-        // Same track, same play-state — but something else changed.
-        // The most common case is artwork-only updates: YouTube tabs
-        // and Spotify's app-notification path both publish without
-        // artwork bytes, then a later `fetchArtworkIfNeeded` lookup
-        // fills it in. We want that fresh artwork to reach the SwiftUI
-        // tree (so the pill's gradient backdrop colors-up from the
-        // album art), but without re-blooming — that would feel like
-        // a stutter for what's logically the same now-playing state.
-        //
-        // sourceBundleID can also flip here: the app-notification
-        // path publishes "com.spotify.client", and a subsequent
-        // MediaRemote dict refresh used to clobber it to nil. We've
-        // since taught publish() to inherit, but the same code path
-        // also handles cases where MediaRemote eventually publishes
-        // a real source ID for a track that initially landed with nil.
-        hudController.updateContent(.nowPlaying(info))
     }
 }

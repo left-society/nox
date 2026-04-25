@@ -155,12 +155,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Bridge MediaRemote → PanelPresenter so the panel's music
         // page (MusicPanelView) can observe the same now-playing
-        // stream the notch HUD uses. We fire on every snapshot
-        // (including nil) so the presenter's `visibleTabs` and the
-        // "auto-bounce off .music when playback stops" logic stay
-        // in sync without polling.
+        // stream that drives the resting pill. We fire on every
+        // snapshot (including nil) so the presenter's `visibleTabs`
+        // and the "auto-bounce off .music when playback stops" logic
+        // stay in sync without polling.
+        //
+        // This callback is also where the unified pill+panel toggles
+        // its resting state. Whenever there's a current track (info
+        // non-nil — playing or paused, matching Alcove's "ambient
+        // indicator" behavior) we ask the panel controller to enter
+        // resting mode: the NSPanel is ordered front at closed-pill
+        // geometry and stays there until the user hovers (which morphs
+        // it into the full slab) or music stops. When info goes nil
+        // we exit resting mode and the panel orders out — but only if
+        // it isn't currently visible/teasing in another mode, so a
+        // music-stop mid-session doesn't yank a panel out from under
+        // the user's cursor.
         orchestrator.onNowPlayingChange = { [weak self] info in
-            self?.panelController?.presenter.nowPlaying = info
+            guard let self, let panel = self.panelController else { return }
+            panel.presenter.nowPlaying = info
+            if info != nil {
+                panel.enterRestingMode()
+            } else {
+                panel.exitRestingMode()
+            }
         }
 
         // Reverse bridge: MusicPanelView's transport buttons (prev /

@@ -8,6 +8,24 @@ final class PanelPresenter: ObservableObject {
     /// hovers over the panel. Used by PanelRootView to draw an accent ring.
     @Published var isDropTargeted: Bool = false
 
+    /// True when the panel is sitting at closed-pill geometry as a
+    /// persistent now-playing indicator (Alcove-style "always-on" pill).
+    /// Mutually exclusive with `isShown` in spirit — the panel transitions
+    /// resting → shown on hover-activate and shown → resting on dismissal.
+    /// Strings extracted from `/Applications/Alcove.app/Contents/MacOS/Alcove`
+    /// confirm this is exactly Alcove's model: a single `NotchController`
+    /// with `_isExpanded` / `_isHovering` flags driving a morph between
+    /// the resting pill silhouette and the expanded slab — not two
+    /// separate windows. We keep one NSPanel and let SwiftUI swap content
+    /// based on these flags.
+    ///
+    /// PanelRootView reads this to render the artwork+waveform pill body
+    /// (when `isResting && !isShown`) vs the full header/segmented/content
+    /// tree (when `isShown`). The clip-shape's bottom corner radius also
+    /// keys off it (16pt for the pill, 34pt for the slab) so the
+    /// silhouette morphs smoothly during the expand animation.
+    @Published var isResting: Bool = false
+
     /// Latest now-playing snapshot from MediaRemoteService, forwarded
     /// here by NotchOrchestrator so SwiftUI views inside the panel
     /// (specifically MusicPanelView and the segmented bar) can observe
