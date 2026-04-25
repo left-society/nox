@@ -17,19 +17,21 @@ private struct VisualEffectBackground: NSViewRepresentable {
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
-/// Outer rim — clean white edge stroke, no `plusLighter` halo. Apple's
-/// `moduleStroke` style on Control Center tiles is similarly clean:
-/// visible bright top, fades down. Without `plusLighter` we get a
-/// crisp glass edge instead of a glowing-object look.
+/// Outer rim — clean white edge stroke around the whole panel. The
+/// rim must be visible on all four corners or the panel reads as
+/// asymmetric ("dissolving away at the bottom"). Was a 0.45 → 0.06
+/// gradient which made bottom corners nearly invisible against a dark
+/// wallpaper; now a tighter 0.40 → 0.20 range so every corner is
+/// clearly defined while keeping a slight overhead-light bias.
 private struct GlassEdge: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 20, style: .continuous)
             .strokeBorder(
                 LinearGradient(
                     colors: [
-                        Color.white.opacity(0.45),
-                        Color.white.opacity(0.20),
-                        Color.white.opacity(0.06)
+                        Color.white.opacity(0.42),
+                        Color.white.opacity(0.28),
+                        Color.white.opacity(0.20)
                     ],
                     startPoint: .top,
                     endPoint: .bottom
@@ -87,8 +89,11 @@ private struct GlassHighlight: View {
     }
 }
 
-/// Subtle darkening on the bottom half so text near the bottom of the
-/// panel stays legible against bright wallpapers showing through.
+/// Very gentle darkening at the very bottom edge — just enough so a
+/// row of content there doesn't blow out against bright wallpapers.
+/// Was 0.14 which was eating the white lift in the bottom half and
+/// leaving the body looking flat-dark; dropped to 0.05 so the lift
+/// carries through the whole panel.
 private struct BottomGlassShadow: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -96,9 +101,9 @@ private struct BottomGlassShadow: View {
                 LinearGradient(
                     colors: [
                         Color.clear,
-                        Color.black.opacity(0.14)
+                        Color.black.opacity(0.05)
                     ],
-                    startPoint: UnitPoint(x: 0.5, y: 0.62),
+                    startPoint: UnitPoint(x: 0.5, y: 0.78),
                     endPoint: .bottom
                 )
             )
@@ -143,26 +148,27 @@ struct PanelRootView: View {
                 // recipe applies a +0.235 brightness boost on every
                 // RGB channel via its color matrix (the m15/m25/m35
                 // entries). That's the "luminous glass" secret. We
-                // can't apply a CIColorMatrix to NSVisualEffectView
-                // directly, so we approximate it with a translucent
-                // white overlay. Without this the panel reads as dark
-                // frosted plastic; with it, it reads as glass.
-                Color.white.opacity(0.14)
+                // approximate it with a translucent white overlay
+                // since we can't apply CIColorMatrix to NSVisualEffectView
+                // directly. Tuned down to 0.10 so the wallpaper bleeds
+                // through more visibly without losing the lift.
+                Color.white.opacity(0.10)
                 // Soft top legibility ramp — just enough darken near
-                // the menu bar so the header text stays crisp on
-                // bright wallpapers. Dies off well before content.
+                // the menu bar so the header text stays crisp on bright
+                // wallpapers. Lighter than before so it doesn't fight
+                // the lift.
                 LinearGradient(
                     colors: [
-                        Color.black.opacity(0.10),
+                        Color.black.opacity(0.06),
                         Color.clear
                     ],
                     startPoint: .top,
-                    endPoint: UnitPoint(x: 0.5, y: 0.22)
+                    endPoint: UnitPoint(x: 0.5, y: 0.20)
                 )
                 // Cool purple wash in the top-left — subtle accent hint.
                 RadialGradient(
                     colors: [
-                        Color(red: 0.55, green: 0.40, blue: 0.82).opacity(0.10),
+                        Color(red: 0.55, green: 0.40, blue: 0.82).opacity(0.06),
                         Color.clear
                     ],
                     center: UnitPoint(x: 0.10, y: 0.02),
