@@ -4,6 +4,25 @@ import SwiftUI
 private final class KeyablePanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    /// AppKit's default behavior is to clamp window frames to the
+    /// visible screen area (`visibleFrame`, which EXCLUDES the menu
+    /// bar). Our entire "emerge from the notch" trick depends on the
+    /// panel's TOP edge sitting at the literal `screen.frame.maxY` —
+    /// i.e. ABOVE the menu bar, with the upper portion of the panel
+    /// hidden BEHIND the notch hardware and menu strip. Without this
+    /// override, AppKit silently snaps the y-origin we set in
+    /// `originUnderNotch` back down by `safeAreaInsets.top` (~37pt),
+    /// and the panel renders as a floating block in the middle of the
+    /// screen instead of bleeding out of the notch.
+    ///
+    /// Returning the rect unchanged hands frame ownership entirely to
+    /// us — the cost is that we're responsible for keeping the panel
+    /// somewhere reasonable on screen, which we already do via
+    /// `originUnderNotch(for:)`.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        return frameRect
+    }
 }
 
 @MainActor

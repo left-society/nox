@@ -557,8 +557,19 @@ private struct InlineVideoPlayer: View {
             .help("Close player")
         }
         .onAppear {
+            // Build the player synchronously here. We deliberately do
+            // NOT call play() yet — the AVPlayer has no render target
+            // until SwiftUI re-renders, mounts AVPlayerHost, and
+            // makeNSView attaches the AVPlayerView. Calling play()
+            // before that race resolves used to result in the cell
+            // tap collapsing to a frozen first frame on macOS 26.x —
+            // the user reported "video player is not playing", which
+            // is exactly that symptom. We now kick off playback inside
+            // AVPlayerHost.makeNSView, the moment the player has a
+            // view to render into. Idempotent if SwiftUI re-mounts.
             let p = AVPlayer(url: fileURL)
-            p.play()
+            p.isMuted = false
+            p.volume = 1.0
             player = p
         }
         .onDisappear(perform: teardown)
@@ -601,12 +612,27 @@ private struct AVPlayerHost: NSViewRepresentable {
         v.allowsPictureInPicturePlayback = false
         v.showsFullScreenToggleButton = false
         v.showsTimecodes = false
+        // Kick off playback once the AVPlayerView is fully attached.
+        // Calling play() here (instead of in the parent's onAppear)
+        // guarantees the player has a render target at the moment
+        // playback starts — without that ordering, AVPlayer can land
+        // in a state where the audio plays but the video frame stays
+        // black on first present. We jump to .zero defensively so a
+        // remounted cell (e.g. switching between videos) restarts
+        // from the beginning instead of resuming where the previous
+        // viewing left off.
+        v.player?.seek(to: .zero)
+        v.player?.play()
         return v
     }
 
     func updateNSView(_ nsView: AVPlayerView, context: Context) {
         if nsView.player !== player {
             nsView.player = player
+            // Re-arm playback whenever the underlying player changes —
+            // matches the makeNSView semantics so a swap-in starts
+            // playing without requiring a manual click on the controls.
+            player.play()
         }
     }
 }

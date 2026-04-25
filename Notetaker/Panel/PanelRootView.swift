@@ -133,17 +133,30 @@ struct PanelRootView: View {
         .compositingGroup()
         .animation(
             presenter.isShown
-                // Spring physics ported verbatim from Caption app's
-                // AnimatedNav (Framer Motion: stiffness 260, damping 22)
-                // — the floating pill nav-bar that morphs from full
-                // width to a 44pt circle. That motion is exactly the
-                // "Apple-physics" feel we want for the notch morph:
-                // single confident settle, perceptible momentum on the
-                // way in, no wobble. SwiftUI's interpolatingSpring with
-                // mass 1 / stiffness 260 / damping 22 is a 1:1 match.
-                ? .interpolatingSpring(mass: 1.0, stiffness: 260, damping: 22, initialVelocity: 0)
-                // Close: tighter, no bounce. Snaps back into the notch.
-                : .interpolatingSpring(mass: 1.0, stiffness: 360, damping: 32, initialVelocity: 0),
+                // Bloom out of the notch: lively spring with a
+                // perceptible overshoot. dampingFraction 0.62 lands
+                // in the "Apple physics" sweet spot — enough bounce
+                // to read as a real object catching its momentum at
+                // the end of travel, not so much that it visibly
+                // wobbles. response 0.42s sets the perceived duration
+                // — short enough to feel responsive, long enough for
+                // the eye to track the morph from pill → slab.
+                //
+                // Why .spring instead of .interpolatingSpring: the
+                // response/dampingFraction API maps directly to the
+                // springs Apple uses in Reminders, Notes, and the
+                // Music widget. interpolatingSpring with mass/stiffness
+                // tuples is mathematically equivalent but tends to read
+                // as flatter in SwiftUI for shape morphs — the framework
+                // optimizes the response API path more aggressively.
+                ? .spring(response: 0.42, dampingFraction: 0.62, blendDuration: 0)
+                // Retreat into the notch: snappy and overdamped. No
+                // bounce on the way back — the user's attention has
+                // moved on, the panel just needs to disappear quickly.
+                // dampingFraction 0.95 is just barely underdamped so
+                // the motion still has a hint of physics; response
+                // 0.26s makes it feel decisive, not abrupt.
+                : .spring(response: 0.26, dampingFraction: 0.95, blendDuration: 0),
             value: presenter.isShown
         )
     }
