@@ -30,6 +30,7 @@
 		AB99000000000000000F2B01 /* FilesGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99000000000000000F2A01 /* FilesGridView.swift */; };
 		AB99000000000000000F3B01 /* ClipboardRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99000000000000000F3A01 /* ClipboardRouter.swift */; };
 		AB99000000000000000F4B01 /* ClipboardRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99000000000000000F4A01 /* ClipboardRouterTests.swift */; };
+		AB99000000000000000F5B01 /* FileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99000000000000000F5A01 /* FileStoreTests.swift */; };
 		AB12CD34EF567890FEDC0001 /* ThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB12CD34EF567890FEDC0002 /* ThumbnailCache.swift */; };
 		AB12CD34EF567890FEDC0003 /* LocalThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB12CD34EF567890FEDC0004 /* LocalThumbnailView.swift */; };
 		9C4454DAB3490C57222008FC /* PanelWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F2B24F63B38FFB038957FF /* PanelWindowController.swift */; };
@@ -89,6 +90,7 @@
 		AB99000000000000000F2A01 /* FilesGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilesGridView.swift; sourceTree = "<group>"; };
 		AB99000000000000000F3A01 /* ClipboardRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardRouter.swift; sourceTree = "<group>"; };
 		AB99000000000000000F4A01 /* ClipboardRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardRouterTests.swift; sourceTree = "<group>"; };
+		AB99000000000000000F5A01 /* FileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileStoreTests.swift; sourceTree = "<group>"; };
 		AB12CD34EF567890FEDC0002 /* ThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailCache.swift; sourceTree = "<group>"; };
 		AB12CD34EF567890FEDC0004 /* LocalThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalThumbnailView.swift; sourceTree = "<group>"; };
 		98E3F8A6AFB9CFA5A2888105 /* VideosGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideosGridView.swift; sourceTree = "<group>"; };
@@ -233,6 +235,7 @@
 				AB99000000000000000F4A01 /* ClipboardRouterTests.swift */,
 				121C8981642F47441411BB1A /* ClipboardServiceTests.swift */,
 				FE95BFBB47BCAF71BB996C85 /* DatabaseTests.swift */,
+				AB99000000000000000F5A01 /* FileStoreTests.swift */,
 				4E9C789396FD99C877E0100E /* ImageStoreTests.swift */,
 				E97F851F210BDA6D7291F2C4 /* NoteStoreTests.swift */,
 				F828A81402E3514A29BEF54D /* NotetakerTests.swift */,
@@ -410,6 +413,7 @@
 				AB99000000000000000F4B01 /* ClipboardRouterTests.swift in Sources */,
 				6BDA044D6CAD8855082E1541 /* ClipboardServiceTests.swift in Sources */,
 				1AE947839F28E030B4FA584D /* DatabaseTests.swift in Sources */,
+				AB99000000000000000F5B01 /* FileStoreTests.swift in Sources */,
 				F29805610AF256CD93788038 /* ImageStoreTests.swift in Sources */,
 				77B704A862EB57DA5E0711D0 /* NoteStoreTests.swift in Sources */,
 				65BE75628A3DC39F43A16DCA /* NotetakerTests.swift in Sources */,
