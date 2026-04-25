@@ -26,6 +26,8 @@
 		82DDE6EA7985D2F3965F0E71 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4B1A65817F2DD32A78B84F4 /* AppEnvironment.swift */; };
 		83635AA9CA68E7CA34A6423F /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 17C000E0AB2B8576CD22086B /* GRDB */; };
 		8F1E0C1C56B34BA5A69F027B /* ImagesGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 903C4B5F7E59B2D22822B143 /* ImagesGridView.swift */; };
+		AB99000000000000000F1B01 /* FileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99000000000000000F1A01 /* FileStore.swift */; };
+		AB99000000000000000F2B01 /* FilesGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99000000000000000F2A01 /* FilesGridView.swift */; };
 		AB12CD34EF567890FEDC0001 /* ThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB12CD34EF567890FEDC0002 /* ThumbnailCache.swift */; };
 		AB12CD34EF567890FEDC0003 /* LocalThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB12CD34EF567890FEDC0004 /* LocalThumbnailView.swift */; };
 		9C4454DAB3490C57222008FC /* PanelWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F2B24F63B38FFB038957FF /* PanelWindowController.swift */; };
@@ -81,6 +83,8 @@
 		861767ACA113EC88F0692C97 /* VideoStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoStore.swift; sourceTree = "<group>"; };
 		8773562D010CDF53A5BA5E05 /* VideoDropScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoDropScanner.swift; sourceTree = "<group>"; };
 		903C4B5F7E59B2D22822B143 /* ImagesGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagesGridView.swift; sourceTree = "<group>"; };
+		AB99000000000000000F1A01 /* FileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileStore.swift; sourceTree = "<group>"; };
+		AB99000000000000000F2A01 /* FilesGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilesGridView.swift; sourceTree = "<group>"; };
 		AB12CD34EF567890FEDC0002 /* ThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailCache.swift; sourceTree = "<group>"; };
 		AB12CD34EF567890FEDC0004 /* LocalThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalThumbnailView.swift; sourceTree = "<group>"; };
 		98E3F8A6AFB9CFA5A2888105 /* VideosGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideosGridView.swift; sourceTree = "<group>"; };
@@ -140,6 +144,7 @@
 				1ECB7D8944E98E9980E33DAE /* BrowserURLService.swift */,
 				1FB98CADB6E11EE3D5131617 /* ClipboardService.swift */,
 				56F0E884BA061699C7F2CB95 /* Database.swift */,
+				AB99000000000000000F1A01 /* FileStore.swift */,
 				0C4728BB0F273F145E4D4DB2 /* HotkeyService.swift */,
 				F6681424D04E755BA93A783D /* ImageStore.swift */,
 				717E181C1DF1BF1637911A32 /* Models.swift */,
@@ -184,6 +189,7 @@
 		9CD14C864C0F601FF107EF97 /* Panel */ = {
 			isa = PBXGroup;
 			children = (
+				AB99000000000000000F2A01 /* FilesGridView.swift */,
 				903C4B5F7E59B2D22822B143 /* ImagesGridView.swift */,
 				AB12CD34EF567890FEDC0004 /* LocalThumbnailView.swift */,
 				D047BF968A9B749E20E50F79 /* MultiFileDragSource.swift */,
@@ -363,6 +369,8 @@
 				64E1146E44882F7E940B0274 /* ClipboardService.swift in Sources */,
 				E418674FA029BAC44F847357 /* Database.swift in Sources */,
 				DC2797E25CF433EC7D759CF0 /* DesignTokens.swift in Sources */,
+				AB99000000000000000F1B01 /* FileStore.swift in Sources */,
+				AB99000000000000000F2B01 /* FilesGridView.swift in Sources */,
 				7633A806C1D9674E27061185 /* HotkeyService.swift in Sources */,
 				C70A5360450254FB8A93100F /* ImageStore.swift in Sources */,
 				8F1E0C1C56B34BA5A69F027B /* ImagesGridView.swift in Sources */,

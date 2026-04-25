@@ -202,7 +202,7 @@ private struct InnerLensShadow: View {
 }
 
 enum PanelTab: String, CaseIterable, Identifiable {
-    case notes, images, videos
+    case notes, images, videos, files
 
     var id: String { rawValue }
 
@@ -211,6 +211,7 @@ enum PanelTab: String, CaseIterable, Identifiable {
         case .notes: return "Notes"
         case .images: return "Images"
         case .videos: return "Videos"
+        case .files: return "Files"
         }
     }
 }
@@ -489,6 +490,8 @@ struct PanelRootView: View {
             ImagesGridView()
         case .videos:
             VideosGridView()
+        case .files:
+            FilesGridView()
         }
     }
 

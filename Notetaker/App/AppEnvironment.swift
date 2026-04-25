@@ -14,6 +14,7 @@ final class AppEnvironment: ObservableObject {
     let noteStore: NoteStore
     let imageStore: ImageStore
     let videoStore: VideoStore
+    let fileStore: FileStore
     let retentionService: RetentionService
 
     init() throws {
@@ -21,6 +22,7 @@ final class AppEnvironment: ObservableObject {
         self.noteStore = NoteStore(db: database)
         self.imageStore = try ImageStore(db: database)
         self.videoStore = try VideoStore(db: database)
+        self.fileStore = FileStore()
         let imageRoot = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
