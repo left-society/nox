@@ -141,8 +141,18 @@ final class PanelWindowController {
 
         clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
-        ) { [weak self] _ in
+        ) { [weak self] event in
             guard let self else { return }
+            // Bail if the click landed inside our panel. The panel uses
+            // `.nonactivatingPanel` so clicks on it don't activate our app;
+            // because of that, those clicks ALSO fire this global monitor
+            // (since the active app stays "elsewhere"). Without the frame
+            // check, tapping a video cell or the dropped-image preview
+            // would dismiss the panel before SwiftUI's onTap could run.
+            // For global events, locationInWindow is in screen coordinates.
+            if self.panel.frame.contains(event.locationInWindow) {
+                return
+            }
             // Don't yank the panel away while a download is still running —
             // the user needs to see the progress bar to trust that the
             // hotkey actually worked. The jobs list auto-clears itself once

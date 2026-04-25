@@ -14,6 +14,18 @@ final class ImageStore: ObservableObject {
     @Published private(set) var inflight: [InflightUpload] = []
     private let db: Database
     private let rootURL: URL
+    /// IDs whose deferred save is still in flight but already had a
+    /// `clearExpiryDeferred` call. The async save path consults this
+    /// after `performSave` completes and applies the clear before
+    /// publishing the record.
+    private var pendingClearExpiry: Set<String> = []
+    /// Hold the inflight cell on screen for at least this long so the
+    /// spinner is perceivable. A 200KB drop saves in ~40ms — well below
+    /// human perception — so without this floor the placeholder flashes
+    /// for a single frame and users think nothing happened. `nonisolated`
+    /// so the detached save task can read it without hopping back to the
+    /// main actor.
+    private nonisolated static let minimumInflightDisplay: TimeInterval = 0.6
 
     struct InflightUpload: Identifiable {
         let id: String
@@ -86,20 +98,22 @@ final class ImageStore: ObservableObject {
     /// Fire-and-forget save. Inserts a placeholder into `inflight`
     /// synchronously so the UI shows feedback immediately, then runs
     /// the disk + DB work on a detached Task so a 10MB browser drag
-    /// doesn't freeze the panel for half a second. Drops use this;
-    /// screenshots stick with the synchronous path because the burst
-    /// detector needs the saved record's id.
+    /// doesn't freeze the panel for half a second. Drops AND screenshots
+    /// use this — the returned id lets callers (e.g. the screenshot
+    /// burst detector) reference the eventual record before it lands.
+    @discardableResult
     func saveImageDeferred(
         data: Data,
         mimeType: String,
         noteId: String?,
         source: String,
         expiresAt: Double? = nil
-    ) {
+    ) -> String {
         let id = UUID().uuidString
         let preview = NSImage(data: data)
         inflight.insert(InflightUpload(id: id, preview: preview), at: 0)
 
+        let startTime = DispatchTime.now()
         let db = self.db
         let rootURL = self.rootURL
         Task.detached(priority: .userInitiated) {
@@ -114,17 +128,48 @@ final class ImageStore: ObservableObject {
                     db: db,
                     rootURL: rootURL
                 )
+                // Resolve any clearExpiryDeferred that came in mid-save.
+                let shouldClearExpiry = await MainActor.run { () -> Bool in
+                    self.pendingClearExpiry.remove(id) != nil
+                }
+                var pendingRecord = record
+                if shouldClearExpiry {
+                    do {
+                        try await db.dbQueue.write { conn in
+                            try conn.execute(
+                                sql: "UPDATE images SET expires_at = NULL WHERE id = ?",
+                                arguments: [id]
+                            )
+                        }
+                        pendingRecord.expiresAt = nil
+                    } catch {
+                        NSLog("saveImageDeferred clear-expiry failed: \(error)")
+                    }
+                }
+                // Freeze the record into a let before the cross-actor hop —
+                // captured-var-in-concurrent-code is a Swift 6 hard error.
+                let finalRecord = pendingRecord
+                // Hold the inflight placeholder on screen for at least
+                // `minimumInflightDisplay` so the spinner is actually
+                // perceivable on small saves that finish in <50ms.
+                let elapsedNanos = DispatchTime.now().uptimeNanoseconds - startTime.uptimeNanoseconds
+                let minimumNanos = UInt64(Self.minimumInflightDisplay * 1_000_000_000)
+                if elapsedNanos < minimumNanos {
+                    try? await Task.sleep(nanoseconds: minimumNanos - elapsedNanos)
+                }
                 await MainActor.run {
                     self.inflight.removeAll { $0.id == id }
-                    self.images.insert(record, at: 0)
+                    self.images.insert(finalRecord, at: 0)
                 }
             } catch {
                 NSLog("saveImageDeferred failed: \(error)")
                 await MainActor.run {
                     self.inflight.removeAll { $0.id == id }
+                    self.pendingClearExpiry.remove(id)
                 }
             }
         }
+        return id
     }
 
     /// Heavy-lifting body shared by the sync and deferred save paths.
@@ -167,6 +212,20 @@ final class ImageStore: ObservableObject {
         )
         try db.dbQueue.write { try record.insert($0) }
         return record
+    }
+
+    /// Like `clearExpiry`, but tolerant of records that haven't yet
+    /// finished their deferred save. If the row already exists we
+    /// update it directly; otherwise we record the intent and the
+    /// `saveImageDeferred` completion path applies it before
+    /// publishing the record. Burst detection on screenshots uses this
+    /// because the burst can fire before either save has landed.
+    func clearExpiryDeferred(id: String) {
+        if images.contains(where: { $0.id == id }) {
+            clearExpiry(id: id)
+        } else {
+            pendingClearExpiry.insert(id)
+        }
     }
 
     /// Clears the TTL on an auto-saved screenshot when the user triggers

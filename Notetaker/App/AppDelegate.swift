@@ -124,27 +124,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let now = Date().timeIntervalSince1970
         recentScreenshots.removeAll { now - $0.time > burstWindow }
 
-        let saved: ImageRecord
-        do {
-            saved = try env.imageStore.saveImage(
-                data: data,
-                mimeType: mime,
-                noteId: nil,
-                source: "screenshot",
-                expiresAt: now + soloTTL
-            )
-        } catch {
-            NSLog("Auto-save screenshot failed: \(error)")
-            return
-        }
-        recentScreenshots.append((time: now, id: saved.id))
+        // Deferred save — the inflight cell + spinner appears in the grid
+        // synchronously while the file write + thumbnail run on a detached
+        // task. Synchronous saves froze the panel for 200-400ms on big
+        // retina screenshots, which read as "did anything happen?" to the
+        // user. Returns the id immediately so we can wire the eventual
+        // record into the burst detector before the save lands.
+        let id = env.imageStore.saveImageDeferred(
+            data: data,
+            mimeType: mime,
+            noteId: nil,
+            source: "screenshot",
+            expiresAt: now + soloTTL
+        )
+        recentScreenshots.append((time: now, id: id))
 
         if recentScreenshots.count >= burstCount {
+            // Burst detected — the user is intentionally collecting
+            // screenshots, so promote them from solo-TTL to permanent.
             for entry in recentScreenshots {
-                env.imageStore.clearExpiry(id: entry.id)
+                env.imageStore.clearExpiryDeferred(id: entry.id)
             }
-            panel.showOnTab(.images)
         }
+        // Always pop the panel so the user gets immediate visual feedback
+        // (placeholder cell + spinner) for the in-flight save. Solo
+        // screenshots still evaporate via TTL if the user doesn't engage,
+        // so showing the panel is non-destructive.
+        panel.showOnTab(.images)
     }
 
     private static func mime(forExtension ext: String) -> String {
