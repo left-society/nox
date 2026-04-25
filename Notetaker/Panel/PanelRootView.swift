@@ -17,113 +17,73 @@ private struct VisualEffectBackground: NSViewRepresentable {
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
-/// Outer rim — the bright bevel where the curved face of the glass
-/// meets the wall. Top is hot (light source above), bottom dies off.
-/// `plusLighter` blend makes it pop against any wallpaper without
-/// going opaque white on bright backgrounds.
+/// Outer rim — clean white edge stroke, no `plusLighter` halo. Apple's
+/// `moduleStroke` style on Control Center tiles is similarly clean:
+/// visible bright top, fades down. Without `plusLighter` we get a
+/// crisp glass edge instead of a glowing-object look.
 private struct GlassEdge: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 20, style: .continuous)
             .strokeBorder(
                 LinearGradient(
                     colors: [
-                        Color.white.opacity(0.78),
-                        Color.white.opacity(0.32),
-                        Color.white.opacity(0.10)
+                        Color.white.opacity(0.45),
+                        Color.white.opacity(0.20),
+                        Color.white.opacity(0.06)
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 ),
-                lineWidth: 1.1
+                lineWidth: 1.0
             )
-            .blendMode(.plusLighter)
             .allowsHitTesting(false)
     }
 }
 
-/// INNER wall — a second bright stroke inset 1.5pt from the outer rim.
-/// This is the key "liquid glass" tell: it makes the glass read as a
-/// thick lens rather than a flat translucent sheet. Without it, the
-/// panel looks like frosted plastic; with it, you can "see" the wall
-/// of the glass.
+/// Inner wall — a second stroke inset 1.2pt from the outer rim. Gives
+/// the glass visible thickness (the "wall" of the lens) without the
+/// haloing `plusLighter` was producing. Subtle on purpose — Apple's
+/// Glass material relies on the matrix-lift + clean stroke combo, not
+/// stacked glow layers.
 private struct GlassInnerWall: View {
     var body: some View {
-        RoundedRectangle(cornerRadius: 18.5, style: .continuous)
+        RoundedRectangle(cornerRadius: 18.8, style: .continuous)
             .strokeBorder(
                 LinearGradient(
                     colors: [
-                        Color.white.opacity(0.55),
-                        Color.white.opacity(0.18),
-                        Color.white.opacity(0.04),
+                        Color.white.opacity(0.25),
+                        Color.white.opacity(0.10),
+                        Color.white.opacity(0.02),
                         Color.clear
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 ),
-                lineWidth: 0.7
+                lineWidth: 0.6
             )
-            .padding(1.5)
-            .blendMode(.plusLighter)
+            .padding(1.2)
             .allowsHitTesting(false)
     }
 }
 
-/// Top-edge inner glow — light bleeding from the rim into the body,
-/// like a curved glass lens catching overhead light.
+/// Soft top-edge inner glow — the gentle light bleed from the rim into
+/// the body. Kept subtle; this is the only "highlight" layer left after
+/// dropping the specular blob and diagonal sheen.
 private struct GlassHighlight: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 20, style: .continuous)
             .fill(
                 LinearGradient(
                     colors: [
-                        Color.white.opacity(0.20),
-                        Color.white.opacity(0.05),
+                        Color.white.opacity(0.10),
+                        Color.white.opacity(0.02),
                         Color.clear
                     ],
                     startPoint: .top,
-                    endPoint: UnitPoint(x: 0.5, y: 0.30)
+                    endPoint: UnitPoint(x: 0.5, y: 0.28)
                 )
             )
             .allowsHitTesting(false)
-    }
-}
-
-/// Specular gloss in the top-left — fakes the bright glint where light
-/// catches a curved glass surface. Soft blur + plusLighter blend so it
-/// reads as a glow rather than a painted spot.
-private struct GlassSpecular: View {
-    var body: some View {
-        RadialGradient(
-            colors: [
-                Color.white.opacity(0.34),
-                Color.white.opacity(0.10),
-                Color.clear
-            ],
-            center: UnitPoint(x: 0.18, y: 0.04),
-            startRadius: 0,
-            endRadius: 150
-        )
-        .blendMode(.plusLighter)
-        .allowsHitTesting(false)
-    }
-}
-
-/// Diagonal sheen running off the top-left corner — the sweep of light
-/// glancing across a wet/curved glass surface. Subtle, lives just above
-/// the body tint but below the rim.
-private struct GlassSheen: View {
-    var body: some View {
-        LinearGradient(
-            colors: [
-                Color.white.opacity(0.14),
-                Color.white.opacity(0.04),
-                Color.clear
-            ],
-            startPoint: UnitPoint(x: 0.0, y: 0.0),
-            endPoint: UnitPoint(x: 0.6, y: 0.42)
-        )
-        .blendMode(.plusLighter)
-        .allowsHitTesting(false)
     }
 }
 
@@ -136,9 +96,9 @@ private struct BottomGlassShadow: View {
                 LinearGradient(
                     colors: [
                         Color.clear,
-                        Color.black.opacity(0.16)
+                        Color.black.opacity(0.14)
                     ],
-                    startPoint: UnitPoint(x: 0.5, y: 0.6),
+                    startPoint: UnitPoint(x: 0.5, y: 0.62),
                     endPoint: .bottom
                 )
             )
@@ -177,45 +137,45 @@ struct PanelRootView: View {
         .background(
             ZStack {
                 // Backdrop blur of whatever's behind the panel — base
-                // for the iOS Notification-Center / Control-Center vibe.
+                // layer for the wallpaper-bleed-through effect.
                 VisualEffectBackground()
-                // Body tint — much more transparent than before so the
-                // wallpaper actually shows through. 0.18 gives glass-
-                // body weight without being dark like frosted plastic.
-                Color.black.opacity(0.18)
-                // Top legibility ramp — keeps the header readable on
-                // bright wallpapers, dies off by the time content starts.
+                // WHITE LIFT — Apple's `platformContentGlass` material
+                // recipe applies a +0.235 brightness boost on every
+                // RGB channel via its color matrix (the m15/m25/m35
+                // entries). That's the "luminous glass" secret. We
+                // can't apply a CIColorMatrix to NSVisualEffectView
+                // directly, so we approximate it with a translucent
+                // white overlay. Without this the panel reads as dark
+                // frosted plastic; with it, it reads as glass.
+                Color.white.opacity(0.14)
+                // Soft top legibility ramp — just enough darken near
+                // the menu bar so the header text stays crisp on
+                // bright wallpapers. Dies off well before content.
                 LinearGradient(
                     colors: [
-                        Color.black.opacity(0.14),
+                        Color.black.opacity(0.10),
                         Color.clear
                     ],
                     startPoint: .top,
-                    endPoint: UnitPoint(x: 0.5, y: 0.32)
+                    endPoint: UnitPoint(x: 0.5, y: 0.22)
                 )
-                // Cool purple wash in the top-left — accent hint, very
-                // subtle so the wallpaper still dominates.
+                // Cool purple wash in the top-left — subtle accent hint.
                 RadialGradient(
                     colors: [
-                        Color(red: 0.55, green: 0.40, blue: 0.82).opacity(0.14),
+                        Color(red: 0.55, green: 0.40, blue: 0.82).opacity(0.10),
                         Color.clear
                     ],
                     center: UnitPoint(x: 0.10, y: 0.02),
                     startRadius: 0,
                     endRadius: 320
                 )
-                // Light effects that read as "this is a thick glass lens"
-                // — order matters; specular goes under sheen so the
-                // sheen sweeps across it rather than the other way.
-                GlassSpecular()
-                GlassSheen()
                 GlassHighlight()
                 BottomGlassShadow()
             }
         )
-        // Outer rim and inner wall stroke layered on top — these are
-        // what make the panel read as a thick glass lens rather than
-        // a translucent flat sheet.
+        // Outer rim and inner wall — clean white strokes, no
+        // `plusLighter` halo. Combined with the white-lift body, they
+        // make the glass read as a thick lens with visible walls.
         .overlay(GlassEdge())
         .overlay(GlassInnerWall())
         // Drop targeting ring — driven by PanelDropContainer (the NSPanel
@@ -228,25 +188,23 @@ struct PanelRootView: View {
                 .allowsHitTesting(false)
         )
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        // Outer drop shadow under the panel — thick lens hovering
-        // above the wallpaper. Two stacked shadows: a soft far one for
-        // ambient lift, a tighter one for contact.
+        // Outer drop shadow stack — soft far shadow for ambient lift,
+        // tighter close shadow for contact. Reads as "thick glass lens
+        // hovering above the desktop."
         .shadow(color: Color.black.opacity(0.35), radius: 22, x: 0, y: 14)
         .shadow(color: Color.black.opacity(0.20), radius: 4, x: 0, y: 2)
         .compositingGroup()
-        // Liquid dissolve: scale + slight rotation + blur + opacity all
-        // animating together with an elastic spring, anchored at the
-        // top-trailing corner where the menu-bar icon lives. The
-        // rotation gives a tiny "uncoil" that reads as the glass
-        // forming rather than just expanding.
-        .scaleEffect(presenter.isShown ? 1.0 : 0.72, anchor: .topTrailing)
-        .rotationEffect(.degrees(presenter.isShown ? 0 : -3.5), anchor: .topTrailing)
-        .blur(radius: presenter.isShown ? 0 : 24)
+        // Dissolve entry — scale + blur + opacity, anchored top-trailing
+        // (where the menu-bar icon lives) so the panel feels like it's
+        // condensing out of the status item. No rotation — that was a
+        // SwiftUI gimmick, not part of Apple's vocabulary.
+        .scaleEffect(presenter.isShown ? 1.0 : 0.86, anchor: .topTrailing)
+        .blur(radius: presenter.isShown ? 0 : 14)
         .opacity(presenter.isShown ? 1.0 : 0.0)
         .animation(
             presenter.isShown
-                ? .spring(response: 0.50, dampingFraction: 0.70)
-                : .easeOut(duration: 0.20),
+                ? .spring(response: 0.46, dampingFraction: 0.78)
+                : .easeOut(duration: 0.18),
             value: presenter.isShown
         )
     }
