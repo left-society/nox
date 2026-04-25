@@ -122,20 +122,28 @@ struct PanelRootView: View {
             innerPanel.frame(width: currentWidth, height: currentHeight)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // CRITICAL: SwiftUI automatically pushes content below the
+        // safe-area inset (i.e. below the menu bar / notch). That's
+        // exactly what kills the "emerging from the notch" illusion —
+        // the silhouette ends up flush with the menu-bar bottom no
+        // matter how high we position the NSPanel. .ignoresSafeArea
+        // lets the silhouette extend up INTO the menu-bar zone where
+        // it fuses with the notch hardware.
+        .ignoresSafeArea(.all, edges: .top)
         .compositingGroup()
         .animation(
             presenter.isShown
-                // Open: physical interpolating spring. stiffness/damping
-                // chosen so the slab arrives with a single, soft settle —
-                // close to Apple's notch HUD feel. Higher stiffness than
-                // a standard SwiftUI spring (≈220 vs 100) gives the
-                // "responsive" snap; damping 22 leaves a hint of
-                // visible deceleration that reads as motion blur at
-                // 120Hz instead of stopping dead.
-                ? .interpolatingSpring(mass: 1.0, stiffness: 220, damping: 22, initialVelocity: 0)
-                // Close: tighter, no bounce. Snaps back into the notch
-                // before the user perceives any wobble.
-                : .interpolatingSpring(mass: 1.0, stiffness: 320, damping: 30, initialVelocity: 0),
+                // Spring physics ported verbatim from Caption app's
+                // AnimatedNav (Framer Motion: stiffness 260, damping 22)
+                // — the floating pill nav-bar that morphs from full
+                // width to a 44pt circle. That motion is exactly the
+                // "Apple-physics" feel we want for the notch morph:
+                // single confident settle, perceptible momentum on the
+                // way in, no wobble. SwiftUI's interpolatingSpring with
+                // mass 1 / stiffness 260 / damping 22 is a 1:1 match.
+                ? .interpolatingSpring(mass: 1.0, stiffness: 260, damping: 22, initialVelocity: 0)
+                // Close: tighter, no bounce. Snaps back into the notch.
+                : .interpolatingSpring(mass: 1.0, stiffness: 360, damping: 32, initialVelocity: 0),
             value: presenter.isShown
         )
     }
@@ -158,14 +166,14 @@ struct PanelRootView: View {
         // where the user expects them, while the black silhouette
         // above merges seamlessly with the notch hardware.
         .padding(.top, notchOverlap)
-        // Content fades in *after* the shell finishes springing open
-        // (delay 0.20s ≈ peak of the spring). Reverse on close:
-        // content clears fast so the shell collapses cleanly.
+        // Content fades in *after* the shell springs open (delay 0.14s
+        // ≈ shell at full size). Reverse on close: clears fast so the
+        // shell collapses cleanly.
         .opacity(presenter.isShown ? 1 : 0)
         .animation(
             presenter.isShown
-                ? .easeOut(duration: 0.22).delay(0.20)
-                : .easeIn(duration: 0.08),
+                ? .easeOut(duration: 0.16).delay(0.14)
+                : .easeIn(duration: 0.06),
             value: presenter.isShown
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)

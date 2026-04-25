@@ -231,13 +231,13 @@ final class PanelWindowController {
         let screens = NSScreen.screens.map { "\($0.frame)" }.joined(separator: " | ")
         NSLog("Notetaker: show() panel.frame=\(panel.frame) main=\(NSScreen.main?.frame ?? .zero) screens=\(screens)")
 
-        // Hold the pill state visible for ~180ms BEFORE flipping isShown.
-        // Without this hold, the pill state shows for a single runloop
-        // tick (~16ms — below human perception) and the user just sees
-        // a slab drop into place; the "emerging from the notch" cue is
-        // lost. 180ms is long enough to read as "the notch grew a small
-        // pill" before the spring takes it the rest of the way.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+        // Hold the pill state for ~90ms BEFORE flipping isShown. Without
+        // a hold the pill shows for a single runloop tick and the user
+        // just sees a slab drop into place; the "emerging from the
+        // notch" cue is lost. 90ms (≈ 11 frames at 120Hz) is just long
+        // enough to register as a tiny black blister before the morph
+        // takes over — any longer feels laggy.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) { [weak self] in
             self?.presenter.isShown = true
         }
         isVisible = true
