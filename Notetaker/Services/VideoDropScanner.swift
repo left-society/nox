@@ -18,7 +18,7 @@ enum VideoDropScanner {
     ]
 
     static let videoHosts: Set<String> = [
-        "youtube.com", "m.youtube.com", "youtu.be", "music.youtube.com",
+        "youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "music.youtube.com",
         "instagram.com", "www.instagram.com",
         "tiktok.com", "www.tiktok.com", "vm.tiktok.com", "m.tiktok.com",
         "twitter.com", "x.com", "mobile.twitter.com",

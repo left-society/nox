@@ -28,6 +28,8 @@
 		8F1E0C1C56B34BA5A69F027B /* ImagesGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 903C4B5F7E59B2D22822B143 /* ImagesGridView.swift */; };
 		AB99000000000000000F1B01 /* FileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99000000000000000F1A01 /* FileStore.swift */; };
 		AB99000000000000000F2B01 /* FilesGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99000000000000000F2A01 /* FilesGridView.swift */; };
+		AB99000000000000000F3B01 /* ClipboardRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99000000000000000F3A01 /* ClipboardRouter.swift */; };
+		AB99000000000000000F4B01 /* ClipboardRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99000000000000000F4A01 /* ClipboardRouterTests.swift */; };
 		AB12CD34EF567890FEDC0001 /* ThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB12CD34EF567890FEDC0002 /* ThumbnailCache.swift */; };
 		AB12CD34EF567890FEDC0003 /* LocalThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB12CD34EF567890FEDC0004 /* LocalThumbnailView.swift */; };
 		9C4454DAB3490C57222008FC /* PanelWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F2B24F63B38FFB038957FF /* PanelWindowController.swift */; };
@@ -85,6 +87,8 @@
 		903C4B5F7E59B2D22822B143 /* ImagesGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagesGridView.swift; sourceTree = "<group>"; };
 		AB99000000000000000F1A01 /* FileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileStore.swift; sourceTree = "<group>"; };
 		AB99000000000000000F2A01 /* FilesGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilesGridView.swift; sourceTree = "<group>"; };
+		AB99000000000000000F3A01 /* ClipboardRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardRouter.swift; sourceTree = "<group>"; };
+		AB99000000000000000F4A01 /* ClipboardRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardRouterTests.swift; sourceTree = "<group>"; };
 		AB12CD34EF567890FEDC0002 /* ThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailCache.swift; sourceTree = "<group>"; };
 		AB12CD34EF567890FEDC0004 /* LocalThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalThumbnailView.swift; sourceTree = "<group>"; };
 		98E3F8A6AFB9CFA5A2888105 /* VideosGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideosGridView.swift; sourceTree = "<group>"; };
@@ -142,6 +146,7 @@
 			isa = PBXGroup;
 			children = (
 				1ECB7D8944E98E9980E33DAE /* BrowserURLService.swift */,
+				AB99000000000000000F3A01 /* ClipboardRouter.swift */,
 				1FB98CADB6E11EE3D5131617 /* ClipboardService.swift */,
 				56F0E884BA061699C7F2CB95 /* Database.swift */,
 				AB99000000000000000F1A01 /* FileStore.swift */,
@@ -225,6 +230,7 @@
 		E6B54692E4942FCA483A8134 /* NotetakerTests */ = {
 			isa = PBXGroup;
 			children = (
+				AB99000000000000000F4A01 /* ClipboardRouterTests.swift */,
 				121C8981642F47441411BB1A /* ClipboardServiceTests.swift */,
 				FE95BFBB47BCAF71BB996C85 /* DatabaseTests.swift */,
 				4E9C789396FD99C877E0100E /* ImageStoreTests.swift */,
@@ -366,6 +372,7 @@
 				31A8654F476EE3A073A1EE8D /* AppDelegate.swift in Sources */,
 				82DDE6EA7985D2F3965F0E71 /* AppEnvironment.swift in Sources */,
 				BE9C61D689F83C6E9399E285 /* BrowserURLService.swift in Sources */,
+				AB99000000000000000F3B01 /* ClipboardRouter.swift in Sources */,
 				64E1146E44882F7E940B0274 /* ClipboardService.swift in Sources */,
 				E418674FA029BAC44F847357 /* Database.swift in Sources */,
 				DC2797E25CF433EC7D759CF0 /* DesignTokens.swift in Sources */,
@@ -400,6 +407,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AB99000000000000000F4B01 /* ClipboardRouterTests.swift in Sources */,
 				6BDA044D6CAD8855082E1541 /* ClipboardServiceTests.swift in Sources */,
 				1AE947839F28E030B4FA584D /* DatabaseTests.swift in Sources */,
 				F29805610AF256CD93788038 /* ImageStoreTests.swift in Sources */,
