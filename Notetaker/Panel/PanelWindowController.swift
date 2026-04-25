@@ -55,6 +55,7 @@ final class PanelWindowController {
     private var clickOutsideMonitor: Any?
     private var keyMonitor: Any?
     private var globalKeyMonitor: Any?
+    private var quickPasteMonitor: Any?
     private var hideWorkItem: DispatchWorkItem?
     /// `NSPasteboard.general.changeCount` captured at the last hide().
     /// Initialized to -1 so the very first show() always evaluates the
@@ -239,6 +240,28 @@ final class PanelWindowController {
             self.hide()
         }
 
+        // ⌘1–⌘9 quick paste — when the panel is key, intercept the
+        // digit and copy the Nth visible item of the active tab to
+        // the system clipboard. Local-only because the panel has to
+        // actually be focused (i.e. the user clicked into it or is
+        // interacting with it) for these to fire — we don't want
+        // ⌘1 in another app to dispatch our quick paste.
+        quickPasteMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            // Only ⌘ as the modifier — ⌃⌘N or ⌥⌘N should fall through
+            // so we don't trample shortcuts the user expects elsewhere.
+            let mods = event.modifierFlags.intersection([.command, .control, .option, .shift])
+            guard mods == .command else { return event }
+            let chars = event.charactersIgnoringModifiers ?? ""
+            guard chars.count == 1,
+                  let digit = chars.first?.wholeNumberValue,
+                  (1...9).contains(digit) else { return event }
+            if self.handleQuickPaste(index: digit - 1) {
+                return nil
+            }
+            return event
+        }
+
         // Two ESC monitors because the panel may or may not be key:
         // - Local fires when the panel IS key (user clicked the search
         //   field). It consumes the event so the field doesn't ding.
@@ -278,6 +301,63 @@ final class PanelWindowController {
         }
         hideWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.24, execute: item)
+    }
+
+    /// ⌘N quick paste — copies the Nth visible item of the currently
+    /// active tab to the system clipboard, then hides the panel after
+    /// a brief beat so the user can paste with ⌘V wherever they were
+    /// typing. Returns true iff the index resolved to a real item; if
+    /// false, the local-monitor closure passes the event through.
+    @discardableResult
+    private func handleQuickPaste(index: Int) -> Bool {
+        switch presenter.activeTab {
+        case .notes:
+            let texts = environment.noteStore.notes.prefix(9).map(\.body)
+            if case .text(let s) = QuickPasteRouter.itemAt(index: index, texts: Array(texts)) {
+                ClipboardService.copy(text: s)
+                quickPasteFeedback()
+                return true
+            }
+        case .images:
+            let urls = environment.imageStore.images.prefix(9).map { rec in
+                environment.imageStore.fullURL(for: rec)
+            }
+            if case .fileURL(let u) = QuickPasteRouter.itemAt(index: index, urls: Array(urls)) {
+                if let img = NSImage(contentsOf: u) {
+                    ClipboardService.copy(images: [img], fileURLs: [u])
+                    quickPasteFeedback()
+                    return true
+                }
+            }
+        case .videos:
+            let urls = environment.videoStore.videos.prefix(9).map { rec in
+                environment.videoStore.fullURL(for: rec)
+            }
+            if case .fileURL(let u) = QuickPasteRouter.itemAt(index: index, urls: Array(urls)) {
+                ClipboardService.copy(fileURLs: [u])
+                quickPasteFeedback()
+                return true
+            }
+        case .files:
+            let urls = environment.fileStore.files.prefix(9).map(\.url)
+            if case .fileURL(let u) = QuickPasteRouter.itemAt(index: index, urls: Array(urls)) {
+                ClipboardService.copy(fileURLs: [u])
+                quickPasteFeedback()
+                return true
+            }
+        }
+        return false
+    }
+
+    private func quickPasteFeedback() {
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+        // 180ms gives the haptic time to register and the user time
+        // to register the panel as having "responded" before we yank
+        // it. Faster than that feels like a glitchy flash; slower
+        // feels like the panel is dragging its feet.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+            self?.hide()
+        }
     }
 
     /// Calls into ClipboardRouter and reacts to its decision. Only
@@ -330,6 +410,10 @@ final class PanelWindowController {
         if let monitor = globalKeyMonitor {
             NSEvent.removeMonitor(monitor)
             globalKeyMonitor = nil
+        }
+        if let monitor = quickPasteMonitor {
+            NSEvent.removeMonitor(monitor)
+            quickPasteMonitor = nil
         }
     }
 
