@@ -83,7 +83,12 @@ final class PanelWindowController {
             },
             onImage: { [weak presenter, weak environment] data, mime in
                 guard let presenter, let environment else { return }
-                _ = try? environment.imageStore.saveImage(
+                // Deferred save — drops a placeholder into the grid
+                // immediately, finalizes file + thumbnail off the main
+                // actor. A 10MB browser-drag TIFF used to freeze the
+                // panel for ~500ms; now the user sees the cell appear
+                // instantly with a spinner that fades on completion.
+                environment.imageStore.saveImageDeferred(
                     data: data,
                     mimeType: mime,
                     noteId: nil,

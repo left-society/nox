@@ -1,4 +1,5 @@
 import AppKit
+import CoreServices
 
 enum ClipboardService {
     static func copy(text: String) {
@@ -114,65 +115,136 @@ final class DragMonitor {
 
 // MARK: - Screenshot Watcher
 
-// Uses Spotlight to detect new screenshots anywhere on the system (works
-// regardless of the user's configured screenshot location). When one
-// appears we pop the panel on Images tab and auto-save the file.
+// Watches the user's screenshot directory via FSEvents. The previous
+// NSMetadataQuery-based approach silently failed in the sandboxed
+// app — didFinishGathering never fires and the Spotlight scope returns
+// nothing. FSEvents on a specific user-readable directory is fast
+// (sub-second), reliable, and doesn't need Spotlight access.
 @MainActor
 final class ScreenshotWatcher: NSObject {
-    private let query = NSMetadataQuery()
+    private var stream: FSEventStreamRef?
     private var seenPaths: Set<String> = []
     private let onNewScreenshot: (URL) -> Void
+    private let watchedDir: URL
 
     init(onNewScreenshot: @escaping (URL) -> Void) {
         self.onNewScreenshot = onNewScreenshot
+        self.watchedDir = Self.screenshotDirectory()
         super.init()
     }
 
+    /// Honors the user's configured `com.apple.screencapture location`
+    /// preference. Falls back to ~/Desktop, the macOS default.
+    private static func screenshotDirectory() -> URL {
+        if let configured = UserDefaults(suiteName: "com.apple.screencapture")?.string(forKey: "location") {
+            let expanded = (configured as NSString).expandingTildeInPath
+            return URL(fileURLWithPath: expanded)
+        }
+        return FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Desktop")
+    }
+
     func start() {
-        query.predicate = NSPredicate(format: "kMDItemIsScreenCapture = 1")
-        query.searchScopes = [NSMetadataQueryLocalComputerScope]
+        // Seed seenPaths with everything currently in the watched
+        // directory so we don't fire onNewScreenshot for pre-existing
+        // files when the stream warms up.
+        if let existing = try? FileManager.default.contentsOfDirectory(atPath: watchedDir.path) {
+            for name in existing {
+                seenPaths.insert((watchedDir.path as NSString).appendingPathComponent(name))
+            }
+        }
+        NSLog("Notetaker: ScreenshotWatcher watching \(watchedDir.path), seeded \(seenPaths.count) existing files")
 
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(didFinishGathering),
-            name: .NSMetadataQueryDidFinishGathering,
-            object: query
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(didUpdate),
-            name: .NSMetadataQueryDidUpdate,
-            object: query
+        var context = FSEventStreamContext(
+            version: 0,
+            info: Unmanaged.passUnretained(self).toOpaque(),
+            retain: nil,
+            release: nil,
+            copyDescription: nil
         )
 
-        query.start()
+        let callback: FSEventStreamCallback = {
+            _, clientCallBackInfo, numEvents, eventPaths, eventFlags, _ in
+            guard let info = clientCallBackInfo else { return }
+            let watcher = Unmanaged<ScreenshotWatcher>.fromOpaque(info).takeUnretainedValue()
+            // With kFSEventStreamCreateFlagUseCFTypes the eventPaths arg is a
+            // CFArray<CFString>, toll-free bridged to NSArray.
+            let nsArray = unsafeBitCast(eventPaths, to: NSArray.self)
+            guard let paths = nsArray as? [String] else { return }
+            for i in 0..<numEvents {
+                let flags = eventFlags[i]
+                let path = paths[i]
+                let isFile = (flags & UInt32(kFSEventStreamEventFlagItemIsFile)) != 0
+                let isCreated = (flags & UInt32(kFSEventStreamEventFlagItemCreated)) != 0
+                let isRenamed = (flags & UInt32(kFSEventStreamEventFlagItemRenamed)) != 0
+                let isModified = (flags & UInt32(kFSEventStreamEventFlagItemModified)) != 0
+                if isFile && (isCreated || isRenamed || isModified) {
+                    DispatchQueue.main.async {
+                        watcher.handleEvent(path: path)
+                    }
+                }
+            }
+        }
+
+        let pathsToWatch = [watchedDir.path] as CFArray
+        let createFlags = UInt32(
+            kFSEventStreamCreateFlagFileEvents |
+            kFSEventStreamCreateFlagUseCFTypes |
+            kFSEventStreamCreateFlagNoDefer
+        )
+        guard let stream = FSEventStreamCreate(
+            kCFAllocatorDefault,
+            callback,
+            &context,
+            pathsToWatch,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            0.3,
+            createFlags
+        ) else {
+            NSLog("Notetaker: ScreenshotWatcher FSEventStreamCreate failed")
+            return
+        }
+        FSEventStreamSetDispatchQueue(stream, DispatchQueue.main)
+        FSEventStreamStart(stream)
+        self.stream = stream
+        NSLog("Notetaker: ScreenshotWatcher started FSEvents stream")
     }
 
     func stop() {
-        query.stop()
+        if let stream = stream {
+            FSEventStreamStop(stream)
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+            self.stream = nil
+        }
     }
 
-    @objc private func didFinishGathering(_ notification: Notification) {
-        query.disableUpdates()
-        for i in 0..<query.resultCount {
-            if let item = query.result(at: i) as? NSMetadataItem,
-               let path = item.value(forAttribute: NSMetadataItemPathKey) as? String {
-                seenPaths.insert(path)
-            }
-        }
-        query.enableUpdates()
+    private func handleEvent(path: String) {
+        guard !seenPaths.contains(path) else { return }
+        let ext = (path as NSString).pathExtension.lowercased()
+        let imageExts: Set<String> = ["png", "jpg", "jpeg", "tiff", "tif", "gif", "webp", "heic", "heif"]
+        guard imageExts.contains(ext) else { return }
+        guard FileManager.default.fileExists(atPath: path) else { return }
+        guard Self.looksLikeScreenshot(path: path) else { return }
+        seenPaths.insert(path)
+        NSLog("Notetaker: ScreenshotWatcher new screenshot at \(path)")
+        onNewScreenshot(URL(fileURLWithPath: path))
     }
 
-    @objc private func didUpdate(_ notification: Notification) {
-        guard let added = notification.userInfo?[NSMetadataQueryUpdateAddedItemsKey] as? [NSMetadataItem] else {
-            return
+    /// Filename prefix OR Spotlight xattr — covers macOS English-locale
+    /// screenshots (the common case) and localized variants where macOS
+    /// sets `kMDItemIsScreenCapture` regardless of language. Also accepts
+    /// CleanShot which prefixes its filenames identifiably.
+    private static func looksLikeScreenshot(path: String) -> Bool {
+        let name = (path as NSString).lastPathComponent
+        if name.hasPrefix("Screenshot ") || name.hasPrefix("Screen Shot ") {
+            return true
         }
-        for item in added {
-            guard let path = item.value(forAttribute: NSMetadataItemPathKey) as? String else { continue }
-            if seenPaths.contains(path) { continue }
-            seenPaths.insert(path)
-            onNewScreenshot(URL(fileURLWithPath: path))
+        if name.hasPrefix("CleanShot ") {
+            return true
         }
+        let attr = "com.apple.metadata:kMDItemIsScreenCapture"
+        return getxattr(path, attr, nil, 0, 0, 0) > 0
     }
 }
 

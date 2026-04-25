@@ -7,8 +7,18 @@ import UniformTypeIdentifiers
 @MainActor
 final class ImageStore: ObservableObject {
     @Published private(set) var images: [ImageRecord] = []
+    /// In-flight async saves (e.g. drag-drop). Rendered as placeholder
+    /// cells in ImagesGridView so the user gets immediate "got it"
+    /// feedback while disk I/O + thumbnail generation run in the
+    /// background.
+    @Published private(set) var inflight: [InflightUpload] = []
     private let db: Database
     private let rootURL: URL
+
+    struct InflightUpload: Identifiable {
+        let id: String
+        let preview: NSImage?
+    }
 
     init(db: Database, rootURL: URL? = nil) throws {
         self.db = db
@@ -59,6 +69,77 @@ final class ImageStore: ObservableObject {
             return existing
         }
         let id = UUID().uuidString
+        let record = try Self.performSave(
+            id: id,
+            data: data,
+            mimeType: mimeType,
+            noteId: noteId,
+            source: source,
+            expiresAt: expiresAt,
+            db: db,
+            rootURL: rootURL
+        )
+        images.insert(record, at: 0)
+        return record
+    }
+
+    /// Fire-and-forget save. Inserts a placeholder into `inflight`
+    /// synchronously so the UI shows feedback immediately, then runs
+    /// the disk + DB work on a detached Task so a 10MB browser drag
+    /// doesn't freeze the panel for half a second. Drops use this;
+    /// screenshots stick with the synchronous path because the burst
+    /// detector needs the saved record's id.
+    func saveImageDeferred(
+        data: Data,
+        mimeType: String,
+        noteId: String?,
+        source: String,
+        expiresAt: Double? = nil
+    ) {
+        let id = UUID().uuidString
+        let preview = NSImage(data: data)
+        inflight.insert(InflightUpload(id: id, preview: preview), at: 0)
+
+        let db = self.db
+        let rootURL = self.rootURL
+        Task.detached(priority: .userInitiated) {
+            do {
+                let record = try Self.performSave(
+                    id: id,
+                    data: data,
+                    mimeType: mimeType,
+                    noteId: noteId,
+                    source: source,
+                    expiresAt: expiresAt,
+                    db: db,
+                    rootURL: rootURL
+                )
+                await MainActor.run {
+                    self.inflight.removeAll { $0.id == id }
+                    self.images.insert(record, at: 0)
+                }
+            } catch {
+                NSLog("saveImageDeferred failed: \(error)")
+                await MainActor.run {
+                    self.inflight.removeAll { $0.id == id }
+                }
+            }
+        }
+    }
+
+    /// Heavy-lifting body shared by the sync and deferred save paths.
+    /// `nonisolated static` so it can run from any actor — only depends
+    /// on its arguments.
+    private nonisolated static func performSave(
+        id: String,
+        data: Data,
+        mimeType: String,
+        noteId: String?,
+        source: String,
+        expiresAt: Double?,
+        db: Database,
+        rootURL: URL
+    ) throws -> ImageRecord {
         let ext = Self.ext(for: mimeType)
         let fileRel = "images/\(id).\(ext)"
         let thumbRel = "thumbs/\(id).jpg"
@@ -85,7 +166,6 @@ final class ImageStore: ObservableObject {
             expiresAt: expiresAt
         )
         try db.dbQueue.write { try record.insert($0) }
-        images.insert(record, at: 0)
         return record
     }
 
@@ -141,7 +221,7 @@ final class ImageStore: ObservableObject {
         return nil
     }
 
-    private static func ext(for mime: String) -> String {
+    private nonisolated static func ext(for mime: String) -> String {
         switch mime {
         case "image/png": return "png"
         case "image/jpeg": return "jpg"
@@ -151,7 +231,7 @@ final class ImageStore: ObservableObject {
         }
     }
 
-    private static func dimensions(of url: URL) -> (Int?, Int?) {
+    private nonisolated static func dimensions(of url: URL) -> (Int?, Int?) {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
               let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
         else { return (nil, nil) }
@@ -160,7 +240,7 @@ final class ImageStore: ObservableObject {
         return (w, h)
     }
 
-    private static func writeThumbnail(from src: URL, to dst: URL, maxPixel: Int) throws {
+    private nonisolated static func writeThumbnail(from src: URL, to dst: URL, maxPixel: Int) throws {
         guard let imageSource = CGImageSourceCreateWithURL(src as CFURL, nil) else {
             throw NSError(
                 domain: "ImageStore",

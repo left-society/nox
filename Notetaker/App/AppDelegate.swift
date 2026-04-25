@@ -110,8 +110,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleNewScreenshot(at url: URL) {
-        guard let env = environment, let panel = panelController else { return }
-        guard let data = try? Data(contentsOf: url) else { return }
+        NSLog("Notetaker: handleNewScreenshot fired for \(url.path)")
+        guard let env = environment, let panel = panelController else {
+            NSLog("Notetaker: handleNewScreenshot bail — env or panel nil")
+            return
+        }
+        guard let data = try? Data(contentsOf: url) else {
+            NSLog("Notetaker: handleNewScreenshot bail — couldn't read data at \(url.path)")
+            return
+        }
         let mime = Self.mime(forExtension: url.pathExtension.lowercased())
 
         let now = Date().timeIntervalSince1970

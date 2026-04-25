@@ -14,12 +14,12 @@ struct ImagesGridView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !env.imageStore.images.isEmpty {
+            if !env.imageStore.images.isEmpty || !env.imageStore.inflight.isEmpty {
                 toolbar
             }
 
             ScrollView {
-                if env.imageStore.images.isEmpty {
+                if env.imageStore.images.isEmpty && env.imageStore.inflight.isEmpty {
                     emptyState
                 } else {
                     VStack(spacing: DS.Spacing.sm) {
@@ -30,6 +30,14 @@ struct ImagesGridView: View {
                         }
 
                         LazyVGrid(columns: columns, spacing: 6) {
+                            // Inflight uploads first — placeholder cells with
+                            // a spinner. They flow into real ImageCells as
+                            // saves complete, so the grid shifts gracefully
+                            // rather than popping the cell in from nowhere.
+                            ForEach(env.imageStore.inflight) { upload in
+                                InflightImageCell(upload: upload)
+                                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                            }
                             ForEach(env.imageStore.images) { record in
                                 ImageCell(
                                     record: record,
@@ -47,6 +55,7 @@ struct ImagesGridView: View {
                         }
                         .padding(DS.Spacing.sm)
                         .animation(.selection, value: env.imageStore.images.map(\.id))
+                        .animation(.selection, value: env.imageStore.inflight.map(\.id))
                     }
                 }
             }
@@ -72,6 +81,21 @@ struct ImagesGridView: View {
             Text("\(env.imageStore.images.count) image\(env.imageStore.images.count == 1 ? "" : "s")")
                 .font(.nkMeta)
                 .foregroundStyle(DS.Color.textTertiary)
+
+            // Inflight chip — shows "· Saving 1…" / "Saving 2…" while
+            // detached drop saves are finishing. Disappears when all
+            // saves land.
+            if !env.imageStore.inflight.isEmpty {
+                HStack(spacing: 4) {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(DS.Color.accent)
+                    Text("Saving \(env.imageStore.inflight.count)…")
+                        .font(.nkMeta)
+                        .foregroundStyle(DS.Color.accent)
+                }
+                .transition(.opacity)
+            }
 
             if !selected.isEmpty {
                 Text("· \(selected.count) selected")
@@ -440,6 +464,47 @@ struct ImageCell: View {
 
     private var strokeWidth: CGFloat {
         isSelected ? 2 : 1
+    }
+}
+
+// MARK: - Inflight cell
+
+/// Placeholder cell shown while an async drop save is finishing on a
+/// background task. Renders the user's dropped bytes via NSImage(data:)
+/// so the cell looks like the real thumbnail will, plus a small spinner
+/// pinned to the corner so it's obvious the save is still in flight.
+struct InflightImageCell: View {
+    let upload: ImageStore.InflightUpload
+
+    var body: some View {
+        ZStack {
+            if let preview = upload.preview {
+                Image(nsImage: preview)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Rectangle().fill(DS.Color.bgSubtle)
+            }
+        }
+        .frame(height: 84)
+        .frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous))
+        .overlay(
+            // Dim + spinner so the cell reads as "still working" without
+            // hiding the preview entirely.
+            ZStack {
+                Color.black.opacity(0.32)
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous)
+                .strokeBorder(DS.Color.accent.opacity(0.45), lineWidth: 1)
+        )
+        .allowsHitTesting(false)
     }
 }
 
