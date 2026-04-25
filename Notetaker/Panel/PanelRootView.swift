@@ -67,23 +67,43 @@ struct PanelRootView: View {
     @EnvironmentObject var presenter: PanelPresenter
     @Namespace private var segmentedPill
 
-    /// Closed pill geometry — sized to read as a hair-wider extension of
-    /// the physical notch. Width matches a typical notch span, height
-    /// matches the menu bar so the pill is the same vertical "slab" as
-    /// the notch when the user first sees it bloom.
+    /// Closed pill geometry — width matches the physical notch span;
+    /// the VISIBLE bump below the notch is just `notchPillBump` points
+    /// (the rest of the pill is hidden BEHIND the notch hardware). This
+    /// makes the pill read as the notch hardware itself growing a tiny
+    /// black blister, not a separate window dropping below the menu bar.
     private static let notchPillWidth: CGFloat = 200
-    private static let notchPillHeight: CGFloat = 36
-    private static let notchPillRadius: CGFloat = 18
+    /// How far the closed-pill SILHOUETTE extends below the menu bar
+    /// bottom. 14pt is enough to be perceptible without looking like a
+    /// ledge. Larger feels like a slab; smaller is invisible.
+    private static let notchPillBump: CGFloat = 14
+    /// Bottom-corner radius of the closed pill. Half of `notchPillBump`
+    /// makes the visible portion read as a clean half-circle bulge.
+    private static let notchPillRadius: CGFloat = 7
+
+    /// Distance the panel's TOP edge sits ABOVE the menu bar — the
+    /// height of the menu-bar strip on a notched MacBook (≈ 37pt).
+    /// This portion of the panel is hidden behind the menu-bar /
+    /// notch hardware, which is naturally black, so the panel looks
+    /// like it's growing OUT of the notch. Falls back to 0 on
+    /// non-notched displays so the panel still anchors flush.
+    private var notchOverlap: CGFloat {
+        PanelWindowController.notchOverlap(for: NSScreen.main)
+    }
 
     private var currentWidth: CGFloat {
         presenter.isShown
             ? PanelWindowController.innerPanelWidth
             : Self.notchPillWidth
     }
+    /// Total panel height = hidden notch overlap + visible portion. The
+    /// visible portion is the user-facing content (open) or the small
+    /// bump below the notch (closed).
     private var currentHeight: CGFloat {
-        presenter.isShown
+        let visible = presenter.isShown
             ? PanelWindowController.innerPanelHeight
-            : Self.notchPillHeight
+            : Self.notchPillBump
+        return notchOverlap + visible
     }
     private var currentRadius: CGFloat {
         presenter.isShown
@@ -105,13 +125,17 @@ struct PanelRootView: View {
         .compositingGroup()
         .animation(
             presenter.isShown
-                // Open: snappy with a hint of settle. Alcove feels confident,
-                // not bouncy — response 0.42 / damping 0.78 lands the slab
-                // in ~0.5s with a barely-perceptible overshoot.
-                ? .spring(response: 0.42, dampingFraction: 0.78)
-                // Close: faster collapse, no bounce. We don't want the pill
-                // to jiggle as it disappears.
-                : .spring(response: 0.32, dampingFraction: 0.96),
+                // Open: physical interpolating spring. stiffness/damping
+                // chosen so the slab arrives with a single, soft settle —
+                // close to Apple's notch HUD feel. Higher stiffness than
+                // a standard SwiftUI spring (≈220 vs 100) gives the
+                // "responsive" snap; damping 22 leaves a hint of
+                // visible deceleration that reads as motion blur at
+                // 120Hz instead of stopping dead.
+                ? .interpolatingSpring(mass: 1.0, stiffness: 220, damping: 22, initialVelocity: 0)
+                // Close: tighter, no bounce. Snaps back into the notch
+                // before the user perceives any wobble.
+                : .interpolatingSpring(mass: 1.0, stiffness: 320, damping: 30, initialVelocity: 0),
             value: presenter.isShown
         )
     }
@@ -127,13 +151,20 @@ struct PanelRootView: View {
                 .padding(.top, DS.Spacing.sm)
             content
         }
+        // Push the actual UI BELOW the menu-bar zone. The top
+        // `notchOverlap` points of the panel are hidden behind the
+        // notch / menu-bar strip, so we offset the visible widgets
+        // down by exactly that amount — header, tabs, and grid land
+        // where the user expects them, while the black silhouette
+        // above merges seamlessly with the notch hardware.
+        .padding(.top, notchOverlap)
         // Content fades in *after* the shell finishes springing open
-        // (delay 0.18s ≈ 40% into the open spring). Reverse on close:
+        // (delay 0.20s ≈ peak of the spring). Reverse on close:
         // content clears fast so the shell collapses cleanly.
         .opacity(presenter.isShown ? 1 : 0)
         .animation(
             presenter.isShown
-                ? .easeOut(duration: 0.20).delay(0.18)
+                ? .easeOut(duration: 0.22).delay(0.20)
                 : .easeIn(duration: 0.08),
             value: presenter.isShown
         )

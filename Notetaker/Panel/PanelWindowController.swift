@@ -42,12 +42,23 @@ final class PanelWindowController {
     static let innerCornerRadius: CGFloat = 28
     private static let edgeGap: CGFloat = 10
     private static let topGap: CGFloat = 40
-    /// Alcove-style: panel emerges FROM the notch — its top edge sits
-    /// flush with the menu bar's bottom (visible.maxY), so the pill
-    /// reads as the physical notch extending downward. Any gap here
-    /// breaks the illusion (the pill looks like a floating window
-    /// instead of an extension of the menu bar).
-    private static let notchTopGap: CGFloat = 0
+    /// True Alcove-style placement: the NSPanel's TOP edge sits AT the
+    /// physical screen top (frame.maxY) — i.e. ABOVE the menu bar, so the
+    /// upper portion of the panel is hidden BEHIND the notch hardware /
+    /// menu bar. The visible silhouette therefore appears to grow OUT OF
+    /// the notch, not slide down from below the menu bar. The hidden
+    /// vertical span equals this `notchOverlap` value — see
+    /// PanelRootView's matching content offset.
+    static func notchOverlap(for screen: NSScreen?) -> CGFloat {
+        guard let s = screen ?? NSScreen.main else { return 0 }
+        // Notched Mac → safeAreaInsets.top covers both the notch height
+        // and the menu-bar strip (they're the same height by design).
+        if s.safeAreaInsets.top > 0 { return s.safeAreaInsets.top }
+        // Non-notched display → fall back to the menu-bar strip height
+        // so our content still clears the bar. visibleFrame excludes the
+        // bar at the top; the difference at maxY is the bar's height.
+        return max(0, s.frame.maxY - s.visibleFrame.maxY)
+    }
 
     static func panelSize(for screen: NSScreen?) -> NSSize {
         let available = (screen ?? NSScreen.main)?.visibleFrame.height ?? 800
@@ -86,7 +97,14 @@ final class PanelWindowController {
         )
 
         panel.isFloatingPanel = true
-        panel.level = .statusBar
+        // .popUpMenu (101) draws OVER the menu bar — required so the
+        // panel visibly overlaps the menu-bar zone and merges with the
+        // physical notch. .statusBar (25) sits at the same level as the
+        // menu bar's status icons, so z-order ties can leave our panel
+        // BEHIND the bar; the popUpMenu level removes that ambiguity.
+        // We only overlap the menu bar's empty middle area (around the
+        // notch), so this doesn't trample app/system menu items.
+        panel.level = .popUpMenu
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
@@ -445,19 +463,22 @@ final class PanelWindowController {
         return NSPoint(x: x, y: y)
     }
 
-    /// Alcove-style placement: the NSPanel's TOP edge sits a few pixels
-    /// below the menu bar's bottom, centered horizontally on the screen
-    /// (right under the notch on a notched MacBook). The inner SwiftUI
-    /// slab is anchored top-center inside the panel, so it grows DOWN
-    /// from the menu bar exactly like Alcove drops out of the notch.
+    /// True Alcove placement: NSPanel TOP at the SCREEN top (frame.maxY),
+    /// not the menu-bar bottom. The upper `safeAreaInsets.top` portion
+    /// of the panel sits ABOVE the menu bar — physically hidden behind
+    /// the notch hardware and the menu bar strip. SwiftUI offsets the
+    /// content downward by the same amount so the header, tabs, and
+    /// grid still appear below the menu bar. Net effect: the visible
+    /// silhouette starts INSIDE the notch and grows DOWN from there,
+    /// instead of dropping out from below the menu bar.
     private func originUnderNotch(for size: NSSize) -> NSPoint {
         let screen = NSScreen.main
-        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let x = visible.midX - size.width / 2
+        let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let x = frame.midX - size.width / 2
         // panel.frame.y is the NSPanel's BOTTOM in screen coords; we want
-        // its TOP at visible.maxY - notchTopGap. Top = y + size.height,
-        // so y = visible.maxY - notchTopGap - size.height.
-        let y = visible.maxY - PanelWindowController.notchTopGap - size.height
+        // its TOP at frame.maxY (the very top of the display). Top = y +
+        // size.height, so y = frame.maxY - size.height.
+        let y = frame.maxY - size.height
         return NSPoint(x: x, y: y)
     }
 }
