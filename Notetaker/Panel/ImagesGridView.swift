@@ -214,14 +214,10 @@ struct ImagesGridView: View {
     }
 
     private func stackThumb(record: ImageRecord) -> some View {
-        AsyncImage(url: env.imageStore.thumbURL(for: record)) { phase in
-            switch phase {
-            case .success(let img):
-                img.resizable().aspectRatio(contentMode: .fill)
-            default:
-                Rectangle().fill(DS.Color.bgSubtle)
-            }
-        }
+        LocalThumbnailView(
+            id: record.id,
+            url: env.imageStore.thumbURL(for: record)
+        )
         .frame(width: 60, height: 60)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .overlay(
@@ -294,25 +290,11 @@ struct ImagesGridView: View {
     private func deleteSelected() {
         let ids = selected
         selected.removeAll()
-        // Mark each as trashed. We don't have a bulk API; reuse trashAll path per id
-        // via a direct mutation on imageStore is cleanest, but we avoid adding a
-        // method for now — GRDB direct update is simpler:
-        for id in ids {
-            try? markImageTrashed(id: id)
-        }
-    }
-
-    private func markImageTrashed(id: String) throws {
-        guard let idx = env.imageStore.images.firstIndex(where: { $0.id == id }) else { return }
-        let record = env.imageStore.images[idx]
-        _ = record // keeping reference until store API exists
-        try env.database.dbQueue.write { conn in
-            try conn.execute(
-                sql: "UPDATE images SET status = 'trashed', trashed_at = ? WHERE id = ?",
-                arguments: [Date().timeIntervalSince1970, id]
-            )
-        }
-        env.imageStore.reload()
+        // Single DB write + single SwiftUI re-render via the bulk
+        // trash API. Was previously O(N) reloads — selecting 20
+        // images and pressing Delete hitched the panel for ~200ms
+        // because each per-id call did a full DB reload.
+        try? env.imageStore.trashMany(ids: ids)
     }
 
     private func handlePaste() {
@@ -388,15 +370,10 @@ struct ImageCell: View {
     @State private var justCopied = false
 
     var body: some View {
-        let url = env.imageStore.thumbURL(for: record)
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .success(let img):
-                img.resizable().aspectRatio(contentMode: .fill)
-            default:
-                Rectangle().fill(DS.Color.bgSubtle)
-            }
-        }
+        LocalThumbnailView(
+            id: record.id,
+            url: env.imageStore.thumbURL(for: record)
+        )
         .frame(height: 84)
         .frame(maxWidth: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous))

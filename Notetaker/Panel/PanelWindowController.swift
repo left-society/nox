@@ -54,6 +54,7 @@ final class PanelWindowController {
     private(set) var isVisible = false
     private var clickOutsideMonitor: Any?
     private var keyMonitor: Any?
+    private var globalKeyMonitor: Any?
     private var hideWorkItem: DispatchWorkItem?
 
     weak var menuBarController: MenuBarController?
@@ -162,7 +163,14 @@ final class PanelWindowController {
         panel.alphaValue = 1
         presenter.isShown = false
         panel.orderFrontRegardless()
-        panel.makeKey()
+        // Deliberately NOT calling `panel.makeKey()` — that would steal
+        // keyboard focus from whatever app the user was typing in.
+        // The user reported "when [the panel] is opened i can't write any
+        // message to any app" — that's `makeKey` redirecting all keystrokes
+        // to us. The panel still becomes key when the user actively clicks
+        // a text field inside it (NSPanel does this automatically because
+        // `KeyablePanel.canBecomeKey` is true), so the search bar still
+        // accepts input — it just doesn't grab focus the moment we appear.
         let screens = NSScreen.screens.map { "\($0.frame)" }.joined(separator: " | ")
         NSLog("Notetaker: show() panel.frame=\(panel.frame) main=\(NSScreen.main?.frame ?? .zero) screens=\(screens)")
 
@@ -200,12 +208,27 @@ final class PanelWindowController {
             self.hide()
         }
 
+        // Two ESC monitors because the panel may or may not be key:
+        // - Local fires when the panel IS key (user clicked the search
+        //   field). It consumes the event so the field doesn't ding.
+        // - Global fires when the panel is NOT key (user is typing in
+        //   another app and just wants the overlay to go away). Global
+        //   monitors can only observe — they can't consume — so the
+        //   foreground app still sees ESC. That's intentional: ESC
+        //   tends to be a benign "cancel" everywhere, so propagating
+        //   it doesn't break anything but lets the panel dismiss
+        //   from anywhere on screen.
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53 {
                 self?.hide()
                 return nil
             }
             return event
+        }
+        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == 53 {
+                self?.hide()
+            }
         }
     }
 
@@ -231,6 +254,10 @@ final class PanelWindowController {
         if let monitor = keyMonitor {
             NSEvent.removeMonitor(monitor)
             keyMonitor = nil
+        }
+        if let monitor = globalKeyMonitor {
+            NSEvent.removeMonitor(monitor)
+            globalKeyMonitor = nil
         }
     }
 

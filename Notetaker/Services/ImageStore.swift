@@ -134,6 +134,18 @@ final class ImageStore: ObservableObject {
                     db: db,
                     rootURL: rootURL
                 )
+                // Pre-warm the thumbnail cache BEFORE we publish the
+                // real record. When the MainActor.run below swaps the
+                // inflight cell out for an ImageCell, that cell's
+                // LocalThumbnailView .task runs immediately, hits the
+                // cache, and paints on the same frame — no AsyncImage
+                // pipeline flicker between inflight cell and real
+                // cell. This is the difference between a paste that
+                // feels instant and one that "loads".
+                let thumbURL = rootURL.appendingPathComponent(record.thumbPath)
+                if let thumb = NSImage(contentsOf: thumbURL) {
+                    ThumbnailCache.shared.set(thumb, for: record.id)
+                }
                 // Resolve any clearExpiryDeferred that came in mid-save.
                 let shouldClearExpiry = await MainActor.run { () -> Bool in
                     self.pendingClearExpiry.remove(id) != nil
@@ -260,6 +272,7 @@ final class ImageStore: ObservableObject {
                 arguments: [now]
             )
         }
+        for record in images { ThumbnailCache.shared.remove(id: record.id) }
         images = []
     }
 
@@ -275,7 +288,32 @@ final class ImageStore: ObservableObject {
                 arguments: [now, id]
             )
         }
+        ThumbnailCache.shared.remove(id: id)
         images.removeAll { $0.id == id }
+    }
+
+    /// Soft-delete N images in one DB write + one in-memory mutation.
+    /// The grid view used to call `trash(id:)` in a loop for multi-
+    /// select deletes, which fired the SwiftUI re-render N times and
+    /// felt like a stutter. Going through one transaction + one
+    /// `removeAll` is a single re-render no matter how many ids.
+    func trashMany(ids: Set<String>) throws {
+        guard !ids.isEmpty else { return }
+        let now = Date().timeIntervalSince1970
+        let idArray = Array(ids)
+        let placeholders = Array(repeating: "?", count: idArray.count).joined(separator: ",")
+        try db.dbQueue.write { conn in
+            try conn.execute(
+                sql: """
+                UPDATE images
+                SET status = 'trashed', trashed_at = ?
+                WHERE id IN (\(placeholders))
+                """,
+                arguments: StatementArguments([now] + idArray)
+            )
+        }
+        for id in idArray { ThumbnailCache.shared.remove(id: id) }
+        images.removeAll { ids.contains($0.id) }
     }
 
     // MARK: - Helpers

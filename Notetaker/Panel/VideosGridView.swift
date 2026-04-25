@@ -418,17 +418,15 @@ struct VideoCell: View {
     var body: some View {
         let url = env.videoStore.thumbURL(for: record)
         ZStack(alignment: .bottomTrailing) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let img):
-                    img.resizable().aspectRatio(contentMode: .fill)
-                default:
-                    ZStack {
-                        Rectangle().fill(DS.Color.bgSubtle)
-                        Image(systemName: "film")
-                            .font(.system(size: 22, weight: .light))
-                            .foregroundStyle(DS.Color.textTertiary)
-                    }
+            // Cached thumbnail — same NSCache as images. The film-icon
+            // placeholder paints synchronously on cache miss while the
+            // file decodes off-main, then swaps in.
+            LocalThumbnailView(id: record.id, url: url) {
+                ZStack {
+                    Rectangle().fill(DS.Color.bgSubtle)
+                    Image(systemName: "film")
+                        .font(.system(size: 22, weight: .light))
+                        .foregroundStyle(DS.Color.textTertiary)
                 }
             }
             .frame(height: 96)
