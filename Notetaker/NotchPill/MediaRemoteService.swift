@@ -262,6 +262,122 @@ final class MediaRemoteService {
         // Pull initial state so the orchestrator has a baseline before
         // the user changes tracks.
         refresh()
+
+        // MediaRemote's initial dict can come back empty even when an
+        // app is actively playing — Spotify in particular doesn't seed
+        // the system NowPlayingInfo on launch; it only publishes via
+        // its own DistributedNotification (PlaybackStateChanged), which
+        // fires *on state changes*, not on subscriber-attach. So if the
+        // user is mid-song when Notetaker starts, we have no signal at
+        // all until they pause/skip.
+        //
+        // The fix: on start, scan known music apps (Spotify, Apple Music)
+        // for already-running instances and AppleScript-probe their
+        // current track. This populates lastInfo with a real snapshot,
+        // so the orchestrator can immediately render the pill. We treat
+        // it as a synthesized "app notification" so it routes through
+        // the same publish() path as live notifications — the dedup
+        // logic prevents a duplicate bloom if MediaRemote *also* fires
+        // shortly after.
+        probeRunningMusicApps()
+    }
+
+    /// Walk known music apps that are currently running and ask each
+    /// for its current track via AppleScript. Each successful probe
+    /// synthesizes the same payload the live PlaybackStateChanged /
+    /// playerInfo notification would have carried, then routes through
+    /// `applyAppNotification` for normal dedup + publish.
+    ///
+    /// Why we don't just `tell application "Spotify"` blindly: Spotify
+    /// (and Music) auto-launch in response to AppleScript commands.
+    /// We absolutely don't want to spawn either app at Notetaker start.
+    /// `NSRunningApplication.runningApplications(withBundleIdentifier:)`
+    /// gates that — only run AppleScript against an already-running app.
+    ///
+    /// Why AppleScript and not MediaRemote: the whole reason this method
+    /// exists is that MediaRemote returned empty. AppleScript inherits
+    /// the user's existing automation grant (already required for the
+    /// transport buttons to work), so there's no extra permission cost.
+    private func probeRunningMusicApps() {
+        let probes: [(bundleID: String, appName: String)] = [
+            ("com.spotify.client", "Spotify"),
+            ("com.apple.Music", "Music")
+        ]
+        for probe in probes {
+            let running = NSRunningApplication.runningApplications(
+                withBundleIdentifier: probe.bundleID
+            )
+            guard !running.isEmpty else { continue }
+            probeAppleScriptTrack(appName: probe.appName, sourceBundleID: probe.bundleID)
+        }
+    }
+
+    /// Single-app probe. Wrapped in a Task because executeAndReturnError
+    /// is synchronous and slow (~50-150ms per call); we don't want to
+    /// block start() — and by extension `applicationDidFinishLaunching` —
+    /// while the AppleScript bridge spins up.
+    private func probeAppleScriptTrack(appName: String, sourceBundleID: String) {
+        Task.detached(priority: .userInitiated) { [weak self] in
+            // Each value comes back as a single-line string. We ask for
+            // four strings concatenated with a stable separator instead
+            // of four round trips — keeps the AppleScript boundary cost
+            // minimal. The `try` blocks swallow "track not available"
+            // errors that fire when the app is running but has no
+            // current track loaded (e.g. Spotify on the home screen).
+            let source = """
+            tell application "\(appName)"
+                if not (player state is not stopped) then return ""
+                try
+                    set t to name of current track as text
+                on error
+                    return ""
+                end try
+                set a to ""
+                try
+                    set a to artist of current track as text
+                end try
+                set al to ""
+                try
+                    set al to album of current track as text
+                end try
+                set s to player state as text
+                return t & "|||" & a & "|||" & al & "|||" & s
+            end tell
+            """
+            guard let script = NSAppleScript(source: source) else { return }
+            var error: NSDictionary?
+            let result = script.executeAndReturnError(&error)
+            if error != nil { return }
+            let payload = result.stringValue ?? ""
+            guard !payload.isEmpty else { return }
+            let parts = payload.components(separatedBy: "|||")
+            guard parts.count == 4 else { return }
+            let title = parts[0]
+            let artist = parts[1]
+            let album = parts[2]
+            let state = parts[3]
+            guard !title.isEmpty || !artist.isEmpty else { return }
+
+            // Synthesize the same userInfo shape the live notification
+            // would have carried, and reuse applyAppNotification so the
+            // probe and the live path stay in lockstep.
+            let userInfo: [AnyHashable: Any] = [
+                "Name": title,
+                "Artist": artist,
+                "Album": album,
+                "Player State": state
+            ]
+            let note = Notification(
+                name: Notification.Name("Notetaker.SyntheticInitialProbe"),
+                object: nil,
+                userInfo: userInfo
+            )
+            await MainActor.run {
+                guard let self else { return }
+                NSLog("Notetaker: initial AppleScript probe \(appName) title=\"\(title)\" artist=\"\(artist)\" state=\(state)")
+                self.applyAppNotification(note, sourceBundleID: sourceBundleID)
+            }
+        }
     }
 
     /// Parse a track update from one of the app-specific
