@@ -17,43 +17,113 @@ private struct VisualEffectBackground: NSViewRepresentable {
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
-/// Bright rim around the entire panel — the "wet glass" rim-light look
-/// from the iOS reference. Stronger at the top so the panel feels lit
-/// from above; thins out at the bottom.
+/// Outer rim — the bright bevel where the curved face of the glass
+/// meets the wall. Top is hot (light source above), bottom dies off.
+/// `plusLighter` blend makes it pop against any wallpaper without
+/// going opaque white on bright backgrounds.
 private struct GlassEdge: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 20, style: .continuous)
             .strokeBorder(
                 LinearGradient(
                     colors: [
-                        Color.white.opacity(0.42),
-                        Color.white.opacity(0.18),
-                        Color.white.opacity(0.06)
+                        Color.white.opacity(0.78),
+                        Color.white.opacity(0.32),
+                        Color.white.opacity(0.10)
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 ),
-                lineWidth: 0.9
+                lineWidth: 1.1
             )
+            .blendMode(.plusLighter)
+            .allowsHitTesting(false)
     }
 }
 
-/// Inner top glow — light catching the curved top edge of the glass.
+/// INNER wall — a second bright stroke inset 1.5pt from the outer rim.
+/// This is the key "liquid glass" tell: it makes the glass read as a
+/// thick lens rather than a flat translucent sheet. Without it, the
+/// panel looks like frosted plastic; with it, you can "see" the wall
+/// of the glass.
+private struct GlassInnerWall: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 18.5, style: .continuous)
+            .strokeBorder(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.55),
+                        Color.white.opacity(0.18),
+                        Color.white.opacity(0.04),
+                        Color.clear
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ),
+                lineWidth: 0.7
+            )
+            .padding(1.5)
+            .blendMode(.plusLighter)
+            .allowsHitTesting(false)
+    }
+}
+
+/// Top-edge inner glow — light bleeding from the rim into the body,
+/// like a curved glass lens catching overhead light.
 private struct GlassHighlight: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 20, style: .continuous)
             .fill(
                 LinearGradient(
                     colors: [
-                        Color.white.opacity(0.18),
-                        Color.white.opacity(0.04),
+                        Color.white.opacity(0.20),
+                        Color.white.opacity(0.05),
                         Color.clear
                     ],
                     startPoint: .top,
-                    endPoint: UnitPoint(x: 0.5, y: 0.32)
+                    endPoint: UnitPoint(x: 0.5, y: 0.30)
                 )
             )
             .allowsHitTesting(false)
+    }
+}
+
+/// Specular gloss in the top-left — fakes the bright glint where light
+/// catches a curved glass surface. Soft blur + plusLighter blend so it
+/// reads as a glow rather than a painted spot.
+private struct GlassSpecular: View {
+    var body: some View {
+        RadialGradient(
+            colors: [
+                Color.white.opacity(0.34),
+                Color.white.opacity(0.10),
+                Color.clear
+            ],
+            center: UnitPoint(x: 0.18, y: 0.04),
+            startRadius: 0,
+            endRadius: 150
+        )
+        .blendMode(.plusLighter)
+        .allowsHitTesting(false)
+    }
+}
+
+/// Diagonal sheen running off the top-left corner — the sweep of light
+/// glancing across a wet/curved glass surface. Subtle, lives just above
+/// the body tint but below the rim.
+private struct GlassSheen: View {
+    var body: some View {
+        LinearGradient(
+            colors: [
+                Color.white.opacity(0.14),
+                Color.white.opacity(0.04),
+                Color.clear
+            ],
+            startPoint: UnitPoint(x: 0.0, y: 0.0),
+            endPoint: UnitPoint(x: 0.6, y: 0.42)
+        )
+        .blendMode(.plusLighter)
+        .allowsHitTesting(false)
     }
 }
 
@@ -66,9 +136,9 @@ private struct BottomGlassShadow: View {
                 LinearGradient(
                     colors: [
                         Color.clear,
-                        Color.black.opacity(0.12)
+                        Color.black.opacity(0.16)
                     ],
-                    startPoint: UnitPoint(x: 0.5, y: 0.65),
+                    startPoint: UnitPoint(x: 0.5, y: 0.6),
                     endPoint: .bottom
                 )
             )
@@ -106,41 +176,48 @@ struct PanelRootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             ZStack {
-                // Backdrop blur of whatever's behind the panel — does
-                // the heavy lifting for the iOS Notification-Center vibe.
+                // Backdrop blur of whatever's behind the panel — base
+                // for the iOS Notification-Center / Control-Center vibe.
                 VisualEffectBackground()
-                // Soft tint for legibility — was 0.82 (effectively
-                // opaque), which killed the blur entirely. 0.32 keeps
-                // text readable while still letting the wallpaper bleed
-                // through.
-                Color.black.opacity(0.32)
-                // Top-down legibility ramp so the header doesn't compete
-                // with bright wallpapers, and contrast eases off mid-panel.
+                // Body tint — much more transparent than before so the
+                // wallpaper actually shows through. 0.18 gives glass-
+                // body weight without being dark like frosted plastic.
+                Color.black.opacity(0.18)
+                // Top legibility ramp — keeps the header readable on
+                // bright wallpapers, dies off by the time content starts.
                 LinearGradient(
                     colors: [
-                        Color.black.opacity(0.18),
-                        Color.black.opacity(0.04)
-                    ],
-                    startPoint: .top,
-                    endPoint: .center
-                )
-                // Cool purple wash in the top-left corner — same accent
-                // hint we had before, kept subtle so the wallpaper still
-                // dominates the look.
-                RadialGradient(
-                    colors: [
-                        Color(red: 0.55, green: 0.40, blue: 0.82).opacity(0.18),
+                        Color.black.opacity(0.14),
                         Color.clear
                     ],
-                    center: UnitPoint(x: 0.12, y: 0.04),
-                    startRadius: 0,
-                    endRadius: 360
+                    startPoint: .top,
+                    endPoint: UnitPoint(x: 0.5, y: 0.32)
                 )
+                // Cool purple wash in the top-left — accent hint, very
+                // subtle so the wallpaper still dominates.
+                RadialGradient(
+                    colors: [
+                        Color(red: 0.55, green: 0.40, blue: 0.82).opacity(0.14),
+                        Color.clear
+                    ],
+                    center: UnitPoint(x: 0.10, y: 0.02),
+                    startRadius: 0,
+                    endRadius: 320
+                )
+                // Light effects that read as "this is a thick glass lens"
+                // — order matters; specular goes under sheen so the
+                // sheen sweeps across it rather than the other way.
+                GlassSpecular()
+                GlassSheen()
                 GlassHighlight()
                 BottomGlassShadow()
             }
         )
+        // Outer rim and inner wall stroke layered on top — these are
+        // what make the panel read as a thick glass lens rather than
+        // a translucent flat sheet.
         .overlay(GlassEdge())
+        .overlay(GlassInnerWall())
         // Drop targeting ring — driven by PanelDropContainer (the NSPanel
         // contentView wrapper) which sits below SwiftUI and handles drops
         // before any SwiftUI hit-testing kicks in. Pure cosmetic here.
@@ -151,15 +228,27 @@ struct PanelRootView: View {
                 .allowsHitTesting(false)
         )
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        // Outer drop shadow under the panel — thick lens hovering
+        // above the wallpaper. Two stacked shadows: a soft far one for
+        // ambient lift, a tighter one for contact.
+        .shadow(color: Color.black.opacity(0.35), radius: 22, x: 0, y: 14)
+        .shadow(color: Color.black.opacity(0.20), radius: 4, x: 0, y: 2)
         .compositingGroup()
-        // Liquid dissolve: scale + blur + opacity together, anchored
-        // at the top-right corner where the menu bar icon lives, so the
-        // panel feels like it's condensing out of (and back into) the
-        // status item rather than sliding in from off-screen.
-        .scaleEffect(presenter.isShown ? 1.0 : 0.86, anchor: .topTrailing)
-        .blur(radius: presenter.isShown ? 0 : 14)
+        // Liquid dissolve: scale + slight rotation + blur + opacity all
+        // animating together with an elastic spring, anchored at the
+        // top-trailing corner where the menu-bar icon lives. The
+        // rotation gives a tiny "uncoil" that reads as the glass
+        // forming rather than just expanding.
+        .scaleEffect(presenter.isShown ? 1.0 : 0.72, anchor: .topTrailing)
+        .rotationEffect(.degrees(presenter.isShown ? 0 : -3.5), anchor: .topTrailing)
+        .blur(radius: presenter.isShown ? 0 : 24)
         .opacity(presenter.isShown ? 1.0 : 0.0)
-        .animation(presenter.isShown ? .panelOpen : .panelClose, value: presenter.isShown)
+        .animation(
+            presenter.isShown
+                ? .spring(response: 0.50, dampingFraction: 0.70)
+                : .easeOut(duration: 0.20),
+            value: presenter.isShown
+        )
     }
 
     // MARK: - Header
