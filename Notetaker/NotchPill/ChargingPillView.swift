@@ -80,6 +80,15 @@ struct ChargingPillView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .compositingGroup()
+        // Motion blur during the bloom/collapse transition. Same trick
+        // and same magnitude as NowPlayingPillView — keeps both notch
+        // HUDs feeling like one product, and masks per-frame jank that
+        // can creep in when the spring crosses zero. The 5pt magnitude
+        // is slightly less aggressive than the now-playing pill (7pt)
+        // because this is a smaller slab; what looks like motion blur
+        // on the bigger pill reads as out-of-focus on the smaller one
+        // unless we scale the blur to the pill's size.
+        .blur(radius: isShown ? 0 : 5)
         .animation(
             // Same spring values as the main panel emergence — keeps the
             // family of animations cohesive. Slightly snappier collapse

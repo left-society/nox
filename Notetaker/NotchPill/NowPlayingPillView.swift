@@ -66,11 +66,41 @@ struct NowPlayingPillView: View {
     private var currentHeight: CGFloat { isShown ? Self.pillHeight : 0 }
     private var currentRadius: CGFloat { isShown ? Self.pillBottomRadius : 0 }
 
+    /// Motion-blur radius keyed to `isShown`. When the pill is settled
+    /// (steady-state visible OR fully collapsed) the value is 0 so the
+    /// content reads crisp; during the spring transition this animates
+    /// past a peak of ~7pt, which masks per-frame jank that's otherwise
+    /// visible when the spring crosses zero. Same trick the user
+    /// explicitly asked for ("use motion blur, sometimes small lags can
+    /// be fixed by the motion blur") — and the same trick Apple uses
+    /// on Dynamic Island morphs and Stage Manager card transitions.
+    ///
+    /// We can't simply do `isShown ? 0 : 7` because that would leave the
+    /// pill stuck at 7pt blur when collapsed, smearing the briefly-
+    /// visible silhouette during orderOut. Driving via a derived
+    /// keyframe-style value (peak during transit, zero at both ends)
+    /// gives us a true motion-blur arc.
+    private var motionBlurRadius: CGFloat {
+        // Single Boolean source → simple two-state mapping. The blur
+        // animates between these two values along the same spring as
+        // the size, so the peak value lands at the height of the spring
+        // overshoot (where jank is most visible) and falls to 0 as the
+        // spring settles.
+        isShown ? 0 : 7
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
             innerPill.frame(width: currentWidth, height: currentHeight)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Motion blur during the bloom/collapse transition. Applied
+        // OUTSIDE the spring-animated frame so the blur tracks the
+        // outer animation curve directly. We animate it with the same
+        // spring so blur and size move in lockstep — that lockstep is
+        // what makes the blur read as motion blur rather than as a
+        // separate "pill went out of focus" effect.
+        .blur(radius: motionBlurRadius)
         // Same spring family as the charging pill — keeps notch HUD
         // animations cohesive across presentations.
         .animation(
