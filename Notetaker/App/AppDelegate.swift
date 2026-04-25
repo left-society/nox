@@ -195,7 +195,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// retention toggles, etc. all read/write the live state. The window
     /// is cached so repeated clicks just bring the existing one forward
     /// instead of stacking duplicates.
+    ///
+    /// Two non-obvious bits:
+    ///
+    /// 1. **Dismiss the panel.** It runs at `.popUpMenu` level (101) so a
+    ///    plain `.normal`-level window opens BEHIND it and looks like
+    ///    nothing happened. Hiding the panel first gives the Settings
+    ///    window a clean field of view; the user just left the panel
+    ///    anyway by clicking the gear.
+    ///
+    /// 2. **Bump activation policy to `.regular`.** With LSUIElement we
+    ///    launch as `.accessory`, which means new windows don't get
+    ///    real keyboard focus / Dock presence. Flipping to `.regular`
+    ///    while Settings is up gets us a proper foreground window;
+    ///    we revert to `.accessory` on close so the Dock icon doesn't
+    ///    linger.
     func openSettings() {
+        panelController?.hide()
+
+        NSApp.setActivationPolicy(.regular)
         if #available(macOS 14, *) {
             NSApp.activate()
         } else {
@@ -219,6 +237,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.isReleasedWhenClosed = false
         window.center()
         window.setFrameAutosaveName("NotetakerSettingsWindow")
+        // Drop back to menu-bar-only when the user closes Settings, so
+        // we don't strand a Dock icon for an `LSUIElement` app.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                NSApp.setActivationPolicy(.accessory)
+            }
+        }
         settingsWindow = window
         window.makeKeyAndOrderFront(nil)
     }
