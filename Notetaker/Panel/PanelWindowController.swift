@@ -91,9 +91,17 @@ final class PanelWindowController {
         panel.backgroundColor = .clear
         panel.hidesOnDeactivate = false
 
+        // Inject each store as its own environment object so SwiftUI
+        // only re-renders views that actually depend on the store
+        // that mutated. (Used to inject just `environment` and
+        // forward all child changes through it, which made a yt-dlp
+        // progress tick re-evaluate every view in the panel.)
         let host = NSHostingView(
             rootView: PanelRootView()
                 .environmentObject(environment)
+                .environmentObject(environment.noteStore)
+                .environmentObject(environment.imageStore)
+                .environmentObject(environment.videoStore)
                 .environmentObject(presenter)
         )
         host.frame = contentRect

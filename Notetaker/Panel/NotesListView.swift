@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 struct NotesListView: View {
-    @EnvironmentObject var env: AppEnvironment
+    @EnvironmentObject var noteStore: NoteStore
     @State private var composerText: String = ""
     @State private var composerNoteId: String?
     @State private var saveTask: Task<Void, Never>?
@@ -19,11 +19,11 @@ struct NotesListView: View {
                 .padding(.bottom, DS.Spacing.sm)
 
             ScrollView {
-                if env.noteStore.notes.isEmpty {
+                if noteStore.notes.isEmpty {
                     emptyState
                 } else {
                     LazyVStack(spacing: 1) {
-                        ForEach(env.noteStore.notes) { note in
+                        ForEach(noteStore.notes) { note in
                             NoteRow(
                                 note: note,
                                 isFocused: focusedNoteId == note.id,
@@ -53,7 +53,7 @@ struct NotesListView: View {
                     }
                     .padding(.horizontal, DS.Spacing.sm)
                     .padding(.bottom, DS.Spacing.md)
-                    .animation(.selection, value: env.noteStore.notes.map(\.id))
+                    .animation(.selection, value: noteStore.notes.map(\.id))
                 }
             }
             .scrollIndicators(.never)
@@ -73,9 +73,9 @@ struct NotesListView: View {
         guard let id = editingNoteId else { return }
         let trimmed = editingText.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            try? env.noteStore.trash(id: id)
+            try? noteStore.trash(id: id)
         } else {
-            try? env.noteStore.updateBody(id: id, body: editingText)
+            try? noteStore.updateBody(id: id, body: editingText)
         }
         editingNoteId = nil
         editingText = ""
@@ -102,7 +102,7 @@ struct NotesListView: View {
             composerNoteId = nil
             composerText = ""
         }
-        try? env.noteStore.trash(id: note.id)
+        try? noteStore.trash(id: note.id)
     }
 
     private var emptyState: some View {
@@ -132,7 +132,7 @@ struct NotesListView: View {
 
     private func copyFocusedNote() {
         guard let id = focusedNoteId,
-              let note = env.noteStore.notes.first(where: { $0.id == id })
+              let note = noteStore.notes.first(where: { $0.id == id })
         else { return }
         ClipboardService.copy(text: note.body)
     }
@@ -185,18 +185,18 @@ struct NotesListView: View {
     private func applyComposerChange(_ newValue: String) {
         if composerNoteId == nil && !newValue.isEmpty {
             do {
-                let note = try env.noteStore.createNote()
+                let note = try noteStore.createNote()
                 composerNoteId = note.id
-                try env.noteStore.updateBody(id: note.id, body: newValue)
+                try noteStore.updateBody(id: note.id, body: newValue)
             } catch {
                 NSLog("createNote failed: \(error)")
             }
         } else if let id = composerNoteId {
             if newValue.isEmpty {
-                try? env.noteStore.trash(id: id)
+                try? noteStore.trash(id: id)
                 composerNoteId = nil
             } else {
-                try? env.noteStore.updateBody(id: id, body: newValue)
+                try? noteStore.updateBody(id: id, body: newValue)
             }
         }
     }

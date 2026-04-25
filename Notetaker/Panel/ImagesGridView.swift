@@ -3,7 +3,11 @@ import AppKit
 import UniformTypeIdentifiers
 
 struct ImagesGridView: View {
-    @EnvironmentObject var env: AppEnvironment
+    // Direct EnvironmentObject for the store this view actually
+    // depends on. Replaces `@EnvironmentObject var env` so an
+    // unrelated `videoStore.jobs[i].progress` tick doesn't trigger
+    // this view's body to re-evaluate.
+    @EnvironmentObject var imageStore: ImageStore
     @State private var selected: Set<String> = []
     @State private var showClearConfirm = false
 
@@ -14,16 +18,16 @@ struct ImagesGridView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !env.imageStore.images.isEmpty || !env.imageStore.inflight.isEmpty {
+            if !imageStore.images.isEmpty || !imageStore.inflight.isEmpty {
                 toolbar
             }
 
             ScrollView {
-                if env.imageStore.images.isEmpty && env.imageStore.inflight.isEmpty {
+                if imageStore.images.isEmpty && imageStore.inflight.isEmpty {
                     emptyState
                 } else {
                     VStack(spacing: DS.Spacing.sm) {
-                        if env.imageStore.images.count >= 2 {
+                        if imageStore.images.count >= 2 {
                             stackHero
                                 .padding(.horizontal, DS.Spacing.sm)
                                 .padding(.top, DS.Spacing.xs)
@@ -34,11 +38,11 @@ struct ImagesGridView: View {
                             // a spinner. They flow into real ImageCells as
                             // saves complete, so the grid shifts gracefully
                             // rather than popping the cell in from nowhere.
-                            ForEach(env.imageStore.inflight) { upload in
+                            ForEach(imageStore.inflight) { upload in
                                 InflightImageCell(upload: upload)
                                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
                             }
-                            ForEach(env.imageStore.images) { record in
+                            ForEach(imageStore.images) { record in
                                 ImageCell(
                                     record: record,
                                     isSelected: selected.contains(record.id),
@@ -54,8 +58,8 @@ struct ImagesGridView: View {
                             }
                         }
                         .padding(DS.Spacing.sm)
-                        .animation(.selection, value: env.imageStore.images.map(\.id))
-                        .animation(.selection, value: env.imageStore.inflight.map(\.id))
+                        .animation(.selection, value: imageStore.images.map(\.id))
+                        .animation(.selection, value: imageStore.inflight.map(\.id))
                     }
                 }
             }
@@ -68,29 +72,29 @@ struct ImagesGridView: View {
         .alert("Clear all images?", isPresented: $showClearConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Clear", role: .destructive) {
-                try? env.imageStore.trashAll()
+                try? imageStore.trashAll()
                 selected.removeAll()
             }
         } message: {
-            Text("This removes all \(env.imageStore.images.count) images from the panel.")
+            Text("This removes all \(imageStore.images.count) images from the panel.")
         }
     }
 
     private var toolbar: some View {
         HStack(spacing: DS.Spacing.sm) {
-            Text("\(env.imageStore.images.count) image\(env.imageStore.images.count == 1 ? "" : "s")")
+            Text("\(imageStore.images.count) image\(imageStore.images.count == 1 ? "" : "s")")
                 .font(.nkMeta)
                 .foregroundStyle(DS.Color.textTertiary)
 
             // Inflight chip — shows "· Saving 1…" / "Saving 2…" while
             // detached drop saves are finishing. Disappears when all
             // saves land.
-            if !env.imageStore.inflight.isEmpty {
+            if !imageStore.inflight.isEmpty {
                 HStack(spacing: 4) {
                     ProgressView()
                         .controlSize(.mini)
                         .tint(DS.Color.accent)
-                    Text("Saving \(env.imageStore.inflight.count)…")
+                    Text("Saving \(imageStore.inflight.count)…")
                         .font(.nkMeta)
                         .foregroundStyle(DS.Color.accent)
                 }
@@ -147,11 +151,11 @@ struct ImagesGridView: View {
     }
 
     private var stackHero: some View {
-        let images = Array(env.imageStore.images.prefix(4))
+        let images = Array(imageStore.images.prefix(4))
         let rotations: [Double] = [-6, -2, 3, 7]
         let offsets: [(CGFloat, CGFloat)] = [(-14, -4), (-5, 2), (5, -3), (14, 4)]
 
-        let allURLs = env.imageStore.images.map { env.imageStore.fullURL(for: $0) }
+        let allURLs = imageStore.images.map { imageStore.fullURL(for: $0) }
 
         return HStack(spacing: DS.Spacing.md) {
             ZStack {
@@ -169,7 +173,7 @@ struct ImagesGridView: View {
             .overlay(MultiFileDragSource(fileURLs: allURLs))
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(env.imageStore.images.count) images")
+                Text("\(imageStore.images.count) images")
                     .font(.nkBody.weight(.semibold))
                     .foregroundStyle(DS.Color.textPrimary)
                 Text("Copy or drag the stack")
@@ -216,7 +220,7 @@ struct ImagesGridView: View {
     private func stackThumb(record: ImageRecord) -> some View {
         LocalThumbnailView(
             id: record.id,
-            url: env.imageStore.thumbURL(for: record)
+            url: imageStore.thumbURL(for: record)
         )
         .frame(width: 60, height: 60)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
@@ -284,7 +288,7 @@ struct ImagesGridView: View {
     }
 
     private func selectAll() {
-        selected = Set(env.imageStore.images.map(\.id))
+        selected = Set(imageStore.images.map(\.id))
     }
 
     private func deleteSelected() {
@@ -294,25 +298,25 @@ struct ImagesGridView: View {
         // trash API. Was previously O(N) reloads — selecting 20
         // images and pressing Delete hitched the panel for ~200ms
         // because each per-id call did a full DB reload.
-        try? env.imageStore.trashMany(ids: ids)
+        try? imageStore.trashMany(ids: ids)
     }
 
     private func handlePaste() {
         let pb = NSPasteboard.general
         if let pngData = pb.data(forType: .png) {
-            _ = try? env.imageStore.saveImage(data: pngData, mimeType: "image/png",
+            _ = try? imageStore.saveImage(data: pngData, mimeType: "image/png",
                                           noteId: nil, source: "paste")
         } else if let tiffData = pb.data(forType: .tiff),
                   let pngData = Self.tiffToPNG(tiffData) {
-            _ = try? env.imageStore.saveImage(data: pngData, mimeType: "image/png",
+            _ = try? imageStore.saveImage(data: pngData, mimeType: "image/png",
                                           noteId: nil, source: "paste")
         }
     }
 
     private func copySelected() {
-        let records = env.imageStore.images.filter { selected.contains($0.id) }
+        let records = imageStore.images.filter { selected.contains($0.id) }
         let imagesAndURLs: [(NSImage, URL)] = records.compactMap { rec in
-            let url = env.imageStore.fullURL(for: rec)
+            let url = imageStore.fullURL(for: rec)
             guard let img = NSImage(contentsOf: url) else { return nil }
             return (img, url)
         }
@@ -323,8 +327,8 @@ struct ImagesGridView: View {
     }
 
     private func copyAll() {
-        let imagesAndURLs: [(NSImage, URL)] = env.imageStore.images.compactMap { rec in
-            let url = env.imageStore.fullURL(for: rec)
+        let imagesAndURLs: [(NSImage, URL)] = imageStore.images.compactMap { rec in
+            let url = imageStore.fullURL(for: rec)
             guard let img = NSImage(contentsOf: url) else { return nil }
             return (img, url)
         }
@@ -337,7 +341,7 @@ struct ImagesGridView: View {
     // MARK: - Drag-out
 
     private func dragProvider(for record: ImageRecord) -> NSItemProvider {
-        let url = env.imageStore.fullURL(for: record)
+        let url = imageStore.fullURL(for: record)
         return NSItemProvider(contentsOf: url) ?? NSItemProvider()
     }
 
@@ -365,14 +369,14 @@ struct ImageCell: View {
     let record: ImageRecord
     let isSelected: Bool
     let onTap: () -> Void
-    @EnvironmentObject var env: AppEnvironment
+    @EnvironmentObject var imageStore: ImageStore
     @State private var isHovered = false
     @State private var justCopied = false
 
     var body: some View {
         LocalThumbnailView(
             id: record.id,
-            url: env.imageStore.thumbURL(for: record)
+            url: imageStore.thumbURL(for: record)
         )
         .frame(height: 84)
         .frame(maxWidth: .infinity)
@@ -468,11 +472,11 @@ struct ImageCell: View {
     }
 
     private func handleTrash() {
-        try? env.imageStore.trash(id: record.id)
+        try? imageStore.trash(id: record.id)
     }
 
     private func handleCopy() {
-        let url = env.imageStore.fullURL(for: record)
+        let url = imageStore.fullURL(for: record)
         guard let image = NSImage(contentsOf: url) else { return }
         ClipboardService.copy(images: [image], fileURLs: [url])
         justCopied = true

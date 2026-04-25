@@ -4,7 +4,7 @@ import AVKit
 import UniformTypeIdentifiers
 
 struct VideosGridView: View {
-    @EnvironmentObject var env: AppEnvironment
+    @EnvironmentObject var videoStore: VideoStore
     @State private var showClearConfirm = false
     /// The video currently being played inline at the top of the tab. nil
     /// means the panel is back in its normal "grid of thumbnails" mode.
@@ -17,7 +17,7 @@ struct VideosGridView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !env.videoStore.videos.isEmpty {
+            if !videoStore.videos.isEmpty {
                 toolbar
             }
 
@@ -26,7 +26,7 @@ struct VideosGridView: View {
                     if let record = playingRecord {
                         InlineVideoPlayer(
                             record: record,
-                            fileURL: env.videoStore.fullURL(for: record),
+                            fileURL: videoStore.fullURL(for: record),
                             onClose: {
                                 withAnimation(.selection) { playingRecord = nil }
                             }
@@ -36,21 +36,21 @@ struct VideosGridView: View {
                         .transition(.opacity.combined(with: .move(edge: .top)))
                     }
 
-                    if !env.videoStore.jobs.isEmpty {
+                    if !videoStore.jobs.isEmpty {
                         jobsSection
                     }
 
-                    if env.videoStore.videos.isEmpty && env.videoStore.jobs.isEmpty {
+                    if videoStore.videos.isEmpty && videoStore.jobs.isEmpty {
                         emptyState
-                    } else if !env.videoStore.videos.isEmpty {
+                    } else if !videoStore.videos.isEmpty {
                         LazyVGrid(columns: columns, spacing: 6) {
-                            ForEach(env.videoStore.videos) { record in
+                            ForEach(videoStore.videos) { record in
                                 VideoCell(record: record)
                                     .overlay(playingBadge(for: record))
                                     .overlay(
                                         MultiFileDragSource(
-                                            fileURLs: [env.videoStore.fullURL(for: record)],
-                                            dragImageURLs: [env.videoStore.thumbURL(for: record)],
+                                            fileURLs: [videoStore.fullURL(for: record)],
+                                            dragImageURLs: [videoStore.thumbURL(for: record)],
                                             onClick: {
                                                 // Tapping the cell that's already playing
                                                 // collapses the player — saves a trip to
@@ -78,7 +78,7 @@ struct VideosGridView: View {
                         }
                         .padding(.horizontal, DS.Spacing.sm)
                         .padding(.bottom, DS.Spacing.sm)
-                        .animation(.selection, value: env.videoStore.videos.map(\.id))
+                        .animation(.selection, value: videoStore.videos.map(\.id))
                     }
                 }
                 .padding(.top, DS.Spacing.xs)
@@ -90,7 +90,7 @@ struct VideosGridView: View {
         // deleted (per-cell trash, bulk Clear, retention purge…).
         // Without this the player keeps showing a stale frame for a
         // record that no longer exists.
-        .onChange(of: env.videoStore.videos.map(\.id)) { ids in
+        .onChange(of: videoStore.videos.map(\.id)) { ids in
             if let playing = playingRecord, !ids.contains(playing.id) {
                 withAnimation(.selection) { playingRecord = nil }
             }
@@ -98,16 +98,16 @@ struct VideosGridView: View {
         .alert("Clear all videos?", isPresented: $showClearConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Clear", role: .destructive) {
-                try? env.videoStore.trashAll()
+                try? videoStore.trashAll()
             }
         } message: {
-            Text("This removes all \(env.videoStore.videos.count) videos from the panel.")
+            Text("This removes all \(videoStore.videos.count) videos from the panel.")
         }
     }
 
     private func videoTrashButton(for record: VideoRecord) -> some View {
         Button {
-            try? env.videoStore.trash(id: record.id)
+            try? videoStore.trash(id: record.id)
         } label: {
             Image(systemName: "trash.fill")
                 .font(.system(size: 9, weight: .semibold))
@@ -124,7 +124,7 @@ struct VideosGridView: View {
 
     private var toolbar: some View {
         HStack(spacing: DS.Spacing.sm) {
-            Text("\(env.videoStore.videos.count) video\(env.videoStore.videos.count == 1 ? "" : "s")")
+            Text("\(videoStore.videos.count) video\(videoStore.videos.count == 1 ? "" : "s")")
                 .font(.nkMeta)
                 .foregroundStyle(DS.Color.textTertiary)
 
@@ -155,7 +155,7 @@ struct VideosGridView: View {
     }
 
     private var jobsSection: some View {
-        let jobs = env.videoStore.jobs
+        let jobs = videoStore.jobs
         let active = jobs.filter { !$0.state.isTerminal }.count
 
         return VStack(alignment: .leading, spacing: 4) {
@@ -181,9 +181,9 @@ struct VideosGridView: View {
             ForEach(jobs) { job in
                 DownloadJobRow(
                     job: job,
-                    onCancel: { env.videoStore.cancelJob(job) },
-                    onRetry: { env.videoStore.retryJob(job) },
-                    onDismiss: { env.videoStore.dismissJob(job) }
+                    onCancel: { videoStore.cancelJob(job) },
+                    onRetry: { videoStore.retryJob(job) },
+                    onDismiss: { videoStore.dismissJob(job) }
                 )
             }
         }
@@ -220,7 +220,7 @@ struct VideosGridView: View {
         guard let text = NSPasteboard.general.string(forType: .string),
               let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
               url.scheme == "http" || url.scheme == "https" else { return }
-        env.videoStore.startDownload(url: url.absoluteString)
+        videoStore.startDownload(url: url.absoluteString)
     }
 
     /// Draws an accent ring around whichever thumbnail is currently playing
@@ -412,11 +412,11 @@ struct DownloadJobRow: View {
 
 struct VideoCell: View {
     let record: VideoRecord
-    @EnvironmentObject var env: AppEnvironment
+    @EnvironmentObject var videoStore: VideoStore
     @State private var isHovered = false
 
     var body: some View {
-        let url = env.videoStore.thumbURL(for: record)
+        let url = videoStore.thumbURL(for: record)
         ZStack(alignment: .bottomTrailing) {
             // Cached thumbnail — same NSCache as images. The film-icon
             // placeholder paints synchronously on cache miss while the

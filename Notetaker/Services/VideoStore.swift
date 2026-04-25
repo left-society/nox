@@ -197,6 +197,17 @@ final class VideoStore: ObservableObject {
         let downloadID = UUID().uuidString
         NSLog("VideoStore.runJob tempDir=\(tempDir.path)")
 
+        // Throttle progress UI updates. yt-dlp emits 10-50 progress lines
+        // per second; pushing every one through `@Published var jobs`
+        // fires `objectWillChange` at the same rate, which in turn
+        // invalidates every view subscribed to VideoStore. Coalescing to
+        // ~10Hz (every 100ms) is well above the human visual flicker
+        // threshold for a progress bar, while keeping the panel
+        // responsive to clicks/scroll/typing during downloads.
+        // Throttling state lives in an actor-isolated box so the
+        // closure can mutate it from the @Sendable callback.
+        let throttle = ProgressThrottle()
+
         do {
             let result = try await downloader.download(
                 url: job.url,
@@ -204,6 +215,12 @@ final class VideoStore: ObservableObject {
                 id: downloadID,
                 onProgress: { [weak self] progress in
                     Task { @MainActor in
+                        // 100ms throttle, but always let the final tick
+                        // through so the bar lands cleanly at 100%.
+                        let isFinal = progress.fraction >= 1.0
+                        if !isFinal && !throttle.shouldEmit(now: Date()) {
+                            return
+                        }
                         self?.updateJob(job.id) { j in
                             j.progress = progress.fraction
                             j.downloadedBytes = progress.downloadedBytes
@@ -369,5 +386,24 @@ struct DownloadJob: Identifiable, Equatable {
             default: return false
             }
         }
+    }
+}
+
+/// Coalesces high-frequency progress events down to ~10Hz. Used to keep
+/// yt-dlp's 10-50 lines/sec stream from saturating SwiftUI's render
+/// loop during downloads. Reads/writes happen on the main actor (the
+/// progress closure hops to @MainActor before calling `shouldEmit`),
+/// so `@unchecked Sendable` is safe — the actor itself serializes.
+@MainActor
+private final class ProgressThrottle {
+    private var lastEmitted: Date = .distantPast
+    private static let interval: TimeInterval = 0.1
+
+    func shouldEmit(now: Date) -> Bool {
+        if now.timeIntervalSince(lastEmitted) >= Self.interval {
+            lastEmitted = now
+            return true
+        }
+        return false
     }
 }
