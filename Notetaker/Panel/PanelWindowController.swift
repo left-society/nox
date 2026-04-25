@@ -65,7 +65,40 @@ final class PanelWindowController {
         host.frame = contentRect
         host.autoresizingMask = [.width, .height]
 
-        panel.contentView = host
+        // Wrap the SwiftUI host in an NSView that handles drag-destination
+        // routing at the contentView level. This bypasses SwiftUI's
+        // hit-testing entirely, so drops land regardless of which tab is
+        // active or whether a child SwiftUI view registered the drag types.
+        let container = PanelDropContainer(
+            hosting: host,
+            onVideo: { [weak presenter, weak environment] candidate in
+                guard let presenter, let environment else { return }
+                switch candidate {
+                case .localFile(let url):
+                    _ = try? environment.videoStore.saveLocalFile(url)
+                case .remoteURL(let s):
+                    _ = environment.videoStore.startDownload(url: s)
+                }
+                presenter.activeTab = .videos
+            },
+            onImage: { [weak presenter, weak environment] data, mime in
+                guard let presenter, let environment else { return }
+                _ = try? environment.imageStore.saveImage(
+                    data: data,
+                    mimeType: mime,
+                    noteId: nil,
+                    source: "drop"
+                )
+                presenter.activeTab = .images
+            },
+            onTargeted: { [weak presenter] flag in
+                presenter?.isDropTargeted = flag
+            }
+        )
+        container.frame = contentRect
+        container.autoresizingMask = [.width, .height]
+
+        panel.contentView = container
     }
 
     func toggle() {
