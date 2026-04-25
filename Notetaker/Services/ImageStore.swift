@@ -19,13 +19,6 @@ final class ImageStore: ObservableObject {
     /// after `performSave` completes and applies the clear before
     /// publishing the record.
     private var pendingClearExpiry: Set<String> = []
-    /// Hold the inflight cell on screen for at least this long so the
-    /// spinner is perceivable. A 200KB drop saves in ~40ms — well below
-    /// human perception — so without this floor the placeholder flashes
-    /// for a single frame and users think nothing happened. `nonisolated`
-    /// so the detached save task can read it without hopping back to the
-    /// main actor.
-    private nonisolated static let minimumInflightDisplay: TimeInterval = 0.6
 
     struct InflightUpload: Identifiable {
         let id: String
@@ -110,13 +103,26 @@ final class ImageStore: ObservableObject {
         expiresAt: Double? = nil
     ) -> String {
         let id = UUID().uuidString
-        let preview = NSImage(data: data)
-        inflight.insert(InflightUpload(id: id, preview: preview), at: 0)
+        // Insert placeholder INSTANTLY — no NSImage decode on the main actor.
+        // A 10MB browser-drag TIFF can take 30-80ms just to decode, which the
+        // user perceives as "did the paste even land?" Letting the cell appear
+        // the same frame the paste lands and filling in the preview as soon
+        // as the off-main decode finishes is what makes it feel native-fast.
+        inflight.insert(InflightUpload(id: id, preview: nil), at: 0)
 
-        let startTime = DispatchTime.now()
         let db = self.db
         let rootURL = self.rootURL
         Task.detached(priority: .userInitiated) {
+            // Decode the preview off-main first so even huge TIFFs don't
+            // stall the panel before the placeholder paints. Push it back
+            // into the inflight slot as soon as it's ready — usually within
+            // a frame or two of the cell appearing.
+            let preview = NSImage(data: data)
+            await MainActor.run {
+                if let idx = self.inflight.firstIndex(where: { $0.id == id }) {
+                    self.inflight[idx] = InflightUpload(id: id, preview: preview)
+                }
+            }
             do {
                 let record = try Self.performSave(
                     id: id,
@@ -149,14 +155,6 @@ final class ImageStore: ObservableObject {
                 // Freeze the record into a let before the cross-actor hop —
                 // captured-var-in-concurrent-code is a Swift 6 hard error.
                 let finalRecord = pendingRecord
-                // Hold the inflight placeholder on screen for at least
-                // `minimumInflightDisplay` so the spinner is actually
-                // perceivable on small saves that finish in <50ms.
-                let elapsedNanos = DispatchTime.now().uptimeNanoseconds - startTime.uptimeNanoseconds
-                let minimumNanos = UInt64(Self.minimumInflightDisplay * 1_000_000_000)
-                if elapsedNanos < minimumNanos {
-                    try? await Task.sleep(nanoseconds: minimumNanos - elapsedNanos)
-                }
                 await MainActor.run {
                     self.inflight.removeAll { $0.id == id }
                     self.images.insert(finalRecord, at: 0)

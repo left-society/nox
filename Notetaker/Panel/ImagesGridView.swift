@@ -518,10 +518,24 @@ struct ImageCell: View {
 
 // MARK: - Inflight cell
 
-/// Placeholder cell shown while an async drop save is finishing on a
-/// background task. Renders the user's dropped bytes via NSImage(data:)
-/// so the cell looks like the real thumbnail will, plus a small spinner
-/// pinned to the corner so it's obvious the save is still in flight.
+/// Placeholder cell shown while an async save is finishing on a
+/// background task. Behavior is staged so a paste feels native-fast:
+///
+/// * **Frame 0** — `preview == nil`: heavy dim + center spinner. There's
+///   nothing to show yet (NSImage decode is happening off-main), so a
+///   strong "loading" cue replaces the empty space.
+/// * **~30-100ms in** — preview decoded off-main and pushed back: dim
+///   vanishes, the user sees their pasted image at full fidelity. The
+///   accent border + soft accent halo are the only "still inflight"
+///   cues remaining.
+/// * **~100-300ms in** — disk save + DB write completes, cell flips to a
+///   real `ImageCell`.
+///
+/// The earlier version held a 55% dim + "Saving…" caption over the
+/// preview for the entire inflight duration, which made pastes look
+/// "slow to load" even though the bytes had landed — the image was
+/// just hidden behind the dim. Dropping the dim the moment the preview
+/// arrives is what makes the paste feel as instant as the user expects.
 struct InflightImageCell: View {
     let upload: ImageStore.InflightUpload
 
@@ -538,24 +552,7 @@ struct InflightImageCell: View {
         .frame(height: 84)
         .frame(maxWidth: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous))
-        .overlay(
-            // Heavy dim + regular-size spinner + "Saving" caption — the
-            // earlier subtle (32%) dim with a tiny spinner read as a
-            // shadow, not as feedback. Users reported "I don't see the
-            // loading thing." Now it's unambiguous.
-            ZStack {
-                Color.black.opacity(0.55)
-                VStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.regular)
-                        .tint(.white)
-                    Text("Saving…")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous))
-        )
+        .overlay(loadingScrim)
         .overlay(
             RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous)
                 .strokeBorder(DS.Color.accent.opacity(0.55), lineWidth: 1)
@@ -564,7 +561,28 @@ struct InflightImageCell: View {
         // of finished images — important when the panel opens straight
         // to images and you need to find which cell is still saving.
         .shadow(color: DS.Color.accent.opacity(0.35), radius: 5, y: 0)
+        .animation(.easeInOut(duration: 0.18), value: upload.preview != nil)
         .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private var loadingScrim: some View {
+        if upload.preview == nil {
+            ZStack {
+                Color.black.opacity(0.45)
+                ProgressView()
+                    .controlSize(.regular)
+                    .tint(.white)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous))
+            .transition(.opacity)
+        } else {
+            // Preview is showing — the accent border + halo carry the
+            // "still inflight" cue, no dark overlay needed. This is
+            // what makes the paste feel instant the moment the off-main
+            // decode lands.
+            Color.clear
+        }
     }
 }
 
