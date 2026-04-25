@@ -505,6 +505,17 @@ struct ImageCell: View {
     @EnvironmentObject var imageStore: ImageStore
     @State private var isHovered = false
     @State private var justCopied = false
+    /// Mirrors `justCopied` for the sibling "Copy Text" button: flips
+    /// true the moment a smart-extract lands the transcript on the
+    /// clipboard, drops back to false ~1.2s later. Same visual idiom
+    /// (icon + label swap, accent tint) so both actions read as one
+    /// family.
+    @State private var justExtractedText = false
+    /// Set while a Gemini / Vision round-trip is in flight so the
+    /// button can show a spinner instead of the static glyph. Without
+    /// this the user gets no feedback during the ~1-2s the model
+    /// takes to respond and might tap the button repeatedly.
+    @State private var isExtractingText = false
 
     /// Pillowy 14pt — bigger than `DS.Radius.row` (6) because these
     /// are full-bleed image cards now, not table rows. The previous
@@ -572,10 +583,13 @@ struct ImageCell: View {
             cellTrashButton
         }
         .overlay(alignment: .bottomTrailing) {
-            copyButton
-                .padding(6)
-                .opacity(isHovered || justCopied ? 1 : 0)
-                .animation(.rowHover, value: isHovered || justCopied)
+            HStack(spacing: 4) {
+                extractTextButton
+                copyButton
+            }
+            .padding(6)
+            .opacity(isHovered || justCopied || justExtractedText || isExtractingText ? 1 : 0)
+            .animation(.rowHover, value: isHovered || justCopied || justExtractedText || isExtractingText)
         }
         // Lift on hover: -3pt offset + scale 1.02. Small numbers but
         // when the springed shadow underneath grows alongside, the
@@ -731,6 +745,46 @@ struct ImageCell: View {
         .animation(.selection, value: justCopied)
     }
 
+    /// Sibling of `copyButton` that pulls TEXT out of the image (chat
+    /// transcript via Gemini if a key is configured, falling back to
+    /// Vision OCR for posters / signs / random screenshots) and drops
+    /// it on the clipboard. One click — no right-click discovery, no
+    /// engine choice. The user just wants the words.
+    private var extractTextButton: some View {
+        Button(action: handleSmartExtract) {
+            HStack(spacing: 4) {
+                if isExtractingText {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .scaleEffect(0.55)
+                        .frame(width: 9, height: 9)
+                } else {
+                    Image(systemName: justExtractedText ? "checkmark" : "doc.text")
+                        .font(.system(size: 9, weight: .semibold))
+                }
+                Text(isExtractingText ? "…" : (justExtractedText ? "Copied" : "Text"))
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundStyle(justExtractedText ? DS.Color.accent : Color.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.black.opacity(0.72))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isExtractingText)
+        .animation(.selection, value: justExtractedText)
+        .animation(.rowHover, value: isExtractingText)
+        .help("Extract text (chat-aware)")
+    }
+
     private var cellTrashButton: some View {
         Button(action: handleTrash) {
             Image(systemName: "trash.fill")
@@ -763,6 +817,62 @@ struct ImageCell: View {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             justCopied = false
+        }
+    }
+
+    /// Single-click "give me the text" — chooses the right engine for
+    /// the user instead of asking. Logic:
+    ///
+    /// 1. **Gemini key present** → try chat extraction first. It strips
+    ///    UI chrome, attributes senders, returns clean transcripts.
+    ///    Best for the common case of "I screenshotted a conversation".
+    /// 2. **Gemini returned NO_MESSAGES, errored, or no key** → fall
+    ///    back to Vision OCR. Offline, instant, raw text — fine for
+    ///    posters, signs, code, any non-chat text.
+    /// 3. **Both empty** → levelChange haptic, no clipboard write.
+    ///
+    /// The button never bails to a confusing dialog; the only modal
+    /// path is "no Gemini key AND a chat-looking image" → quietly
+    /// uses Vision so the user still gets text. The Settings prompt
+    /// for setting up Gemini is reserved for the explicit
+    /// right-click "Extract Messages" path where the user opted in.
+    private func handleSmartExtract() {
+        let url = imageStore.fullURL(for: record)
+        isExtractingText = true
+        Task {
+            // Step 1 — try Gemini if a key is configured. Skip
+            // outright if no key so we don't pay the round-trip just
+            // to learn we don't have one.
+            let hasGeminiKey = !(UserDefaults.standard.string(forKey: GeminiOCRService.apiKeyDefaultsKey) ?? "").isEmpty
+
+            var extracted: String?
+            if hasGeminiKey {
+                let result = await GeminiOCRService.extractMessages(from: url)
+                if case .success(let text) = result, !text.isEmpty {
+                    extracted = text
+                }
+            }
+
+            // Step 2 — fall back to Vision OCR if Gemini didn't give
+            // us anything usable.
+            if extracted == nil {
+                extracted = await ImageOCRService.extractText(from: url)
+            }
+
+            await MainActor.run {
+                isExtractingText = false
+                if let text = extracted, !text.isEmpty {
+                    ClipboardService.copy(text: text)
+                    justExtractedText = true
+                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 1_200_000_000)
+                        justExtractedText = false
+                    }
+                } else {
+                    NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+                }
+            }
         }
     }
 
