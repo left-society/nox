@@ -4,14 +4,20 @@ import AppKit
 private struct VisualEffectBackground: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        // .hudWindow is the floating-glass material macOS uses for HUD
-        // panels — same family as iOS Notification Center / Control Center
-        // where you can see the wallpaper bleed through. `underWindowBackground`
-        // is darker and more solid; we want the wallpaper showing.
+        // `.hudWindow` has the heaviest gaussian blur of any macOS
+        // material. That heavy blur is the "liquid" property: text and
+        // shapes behind the panel get smeared into colored fog rather
+        // than staying readable, the same way iOS's Notification Center
+        // music widget renders. We then reduce the OVERALL strength via
+        // SwiftUI `.opacity()` upstream so the dark tint contribution
+        // drops while the blur radius stays high — that gives the panel
+        // wallpaper-bleed-through with smeared content instead of
+        // sharp visible text.
         view.material = .hudWindow
         view.blendingMode = .behindWindow
         view.state = .active
-        view.isEmphasized = true
+        view.isEmphasized = false
+        view.appearance = NSAppearance(named: .vibrantDark)
         return view
     }
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
@@ -68,45 +74,141 @@ private struct GlassInnerWall: View {
     }
 }
 
-/// Soft top-edge inner glow — the gentle light bleed from the rim into
-/// the body. Kept subtle; this is the only "highlight" layer left after
-/// dropping the specular blob and diagonal sheen.
-private struct GlassHighlight: View {
+/// Focused specular reflection — a small, bright arc at the very top
+/// of the panel that reads as overhead light catching the curve of a
+/// thick lens. This is the key "liquid" detail: a real specular looks
+/// like a focused reflection, not a wide gradient wash. Concentrated
+/// in the upper third, falls off fast, with a brighter horizontal
+/// streak that suggests the wet/glossy surface.
+private struct LiquidSpecular: View {
     var body: some View {
-        RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .fill(
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.10),
-                        Color.white.opacity(0.02),
-                        Color.clear
-                    ],
-                    startPoint: .top,
-                    endPoint: UnitPoint(x: 0.5, y: 0.28)
-                )
+        ZStack {
+            // Bright focused arc just inside the top edge — the "lens
+            // catches the overhead light" highlight. Radial so it reads
+            // as a curved reflection rather than a flat band.
+            RadialGradient(
+                colors: [
+                    Color.white.opacity(0.35),
+                    Color.white.opacity(0.10),
+                    Color.clear
+                ],
+                center: UnitPoint(x: 0.5, y: -0.15),
+                startRadius: 0,
+                endRadius: 220
             )
-            .allowsHitTesting(false)
+            // Subtle horizontal sheen line near the top — the "wet
+            // surface" highlight that sells the liquid feel.
+            LinearGradient(
+                colors: [
+                    Color.clear,
+                    Color.white.opacity(0.12),
+                    Color.clear
+                ],
+                startPoint: UnitPoint(x: 0, y: 0.04),
+                endPoint: UnitPoint(x: 1, y: 0.04)
+            )
+            .frame(height: 1.5)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.top, 6)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .allowsHitTesting(false)
     }
 }
 
-/// Very gentle darkening at the very bottom edge — just enough so a
-/// row of content there doesn't blow out against bright wallpapers.
-/// Was 0.14 which was eating the white lift in the bottom half and
-/// leaving the body looking flat-dark; dropped to 0.05 so the lift
-/// carries through the whole panel.
-private struct BottomGlassShadow: View {
+/// Edge vignette — darkens the perimeter (left + right + bottom) so
+/// the panel reads as a "rich" glass slab rather than a flat translucent
+/// rectangle. The user pointed to an iOS music widget where the sides
+/// are visibly blacker than the center; a real glass slab catches less
+/// ambient light at its periphery, and matching that creates the
+/// premium feel.
+///
+/// Implementation: a radial gradient from clear at the center to dark
+/// at the corners, biased downward so the top stays lighter (where the
+/// specular highlight lives). Multiplied with the wallpaper-bleed
+/// material below, so it darkens *the wallpaper showing through* rather
+/// than painting an opaque rectangle on top.
+private struct EdgeVignette: View {
+    var body: some View {
+        ZStack {
+            // Primary radial — center clear, corners darken to ~50%
+            // black. Center biased slightly upward (y: 0.40) so the
+            // bottom darkens more than the top, matching a real overhead
+            // light source. Tighter inner stop (clear out to 0.4) keeps
+            // the lit area focused so the vignette reads as a "halo of
+            // shadow around the rim" rather than a global dimming.
+            RadialGradient(
+                colors: [
+                    Color.clear,
+                    Color.clear,
+                    Color.black.opacity(0.30),
+                    Color.black.opacity(0.50)
+                ],
+                center: UnitPoint(x: 0.5, y: 0.40),
+                startRadius: 50,
+                endRadius: 230
+            )
+            // Side reinforcement — a left-to-right gradient that
+            // darkens the LEFT and RIGHT edges specifically, since a
+            // pure radial only catches the corners and the straight
+            // side panels would still look flat. Symmetric horizontal
+            // mask hits both sides equally. Pushed hard (0.48) so the
+            // long vertical sides read as clearly black — that's the
+            // cue the user pointed to in the iOS music widget. Falls
+            // off quickly (clear by 25% in) so the visible dark band
+            // is a tight rim, not a global dim.
+            LinearGradient(
+                stops: [
+                    .init(color: Color.black.opacity(0.48), location: 0.0),
+                    .init(color: Color.black.opacity(0.18), location: 0.10),
+                    .init(color: Color.clear, location: 0.25),
+                    .init(color: Color.clear, location: 0.75),
+                    .init(color: Color.black.opacity(0.18), location: 0.90),
+                    .init(color: Color.black.opacity(0.48), location: 1.0)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            // Bottom lift — softer extra darkening on just the bottom
+            // edge. Sells the "light comes from above" lighting model
+            // and keeps the panel from feeling bottom-heavy.
+            LinearGradient(
+                stops: [
+                    .init(color: Color.clear, location: 0.0),
+                    .init(color: Color.clear, location: 0.78),
+                    .init(color: Color.black.opacity(0.22), location: 1.0)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .allowsHitTesting(false)
+    }
+}
+
+/// Inner lens shadow — soft inset shadow that hugs the rim, simulating
+/// the way light bends through the curved edge of a thick glass element.
+/// Adds dimension without darkening the body, so the wallpaper still
+/// bleeds through clearly. The shadow is concentrated at the bottom and
+/// sides where a real lens would refract most.
+private struct InnerLensShadow: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .fill(
+            .stroke(
                 LinearGradient(
                     colors: [
                         Color.clear,
-                        Color.black.opacity(0.05)
+                        Color.black.opacity(0.15),
+                        Color.black.opacity(0.25)
                     ],
-                    startPoint: UnitPoint(x: 0.5, y: 0.78),
+                    startPoint: .top,
                     endPoint: .bottom
-                )
+                ),
+                lineWidth: 6
             )
+            .blur(radius: 4)
+            .mask(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .allowsHitTesting(false)
     }
 }
@@ -141,42 +243,34 @@ struct PanelRootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             ZStack {
-                // Backdrop blur of whatever's behind the panel — base
-                // layer for the wallpaper-bleed-through effect.
+                // Behind-window blur — `.hudWindow` is macOS's heaviest
+                // single material. Wallpaper colors smear through as
+                // diffuse fog, the panel content stays visible on top.
                 VisualEffectBackground()
-                // WHITE LIFT — Apple's `platformContentGlass` material
-                // recipe applies a +0.235 brightness boost on every
-                // RGB channel via its color matrix (the m15/m25/m35
-                // entries). That's the "luminous glass" secret. We
-                // approximate it with a translucent white overlay
-                // since we can't apply CIColorMatrix to NSVisualEffectView
-                // directly. Tuned down to 0.10 so the wallpaper bleeds
-                // through more visibly without losing the lift.
-                Color.white.opacity(0.10)
-                // Soft top legibility ramp — just enough darken near
-                // the menu bar so the header text stays crisp on bright
-                // wallpapers. Lighter than before so it doesn't fight
-                // the lift.
-                LinearGradient(
-                    colors: [
-                        Color.black.opacity(0.06),
-                        Color.clear
-                    ],
-                    startPoint: .top,
-                    endPoint: UnitPoint(x: 0.5, y: 0.20)
-                )
-                // Cool purple wash in the top-left — subtle accent hint.
-                RadialGradient(
-                    colors: [
-                        Color(red: 0.55, green: 0.40, blue: 0.82).opacity(0.06),
-                        Color.clear
-                    ],
-                    center: UnitPoint(x: 0.10, y: 0.02),
-                    startRadius: 0,
-                    endRadius: 320
-                )
-                GlassHighlight()
-                BottomGlassShadow()
+                // Dark tint over the blurred wallpaper. Two competing
+                // requirements: (1) text behind must dissolve out — pure
+                // blur from .hudWindow isn't strong enough on its own, so
+                // the dark layer has to carry some of the obscuring;
+                // (2) wallpaper hue must still bleed through visibly so
+                // the panel reads as "glass on top of the desktop"
+                // rather than a solid sheet. 0.20 leans toward bleed:
+                // wallpaper color is clearly visible in the center,
+                // body text smears into a soft gradient (with the
+                // .hudWindow blur doing the heavy lifting), and the
+                // vignette layer below adds back the necessary darkness
+                // at the periphery for the rich premium feel.
+                Color.black.opacity(0.20)
+                // Edge vignette — darker sides + bottom for the "rich
+                // premium" vibe the user pointed to in the music widget.
+                // A real glass slab catches less light at its periphery
+                // than at its center; this gradient simulates that.
+                EdgeVignette()
+                // Focused specular reflection — bright arc at the top
+                // edge that reads as overhead light catching the curve.
+                LiquidSpecular()
+                // Inner lens shadow — soft inset shadow that hugs the
+                // rim, simulating the curved edge of a thick glass lens.
+                InnerLensShadow()
             }
         )
         // Outer rim and inner wall — clean white strokes, no

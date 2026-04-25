@@ -52,7 +52,11 @@ final class PanelWindowController {
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
         panel.standardWindowButton(.zoomButton)?.isHidden = true
         panel.isMovableByWindowBackground = false
-        panel.hasShadow = true
+        // System shadow is rectangular (matches NSPanel bounds), so it
+        // would show as a hard rectangle around our rounded SwiftUI
+        // content. We draw our own rounded shadows in PanelRootView's
+        // .shadow modifiers instead.
+        panel.hasShadow = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hidesOnDeactivate = false
