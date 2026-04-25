@@ -24,6 +24,21 @@ struct NowPlayingInfo: Equatable {
     /// source app's icon ("playing in Spotify"). nil means MediaRemote
     /// reported no source — we still show the HUD if there's a title.
     let sourceBundleID: String?
+    /// Track duration in seconds, when the source publishes it. Spotify
+    /// and Apple Music both populate this via MediaRemote; YouTube tabs
+    /// in Safari do not. nil means "no progress bar" — the view falls
+    /// back to a button-only transport strip.
+    let duration: TimeInterval?
+    /// Playback position at the moment of the last MediaRemote update.
+    /// To get the *current* position, the view should add wall-clock
+    /// time elapsed since `infoTimestamp` (only meaningful while
+    /// `isPlaying` is true). nil means "no progress bar."
+    let elapsedTime: TimeInterval?
+    /// Wall-clock timestamp of the elapsed-time snapshot. Lets the view
+    /// extrapolate `elapsedTime + (now - infoTimestamp)` so the bar
+    /// advances smoothly between MediaRemote notifications instead of
+    /// stepping forward only when a new snapshot lands.
+    let infoTimestamp: Date?
 
     /// True when there's enough payload to bother showing a HUD. A
     /// title or artist plus any sign of playback (or known source) is
@@ -43,8 +58,25 @@ struct NowPlayingInfo: Equatable {
             album: album,
             artworkData: newArtwork,
             isPlaying: isPlaying,
-            sourceBundleID: sourceBundleID
+            sourceBundleID: sourceBundleID,
+            duration: duration,
+            elapsedTime: elapsedTime,
+            infoTimestamp: infoTimestamp
         )
+    }
+
+    /// Linearly extrapolated current playhead position. Returns
+    /// `elapsedTime + (now - infoTimestamp)` while playing, or just
+    /// `elapsedTime` when paused (the snapshot is the source of truth
+    /// in that state — wall-clock advance shouldn't move the bar).
+    /// nil whenever the source app didn't publish elapsed-time data.
+    func currentPosition(at moment: Date = Date()) -> TimeInterval? {
+        guard let elapsed = elapsedTime else { return nil }
+        guard let timestamp = infoTimestamp, isPlaying else { return elapsed }
+        let drift = moment.timeIntervalSince(timestamp)
+        let projected = elapsed + drift
+        if let total = duration { return min(max(0, projected), total) }
+        return max(0, projected)
     }
 }
 
@@ -275,7 +307,17 @@ final class MediaRemoteService {
             album: album,
             artworkData: nil,
             isPlaying: isPlaying,
-            sourceBundleID: sourceBundleID
+            sourceBundleID: sourceBundleID,
+            // App-specific notifications don't carry timing data — the
+            // distributed-notification size budget can't fit a duration
+            // + position payload reliably across the system. The view
+            // falls back to "no progress bar" when these are nil. The
+            // MediaRemote pipeline (when available) publishes timing
+            // separately, so the bar reappears as soon as the next
+            // NowPlayingInfoDidChange notification fires.
+            duration: nil,
+            elapsedTime: nil,
+            infoTimestamp: nil
         ))
     }
 
@@ -358,6 +400,32 @@ final class MediaRemoteService {
         let album = dict["kMRMediaRemoteNowPlayingInfoAlbum"] as? String
         let artworkData = dict["kMRMediaRemoteNowPlayingInfoArtworkData"] as? Data
 
+        // Timing payload — duration + elapsed-time + the wall-clock
+        // moment those values were measured. The view extrapolates the
+        // *current* position by adding `now - infoTimestamp` to
+        // `elapsedTime`, so we can render a smoothly-advancing progress
+        // bar without forcing MediaRemote to fire a refresh every frame.
+        // All three are optional — Spotify and Apple Music populate them;
+        // YouTube tabs in Safari typically don't. Anything missing
+        // collapses the progress bar gracefully (the view nil-guards).
+        //
+        // We bridge timestamp from the dict's NSDate (or Double seconds
+        // since reference, depending on macOS version) into Swift Date.
+        // Keeping the bridge tolerant of either shape avoids breaking
+        // when Apple flips representations between releases — a thing
+        // they've actually done with this key in the past.
+        let duration = dict["kMRMediaRemoteNowPlayingInfoDuration"] as? TimeInterval
+        let elapsedTime = dict["kMRMediaRemoteNowPlayingInfoElapsedTime"] as? TimeInterval
+        let infoTimestamp: Date? = {
+            if let date = dict["kMRMediaRemoteNowPlayingInfoTimestamp"] as? Date {
+                return date
+            }
+            if let interval = dict["kMRMediaRemoteNowPlayingInfoTimestamp"] as? TimeInterval {
+                return Date(timeIntervalSinceReferenceDate: interval)
+            }
+            return nil
+        }()
+
         // isPlaying needs a separate async call. If the symbol wasn't
         // resolved (post-15.4 restriction), fall back to "assume
         // playing whenever we have a title" — better to over-show the
@@ -374,7 +442,10 @@ final class MediaRemoteService {
                         album: album,
                         artworkData: artworkData,
                         isPlaying: playing,
-                        sourceBundleID: nil // Resolved at view layer if needed
+                        sourceBundleID: nil, // Resolved at view layer if needed
+                        duration: duration,
+                        elapsedTime: elapsedTime,
+                        infoTimestamp: infoTimestamp
                     ))
                 }
             }
@@ -388,7 +459,10 @@ final class MediaRemoteService {
                 album: album,
                 artworkData: artworkData,
                 isPlaying: assumed,
-                sourceBundleID: nil
+                sourceBundleID: nil,
+                duration: duration,
+                elapsedTime: elapsedTime,
+                infoTimestamp: infoTimestamp
             ))
         }
     }

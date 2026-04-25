@@ -412,45 +412,58 @@ final class NotchHUDWindowController {
         onMediaCommand?(command)
     }
 
-    /// Place the panel so its TOP edge sits at the SCREEN's max-Y —
-    /// above the menu bar — with the upper `notchOverlap` portion
-    /// hidden behind the notch hardware / menu-bar strip. The visible
-    /// pill content is then offset DOWN by the same `notchOverlap`
-    /// inside SwiftUI (see `NotchHUDState.topInset`), so the pill's
-    /// top edge lands flush with the menu bar's bottom — reads as
-    /// the pill emerging FROM the notch.
+    /// Pin the panel's TOP edge flush with the SCREEN's TOP edge
+    /// (= `frame.maxY`), and push the SwiftUI pill content down by the
+    /// notch / menu-bar overlap so the visible silhouette emerges out of
+    /// the bottom of the notch hardware (notched Macs) or the bottom of
+    /// the menu-bar strip (non-notched). The user described the previous
+    /// "anchored at visibleFrame.maxY" placement as floating BELOW the
+    /// menu bar with a visible gap — "it should be in the dynamic
+    /// island." This restores the canonical Alcove / Dynamic Island
+    /// silhouette: the pill's upper `notchOverlap` points are hidden
+    /// behind the notch hardware (or the menu-bar strip on non-notched),
+    /// and only the lower bump is visible, fused against the notch's
+    /// bottom edge.
     ///
-    /// Mirrors the main panel's positioning math (see
-    /// `PanelWindowController.closedPillFrame`). Earlier the HUD used
-    /// `visibleFrame.maxY - height` which placed it BELOW the menu
-    /// bar, leading to the "animation showing under the hood" bug
-    /// the user reported.
+    /// The earlier non-notched-display gap bug came from leaving
+    /// `state.topInset = 0` while still pushing the WINDOW above the
+    /// menu bar — the SwiftUI pill drew at the window's top, which on a
+    /// non-notched Mac was at screen.frame.maxY, well above the menu-bar
+    /// bottom. The fix is symmetric: the window goes above the bar AND
+    /// the SwiftUI content gets pushed down by exactly the menu-bar /
+    /// notch height, computed identically for both display types via
+    /// `safeAreaInsets.top` (notched) or `frame.maxY - visibleFrame.maxY`
+    /// (non-notched). Both paths produce a flush bottom-of-notch landing.
     private func positionAtNotch() {
         let screen = NSScreen.main
         let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let visible = screen?.visibleFrame ?? frame
+
+        // Hidden-overlap = how much of the panel sits BEHIND the notch
+        // hardware / menu-bar strip. Notched Mac → safeAreaInsets.top
+        // exactly equals the notch height; non-notched → fall back to
+        // frame.maxY - visibleFrame.maxY (the menu-bar strip height).
+        let notchOverlap: CGFloat
+        if let s = screen, s.safeAreaInsets.top > 0 {
+            notchOverlap = s.safeAreaInsets.top
+        } else {
+            notchOverlap = max(0, frame.maxY - visible.maxY)
+        }
+
         let size = NSSize(
             width: NotchHUDWindowController.windowWidth,
             height: NotchHUDWindowController.windowHeight
         )
         let x = frame.midX - size.width / 2
-        // panel.frame.y is the BOTTOM in screen coords; we want the TOP
-        // at frame.maxY (above menu bar), so y = frame.maxY - height.
+        // Window TOP at SCREEN TOP (frame.maxY). The upper `notchOverlap`
+        // pixels are hidden behind the notch / menu bar; the visible
+        // pill silhouette emerges out of the bottom of that zone.
         let y = frame.maxY - size.height
         panel.setContentSize(size)
         panel.setFrameOrigin(NSPoint(x: x, y: y))
-        // Push the SwiftUI pill content down past the menu-bar zone.
-        // Same overlap math the main panel uses.
-        state.topInset = Self.notchOverlap(for: screen)
-    }
-
-    /// Height of the menu-bar strip (and notch hardware) in points.
-    /// Notched Macs expose this directly via `safeAreaInsets.top`;
-    /// non-notched Macs fall back to the difference between full and
-    /// visible frame.
-    private static func notchOverlap(for screen: NSScreen?) -> CGFloat {
-        guard let s = screen ?? NSScreen.main else { return 0 }
-        if s.safeAreaInsets.top > 0 { return s.safeAreaInsets.top }
-        return max(0, s.frame.maxY - s.visibleFrame.maxY)
+        // Push SwiftUI content down by notchOverlap so the visible pill
+        // starts exactly at the menu-bar / notch bottom edge.
+        state.topInset = notchOverlap
     }
 }
 

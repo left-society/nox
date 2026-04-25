@@ -1,123 +1,121 @@
 import SwiftUI
 
-/// Animated audio-bar visualizer — same vocabulary Alcove and Apple's
-/// own Now Playing widget use to communicate "audio is moving" without
-/// actually analyzing the signal. We don't have access to the system
-/// audio stream (and tapping it would be a privacy mess), so the bars
-/// are driven by phase-offset sinusoids — purely cosmetic, but reads as
-/// "music is alive" the moment you glance at it.
+/// Oscilloscope-style audio waveform — a thin scrolling sine line that
+/// flows left-to-right, drawn on a `Canvas` so we get one path per
+/// frame instead of N animated SwiftUI views.
 ///
-/// The animation is driven by `TimelineView(.animation)` so each bar's
-/// height is recomputed from the current wall-clock time on every
-/// display refresh — no per-bar `@State` springs to coordinate, no
-/// timer to invalidate when the view goes off screen. When `isPlaying`
-/// is false we hand TimelineView `paused: true`, which freezes the
-/// timeline; the bars settle to their minimum height (1/3 of max),
-/// reading as "playback paused" without disappearing entirely.
+/// The previous version of this file rendered four phase-offset
+/// vertical capsules. The user reported that "the waveform doesn't
+/// look like this" alongside a screenshot of the pill — the four
+/// bars happened to land in an ascending staircase pattern at the
+/// captured moment, which read as a Wi-Fi / signal-strength bar
+/// indicator rather than as an audio visualizer. That ambiguity is
+/// fundamental to the bars-on-a-baseline silhouette: at any instant
+/// the four heights *can* line up that way, especially with closely-
+/// spaced phase offsets.
+///
+/// A scrolling sine wave has no such failure mode. It reads as audio
+/// at every instant — the silhouette is always a curvy line, never
+/// an ordered set of bars. Two summed sinusoids at incommensurate
+/// frequencies give a richer "real audio" wiggle than a single pure
+/// tone, and the whole signal scrolls leftward at ~5 Hz so the wave
+/// visibly flows across the pill instead of standing still.
 ///
 /// Used in two places:
 /// 1. The notch HUD pill — replaces the play/pause/skip cluster on the
 ///    right edge so the pill reads as a status indicator first and a
 ///    transport remote second. (Transport stays in the main panel's
-///    Music page, where the user has the screen real estate to mash
-///    big buttons without missing them.)
+///    Music page.)
 /// 2. The Music page — small badge near the source credit, gives the
 ///    expanded player the same "alive while playing" tell the closed
 ///    pill has, without competing with the larger artwork for attention.
 struct WaveformView: View {
     let isPlaying: Bool
 
-    /// Total bar count. Four reads as a clear "audio bars" silhouette
-    /// at the small size we use; three feels sparse, five+ starts
-    /// looking like an EQ.
-    var barCount: Int = 4
-    /// Width of each individual bar. 2.5pt is the smallest visually
-    /// confident size for a Capsule that needs to hold a clean
-    /// rounded-rect shape on retina.
-    var barWidth: CGFloat = 2.5
-    /// Inter-bar spacing.
-    var spacing: CGFloat = 2.5
-    /// Maximum bar height — the bars oscillate between `maxHeight/3`
-    /// (idle / paused floor) and `maxHeight` (peak swing).
-    var maxHeight: CGFloat = 14
-    /// Tint applied to all bars. Defaults to `Color.white` so the view
+    /// Drawing width in points. Defaults size up the visualizer for
+    /// the pill; pass smaller for the music-page source badge.
+    var width: CGFloat = 26
+    /// Drawing height in points. The wave occupies the central
+    /// `height * 2 * amplitudeMul` band; the rest is breathing room
+    /// so peaks don't clip against the line cap.
+    var height: CGFloat = 14
+    /// Stroke width — 1.6pt reads as confident at retina scale without
+    /// turning into a thick line that hides the curvy silhouette.
+    var lineWidth: CGFloat = 1.6
+    /// Tint applied to the stroke. Defaults to `Color.white` so the view
     /// works on any dark background; pass an explicit color for callers
     /// that need brand alignment.
     var tint: Color = .white
-    /// Foreground opacity. Used to dial the bars down to a quiet
-    /// secondary-info brightness — they're decorative, not the focal
+    /// Foreground opacity. Used to dial the wave down to a quiet
+    /// secondary-info brightness — it's decorative, not the focal
     /// point.
     var opacity: Double = 0.85
 
     var body: some View {
-        // TimelineView is the right primitive here. A `.linear repeatForever`
-        // animation on a single phase variable would only let SwiftUI
-        // interpolate ONE value across time — but each bar needs its own
-        // height computed from the same phase with a per-bar offset.
-        // TimelineView re-evaluates the body at each refresh, so we can
-        // compute all four heights in lockstep against `context.date`.
-        //
-        // `paused: !isPlaying` halts the timeline exactly when playback
-        // pauses — the bars freeze at their then-current heights, then
-        // settle down to the idle floor via the height calculation
-        // (which short-circuits to baseHeight when isPlaying is false).
+        // TimelineView re-evaluates the body at each refresh. Inside the
+        // closure we recompute the entire path from `context.date` —
+        // cheap because Canvas just walks the path once per frame, no
+        // SwiftUI view diffing per-sample. `paused: !isPlaying` halts
+        // the timeline when playback pauses; the closure is then never
+        // re-invoked, so the view freezes at the last drawn frame
+        // (visually equivalent to a "muted, ready" state).
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !isPlaying)) { context in
             let time = context.date.timeIntervalSinceReferenceDate
-            HStack(alignment: .center, spacing: spacing) {
-                ForEach(0..<barCount, id: \.self) { index in
-                    Capsule(style: .continuous)
-                        .fill(tint.opacity(opacity))
-                        .frame(width: barWidth, height: barHeight(at: time, bar: index))
-                        // animation() on the height interpolates the
-                        // 30Hz steps so the bars don't read as a stop-
-                        // motion staircase on slower displays.
-                        .animation(.easeInOut(duration: 0.16), value: barHeight(at: time, bar: index))
+            Canvas { ctx, size in
+                var path = Path()
+                // 32 vertices is enough for the curve to read smooth at
+                // retina at the sizes we use (≤ 28pt wide). Higher counts
+                // pay diminishing returns — the line cap rounds out any
+                // remaining angularity at the joints.
+                let steps = 32
+                // Idle amplitude is a barely-perceptible wobble — the
+                // user reads "audio is loaded but quiet" rather than
+                // "view is broken / blank."
+                let amplitudeMul: Double = isPlaying ? 0.42 : 0.05
+                for i in 0...steps {
+                    let t = Double(i) / Double(steps)
+                    let x = CGFloat(t) * size.width
+                    // Two summed sinusoids at incommensurate frequencies
+                    // (4.0 and 6.5 cycles across the width) — the sum
+                    // never repeats periodically, so the wave doesn't
+                    // settle into a recognizable static pattern. Phase
+                    // scrolls leftward at different rates per component
+                    // (5.0 vs 3.2 rad/s), so the two layers visibly
+                    // beat against each other — adds the "live signal"
+                    // feeling that a single pure tone misses.
+                    let p1 = t * 4.0 * .pi - time * 5.0
+                    let p2 = t * 6.5 * .pi - time * 3.2
+                    let signal = sin(p1) * 0.65 + sin(p2) * 0.35
+                    let y = size.height / 2 + CGFloat(signal * amplitudeMul) * size.height
+                    if i == 0 {
+                        path.move(to: CGPoint(x: x, y: y))
+                    } else {
+                        path.addLine(to: CGPoint(x: x, y: y))
+                    }
                 }
+                ctx.stroke(
+                    path,
+                    with: .color(tint.opacity(opacity)),
+                    style: StrokeStyle(
+                        lineWidth: lineWidth,
+                        lineCap: .round,
+                        lineJoin: .round
+                    )
+                )
             }
-            .frame(height: maxHeight, alignment: .center)
+            .frame(width: width, height: height)
         }
-        .frame(width: totalWidth, height: maxHeight)
-        // Kill default accessibility; the bars are decorative. The
+        .frame(width: width, height: height)
+        // Kill default accessibility; the waveform is decorative. The
         // surrounding view (pill, badge) carries the actual semantics.
         .accessibilityHidden(true)
-    }
-
-    // MARK: - Geometry
-
-    /// Computed total width — `barCount` bars + `(barCount-1)` gaps.
-    /// Saves callers from doing the arithmetic when they need to size
-    /// a parent container around the visualizer.
-    private var totalWidth: CGFloat {
-        let bars = CGFloat(barCount) * barWidth
-        let gaps = CGFloat(barCount - 1) * spacing
-        return bars + gaps
-    }
-
-    /// Bar height at a given moment in time. Each bar oscillates on a
-    /// sine wave with a per-bar phase offset so the four bars read as
-    /// a flowing wave rather than a single chord.
-    ///
-    /// When idle (paused), all bars sit at `baseHeight` (1/3 of max)
-    /// — visible enough to communicate "this is an audio control" but
-    /// quiet enough to read as "not currently playing."
-    private func barHeight(at time: TimeInterval, bar: Int) -> CGFloat {
-        let baseHeight = maxHeight / 3
-        guard isPlaying else { return baseHeight }
-        // Frequency tuning: 1.6 Hz oscillation reads as "lively but not
-        // frantic" — slower (~1Hz) feels sluggish for music, faster
-        // (~3Hz+) feels jittery. Per-bar phase offset of 0.7 rad keeps
-        // adjacent bars visibly out-of-phase.
-        let phase = time * 1.6 + Double(bar) * 0.7
-        // sin returns -1...1 → normalize to 0...1 for height blend.
-        let normalized = (sin(phase) + 1) / 2
-        return baseHeight + (maxHeight - baseHeight) * CGFloat(normalized)
     }
 }
 
 #Preview("Playing") {
     HStack(spacing: 30) {
         WaveformView(isPlaying: true)
-        WaveformView(isPlaying: true, barCount: 5, maxHeight: 24, tint: .green)
+        WaveformView(isPlaying: true, width: 40, height: 22, lineWidth: 2.0, tint: .green)
         WaveformView(isPlaying: false)
     }
     .padding(40)

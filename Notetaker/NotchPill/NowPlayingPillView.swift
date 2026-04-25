@@ -54,11 +54,11 @@ struct NowPlayingPillView: View {
     let isShown: Bool
     let onCommand: (MediaRemoteService.Command) -> Void
 
-    /// Inner pill geometry. Wider than the charging pill (340 vs 240)
-    /// because we have artwork + two text rows + three buttons to fit.
-    /// Height 56 vs charging's 40 — a hair taller so the artwork has
-    /// room to breathe without choking the text rows.
-    private static let pillWidth: CGFloat = 340
+    /// Inner pill geometry. Wider than the charging pill (380 vs 240)
+    /// because we have artwork + two text rows + waveform + three transport
+    /// buttons to fit. Height 56 vs charging's 40 — a hair taller so the
+    /// artwork has room to breathe without choking the text rows.
+    private static let pillWidth: CGFloat = 380
     private static let pillHeight: CGFloat = 56
     private static let pillBottomRadius: CGFloat = 22
 
@@ -84,31 +84,32 @@ struct NowPlayingPillView: View {
     // MARK: - Inner pill
 
     private var innerPill: some View {
-        // Closed-pill layout follows the Alcove vocabulary the user
-        // explicitly asked for: artwork on the FAR LEFT, waveform on
-        // the FAR RIGHT, with title + artist filling the middle. No
-        // transport buttons here on purpose — the closed pill is a
-        // status indicator, not a remote. The user reaches for the
-        // main panel (Music page) when they want to pause / skip;
-        // mirroring Alcove keeps the notch HUD glanceable instead of
-        // crowded.
-        HStack(spacing: 10) {
+        // Closed-pill layout: artwork on the FAR LEFT, title+artist
+        // filling the middle, then a small waveform tell, and finally
+        // a 3-button transport cluster (back / play-pause / forward) on
+        // the FAR RIGHT. The user reported the prior layout (waveform
+        // only, no transport) as missing functionality — they want to
+        // be able to pause/skip without opening the main panel. This
+        // mirrors the OPEN state of Alcove's pill, which IS a remote;
+        // the slight loss of glanceability vs the strict "status only"
+        // interpretation is worth it for the one-cursor-flick control
+        // surface the user explicitly asked for.
+        HStack(spacing: 8) {
             artwork
             titleStack
                 .frame(maxWidth: .infinity, alignment: .leading)
             WaveformView(
                 isPlaying: info.isPlaying,
-                barCount: 4,
-                barWidth: 2.5,
-                spacing: 2.5,
-                maxHeight: 16,
+                width: 22,
+                height: 14,
+                lineWidth: 1.4,
                 tint: .white,
                 opacity: 0.78
             )
-            .padding(.trailing, 4)
+            controls
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
         // Content fades in AFTER the shell finishes growing — same
         // pattern as ChargingPillView and the main panel. Mirrors the
         // perceived "shell first, then UI" sequence the user reads as
@@ -121,10 +122,68 @@ struct NowPlayingPillView: View {
             value: isShown
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black)
+        .background(pillBackground)
         .clipShape(NowPlayingNotchShape(bottomRadius: currentRadius))
         // Downward-only drop shadow, same as charging pill.
         .shadow(color: Color.black.opacity(0.45), radius: 14, x: 0, y: 8)
+    }
+
+    // MARK: - Gradient artwork backdrop
+    //
+    // The user asked for the pill to "take the color from the thumbnail
+    // with gradient" — Alcove parity. We achieve that by stacking three
+    // layers behind the content row:
+    //
+    //   1. Color.black — the fallback / unconditional base, so when no
+    //      artwork is published (Safari without og:image, podcasts with
+    //      missing art) the pill still reads as the same solid slab the
+    //      charging pill uses. Also acts as the "cake" the artwork blur
+    //      sits on top of, so a partially-transparent blur composites
+    //      against black instead of the desktop wallpaper.
+    //
+    //   2. The blurred artwork itself, scaled to fill and blurred at a
+    //      large radius (40pt). The aspect-fill + blur produces an
+    //      organic colored wash — dominant hues bleed across the whole
+    //      pill instead of showing a recognizable mini album cover. The
+    //      0.7 opacity keeps colors saturated enough to read as "this
+    //      pill belongs to the song" without overwhelming the text.
+    //
+    //   3. A horizontal black gradient layered ON TOP of the artwork
+    //      backdrop. The gradient is lightest at the leading edge (where
+    //      the actual album thumbnail lives — letting the artwork's
+    //      colors visibly blend with the blurred wash behind it) and
+    //      darkest at the trailing edge (where the title/artist text
+    //      and transport controls live — guaranteeing legibility against
+    //      light/colorful artwork like Sabrina Carpenter's pink covers).
+    //      Without this gradient, white text on a busy bright artwork
+    //      would smear into illegibility.
+    //
+    // The crisp foreground album-art tile (rendered by `artwork` above
+    // and clipped to a small rounded rect) sits ON TOP of all of this,
+    // so the user sees both the recognizable thumbnail AND the colorful
+    // backdrop derived from it — same dual-layer trick Apple Music's
+    // mini-player uses.
+    private var pillBackground: some View {
+        ZStack {
+            Color.black
+            if let data = info.artworkData, let img = NSImage(data: data) {
+                Image(nsImage: img)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .blur(radius: 40, opaque: true)
+                    .opacity(0.7)
+                    .allowsHitTesting(false)
+                LinearGradient(
+                    colors: [
+                        Color.black.opacity(0.25),
+                        Color.black.opacity(0.50),
+                        Color.black.opacity(0.65)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            }
+        }
     }
 
     // MARK: - Artwork
@@ -174,10 +233,10 @@ struct NowPlayingPillView: View {
     // MARK: - Playback controls
 
     private var controls: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 2) {
             ControlButton(
                 systemName: "backward.fill",
-                size: 11,
+                size: 10,
                 action: { onCommand(.previous) }
             )
             ControlButton(
@@ -185,12 +244,12 @@ struct NowPlayingPillView: View {
                 // pattern in Control Center — viewers parse it as
                 // "press here to do the OPPOSITE of what's shown".
                 systemName: info.isPlaying ? "pause.fill" : "play.fill",
-                size: 14,
+                size: 13,
                 action: { onCommand(.togglePlayPause) }
             )
             ControlButton(
                 systemName: "forward.fill",
-                size: 11,
+                size: 10,
                 action: { onCommand(.next) }
             )
         }
@@ -199,7 +258,7 @@ struct NowPlayingPillView: View {
 
 /// Round, hover-tinted icon button. Sized to fit the 56-tall pill
 /// without crowding the artwork or text. Each button is its own
-/// invisible 28×28 hit target so users with larger cursors don't
+/// invisible 24×24 hit target so users with larger cursors don't
 /// miss-click between glyphs.
 private struct ControlButton: View {
     let systemName: String
@@ -214,7 +273,7 @@ private struct ControlButton: View {
             Image(systemName: systemName)
                 .font(.system(size: size, weight: .semibold))
                 .foregroundStyle(.white.opacity(isHovered ? 0.95 : 0.78))
-                .frame(width: 28, height: 28)
+                .frame(width: 24, height: 24)
                 .background(
                     Circle()
                         .fill(Color.white.opacity(isHovered ? 0.10 : 0))
@@ -259,7 +318,10 @@ private struct ControlButton: View {
                 album: "Short n' Sweet",
                 artworkData: nil,
                 isPlaying: true,
-                sourceBundleID: "com.spotify.client"
+                sourceBundleID: "com.spotify.client",
+                duration: 175,
+                elapsedTime: 42,
+                infoTimestamp: Date()
             ),
             isShown: true,
             onCommand: { _ in }
@@ -271,7 +333,10 @@ private struct ControlButton: View {
                 album: nil,
                 artworkData: nil,
                 isPlaying: false,
-                sourceBundleID: nil
+                sourceBundleID: nil,
+                duration: nil,
+                elapsedTime: nil,
+                infoTimestamp: nil
             ),
             isShown: true,
             onCommand: { _ in }

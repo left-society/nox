@@ -60,13 +60,21 @@ final class PanelWindowController {
     /// expanded state.
     static let innerPanelWidth: CGFloat = 380
     static let innerPanelHeight: CGFloat = 480
-    /// Distance from the inner panel to the outer NSPanel edges on the
-    /// left, top, and bottom. The halo mask blur (see PanelRootView)
-    /// has to fully fade to alpha 0 within this distance — otherwise the
-    /// rectangular outer NSPanel boundary clips a still-non-zero halo
-    /// and the user sees a boxy edge. 100pt gives a 70pt mask blur ~30pt
-    /// of slack to fade cleanly.
-    static let haloPadding: CGFloat = 100
+    /// Transparent margin baked into the NSPanel frame on left/right/bottom
+    /// (top stays anchored to the menu bar). Gives SwiftUI's `.shadow`
+    /// modifier room to bleed the soft drop-shadow halo OUTSIDE the visible
+    /// silhouette without being clipped by the rectangular NSPanel boundary
+    /// — without this padding the shadow simply doesn't render past the
+    /// silhouette edge, and the panel reads as a pasted-on rectangle
+    /// instead of a floating Alcove-style HUD.
+    ///
+    /// 50pt is enough headroom for a 30pt-radius gaussian shadow with
+    /// ~20pt of slack to fade past visual perceptibility. Larger values
+    /// would let us push the shadow softer, but the panel's transparent
+    /// margin has to be at least this big in EVERY frame (closed pill,
+    /// tease, slab) — going much further wastes pixels at the closed-pill
+    /// end where the visible silhouette is only 200×14.
+    static let haloPadding: CGFloat = 50
     /// Corner radius of the inner glass panel itself. Tuned through
     /// 20 → 28 → 34: the latest bump pushes us into squircle territory
     /// (radius/min-side ≈ 0.09 at 380pt width) so the bottom corners
@@ -149,6 +157,23 @@ final class PanelWindowController {
     enum OpenMode: Equatable {
         case click
         case hover
+    }
+
+    /// Inner-silhouette rect — the panel.frame minus the transparent
+    /// haloPadding margin on left/right/bottom. Click-outside and
+    /// hover-leave detection use THIS rect, not the raw panel.frame —
+    /// otherwise clicks landing in the transparent halo (visually outside
+    /// the panel) would be considered "inside" and the panel wouldn't
+    /// dismiss when the user clicks just-past the visible edge.
+    var visibleSilhouetteFrame: NSRect {
+        let halo = PanelWindowController.haloPadding
+        let f = panel.frame
+        return NSRect(
+            x: f.minX + halo,
+            y: f.minY + halo,
+            width: f.width - 2 * halo,
+            height: f.height - halo
+        )
     }
 
     private let panel: NSPanel
@@ -442,7 +467,7 @@ final class PanelWindowController {
             // check, tapping a video cell or the dropped-image preview
             // would dismiss the panel before SwiftUI's onTap could run.
             // For global events, locationInWindow is in screen coordinates.
-            if self.panel.frame.contains(event.locationInWindow) {
+            if self.visibleSilhouetteFrame.contains(event.locationInWindow) {
                 return
             }
             // Don't yank the panel away while a download is still running —
@@ -538,7 +563,7 @@ final class PanelWindowController {
                 guard self.hoverHasEnteredPanel else { return }
                 // Belt-and-suspenders frame check — if the location is
                 // somehow still inside our rect, don't schedule a hide.
-                if self.panel.frame.contains(NSEvent.mouseLocation) { return }
+                if self.visibleSilhouetteFrame.contains(NSEvent.mouseLocation) { return }
                 if self.hoverLeaveWorkItem != nil { return }
                 // 250ms grace period — gives the user time to flick the
                 // cursor through a corner and back without triggering
@@ -802,8 +827,13 @@ final class PanelWindowController {
     private func closedPillFrame(for screen: NSScreen?) -> NSRect {
         let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let overlap = PanelWindowController.notchOverlap(for: screen)
-        let height = overlap + PanelWindowController.closedPillBump
-        let width = PanelWindowController.closedPillWidth
+        let halo = PanelWindowController.haloPadding
+        // Inner content is the visible silhouette; outer frame adds halo
+        // margin on left/right/bottom so the SwiftUI shadow has room to
+        // bleed. Top stays at frame.maxY (anchored to the menu bar — the
+        // notch overlap is already baked into the inner height).
+        let height = overlap + PanelWindowController.closedPillBump + halo
+        let width = PanelWindowController.closedPillWidth + 2 * halo
         return NSRect(
             x: frame.midX - width / 2,
             y: frame.maxY - height,
@@ -820,8 +850,9 @@ final class PanelWindowController {
     private func teasePillFrame(for screen: NSScreen?) -> NSRect {
         let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let overlap = PanelWindowController.notchOverlap(for: screen)
-        let height = overlap + PanelWindowController.teasePillBump
-        let width = PanelWindowController.teasePillWidth
+        let halo = PanelWindowController.haloPadding
+        let height = overlap + PanelWindowController.teasePillBump + halo
+        let width = PanelWindowController.teasePillWidth + 2 * halo
         return NSRect(
             x: frame.midX - width / 2,
             y: frame.maxY - height,
@@ -837,8 +868,9 @@ final class PanelWindowController {
     private func openSlabFrame(for screen: NSScreen?) -> NSRect {
         let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let overlap = PanelWindowController.notchOverlap(for: screen)
-        let height = overlap + PanelWindowController.innerPanelHeight
-        let width = PanelWindowController.innerPanelWidth
+        let halo = PanelWindowController.haloPadding
+        let height = overlap + PanelWindowController.innerPanelHeight + halo
+        let width = PanelWindowController.innerPanelWidth + 2 * halo
         return NSRect(
             x: frame.midX - width / 2,
             y: frame.maxY - height,

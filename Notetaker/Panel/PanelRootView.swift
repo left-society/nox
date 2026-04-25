@@ -81,70 +81,74 @@ struct PanelRootView: View {
     // MARK: - Body
 
     var body: some View {
-        // Layered background, fixed bottom-corner radius. The visible
-        // silhouette tracks the NSPanel frame via SwiftUI re-clipping
-        // — when the panel is at pill size, the 34pt bottom corners
-        // dominate the visible area, reading as a wide soft bump
-        // emerging from the notch; when the panel is at slab size,
-        // the same 34pt corners read as a subtle Dynamic-Island-style
-        // bottom rounding. Continuous morph driven entirely by frame
-        // change — zero SwiftUI state animation involved.
+        // Outer transparent halo + inner silhouette structure. The
+        // NSPanel's frame is `(inner + 2×halo) × (inner + halo)` — the
+        // SwiftUI tree here insets by `haloPadding` on left/right/bottom,
+        // so the visible silhouette occupies the inner area and the
+        // outer halo is transparent space for the shadow to bleed into.
+        // Without that bleed area the SwiftUI `.shadow` modifier just
+        // gets clipped by the rectangular NSPanel boundary and the panel
+        // reads as a pasted-on rectangle — the user described this
+        // exactly: "no dropshadow (liquid blur)".
+        //
+        // The earlier multi-stop gradient + plusLighter-blended notch
+        // sheen looked too "lifted" — the user said the new design
+        // looked worse and that "black was definitely the choice." The
+        // fix is the Alcove vocabulary: solid pure black for the slab
+        // (the premium-feeling surface they want), and the depth comes
+        // from a quiet rim around the silhouette + a generous luminous
+        // drop shadow that escapes into the haloPadding margin.
         //
         // Layer stack (bottom → top):
-        //   1. `panelBackground`: vertical gradient, slightly lifted
-        //      near the top so the slab doesn't read as flat black
-        //   2. `notchHighlight`: thin curved sheen just below the
-        //      notch zone — sells the "emerging from the hardware"
-        //      illusion that's flat panels miss
-        //   3. `contentOverlay`: the actual UI (header/tabs/content)
-        //   4. `borderStroke`: 0.6pt inner border with top-to-bottom
-        //      gradient — catches ambient light against dark wallpapers
-        //   5. `dropRingOverlay`: drag-and-drop accent ring (existing)
+        //   1. `panelBackground`: solid `Color.black`
+        //   2. `contentOverlay`: the actual UI (header/tabs/content)
+        //   3. `borderStroke`: subtle 0.5pt rim around the silhouette
+        //   4. `dropRingOverlay`: drag-and-drop accent ring (existing)
+        // The two `.shadow` calls below stack: a TIGHT dark ground-shadow
+        // (close, slightly offset down) for the contact tell, plus a
+        // WIDE soft halo (large radius, lower opacity) for the floating
+        // glow — same recipe Alcove uses to feel "set into the desktop"
+        // rather than "stamped onto" it.
         panelBackground
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipShape(panelSilhouette)
-            .overlay(alignment: .top) { notchHighlight }
             .overlay(alignment: .top) { contentOverlay }
             .overlay { borderStroke }
             .overlay { dropRingOverlay }
+            .padding(.horizontal, PanelWindowController.haloPadding)
+            .padding(.bottom, PanelWindowController.haloPadding)
             .ignoresSafeArea(.all, edges: .top)
             // Single-axis state animation: only the content opacity
             // (shown / hidden) and the shadow params interpolate when
             // `presenter.isShown` flips. Frame and radius DO NOT
             // animate here — those are NSPanel-level Core Animation
             // (see PanelWindowController.animateOpen / animateClose).
-            //
-            // The content tree below is now ALWAYS-MOUNTED (see
-            // contentOverlay) — its instantiation cost (NotesListView
-            // composer + LazyVStack + image/video/file grids + drag/
-            // copy gesture wiring + @FocusState scaffolding) hits ONCE
-            // at app launch when no animation is running, so the user
-            // never sees it. Subsequent show() / hide() cycles are
-            // just opacity flips, which are essentially free (Core
-            // Animation hardware path on the layer compositor).
-            //
-            // PanelWindowController now flips `isShown=true` BEFORE
-            // the panel morph starts. That means this 0.18s opacity
-            // fade-in runs CONCURRENTLY with the 450ms panel morph —
-            // by the time the panel is ~40% of the way through its
-            // dive, the content is already fully visible. Net effect:
-            // panel and content arrive together as a single perceptual
-            // beat, with no mid-morph mount hitch competing for main-
-            // thread time.
             .animation(.easeOut(duration: 0.18), value: presenter.isShown)
             .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
-            // PERF GATE: shadow renders only when isShown=true (i.e.
-            // the morph has progressed past the dive and content is
-            // materializing). During the morph itself the shadow
-            // radius is 0 — SwiftUI's `.shadow` is a CPU-side Gaussian
-            // convolution whose cost grows with radius² × surface
-            // area, so radius 0 is essentially free. The fade-in /
-            // fade-out is driven by the `.animation` modifier above.
+            // PERF GATE: both shadows render only when isShown=true.
+            // During the morph itself both radii are 0 — SwiftUI's
+            // `.shadow` is a CPU-side gaussian convolution whose cost
+            // grows with radius² × surface area, so radius 0 is
+            // essentially free. The fade-in / fade-out is driven by
+            // the `.animation` modifier above.
+            //
+            // Two-shadow stack: contact + halo. The contact shadow
+            // (tight, dark, slightly offset) reads as the panel
+            // pressing down toward the desktop. The halo (wide, dim)
+            // is the "liquid blur" the user described — a soft
+            // luminance bleed all around the silhouette, not just at
+            // the bottom.
             .shadow(
-                color: Color.black.opacity(presenter.isShown ? 0.42 : 0),
-                radius: presenter.isShown ? 12 : 0,
+                color: Color.black.opacity(presenter.isShown ? 0.55 : 0),
+                radius: presenter.isShown ? 14 : 0,
                 x: 0,
                 y: presenter.isShown ? 8 : 0
+            )
+            .shadow(
+                color: Color.black.opacity(presenter.isShown ? 0.42 : 0),
+                radius: presenter.isShown ? 28 : 0,
+                x: 0,
+                y: presenter.isShown ? 2 : 0
             )
     }
 
@@ -209,76 +213,26 @@ struct PanelRootView: View {
 
     // MARK: - Background layers
 
-    /// Vertical gradient that gives the slab depth without losing the
-    /// "deep black" reading. The top is lifted to ~9% white so the
-    /// notch zone reads as if a hint of ambient light is catching the
-    /// glass; the lift rolls off through ~20% of the height back to
-    /// near-pure black, so the bulk of the panel still reads as the
-    /// premium dark surface the user expects. Without the gradient the
-    /// panel was a flat black slab — the user explicitly called this
-    /// out as "looking black bar nothing else."
+    /// Solid pure black. The user explicitly asked for black after the
+    /// gradient version landed: "black was definitely the choice but
+    /// we need to something around it / Like alcove." Depth now comes
+    /// from the drop shadow on the parent and the quiet rim below —
+    /// not from any internal lift. Keeps the slab reading as a piece
+    /// of premium dark hardware, not a tinted glass panel.
     private var panelBackground: some View {
-        LinearGradient(
-            stops: [
-                .init(color: Color(white: 0.085), location: 0.0),
-                .init(color: Color(white: 0.045), location: 0.18),
-                .init(color: Color(white: 0.018), location: 0.55),
-                .init(color: Color.black, location: 1.0)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
+        Color.black
     }
 
-    /// Thin band of light right below the menu-bar / notch zone. Reads
-    /// as a soft sheen kissing the top edge — the same trick Alcove and
-    /// Apple's Dynamic Island use to make a flat 2D pill feel like a
-    /// piece of darkly-glowing hardware. The band starts at the notch
-    /// overlap (so it's visible right where the panel exits the notch)
-    /// and fades to clear over ~70pt.
-    ///
-    /// `.blendMode(.plusLighter)` blends additively against the dark
-    /// gradient beneath — multiplicative blending would crush the lift
-    /// back to black; plusLighter genuinely brightens.
-    @ViewBuilder
-    private var notchHighlight: some View {
-        LinearGradient(
-            colors: [
-                Color.white.opacity(0.16),
-                Color.white.opacity(0.04),
-                Color.clear
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .frame(height: 70)
-        .blendMode(.plusLighter)
-        .padding(.top, notchOverlap)
-        .allowsHitTesting(false)
-        .opacity(presenter.isShown ? 1 : 0)
-    }
-
-    /// 0.6pt inner border that traces the panel silhouette. The stroke
-    /// uses a top-to-bottom white-opacity gradient (12% → 4%) so the
-    /// edge reads as catching light from above — same physical model as
-    /// the gradient background. Without this the panel's outline gets
-    /// lost against dark wallpapers (the user's setup is "Sonoma
-    /// Horizon" per `MEMORY.md`); the border defines the slab even
-    /// when the wallpaper is near-black at the edges.
+    /// Quiet 0.5pt rim around the silhouette — Alcove's signature
+    /// treatment. Just enough edge definition to keep the slab from
+    /// dissolving into very-dark wallpapers, but not so bright it
+    /// reads as a sheen on glass. White at 6% opacity is below the
+    /// noise floor of most desktops; the user reads it as "the slab
+    /// has an edge" without being able to point to a specific stroke.
     @ViewBuilder
     private var borderStroke: some View {
         panelSilhouette
-            .stroke(
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.14),
-                        Color.white.opacity(0.04)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ),
-                lineWidth: 0.6
-            )
+            .stroke(Color.white.opacity(0.06), lineWidth: 0.5)
             .allowsHitTesting(false)
             .opacity(presenter.isShown ? 1 : 0)
     }
