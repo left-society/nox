@@ -56,6 +56,11 @@ final class PanelWindowController {
     private var keyMonitor: Any?
     private var globalKeyMonitor: Any?
     private var hideWorkItem: DispatchWorkItem?
+    /// `NSPasteboard.general.changeCount` captured at the last hide().
+    /// Initialized to -1 so the very first show() always evaluates the
+    /// clipboard. Updated on every hide() so we only re-route when
+    /// the user has actually copied something new in between.
+    private var lastSeenChangeCount: Int = -1
 
     weak var menuBarController: MenuBarController?
 
@@ -172,6 +177,17 @@ final class PanelWindowController {
         hideWorkItem?.cancel()
         hideWorkItem = nil
 
+        // Smart auto-routing — only fires if the clipboard has
+        // changed since the last hide(). Avoids the annoying case
+        // where the user closes the panel on Notes, switches apps,
+        // and reopens the panel only to be teleported off Notes
+        // because there's still a stale text payload on the clipboard.
+        let currentCount = NSPasteboard.general.changeCount
+        if currentCount != lastSeenChangeCount {
+            applyAutoRouting()
+        }
+        lastSeenChangeCount = currentCount
+
         let size = PanelWindowController.panelSize(for: NSScreen.main)
         panel.setContentSize(size)
         panel.setFrameOrigin(originOnRightEdge(for: size))
@@ -250,6 +266,9 @@ final class PanelWindowController {
     func hide() {
         NSLog("Notetaker: hide() called, isVisible=\(isVisible)")
         guard isVisible else { return }
+        // Snapshot the clipboard so the next show() can tell whether
+        // the user copied something new in between.
+        lastSeenChangeCount = NSPasteboard.general.changeCount
         removeMonitors()
         presenter.isShown = false
         isVisible = false
@@ -259,6 +278,44 @@ final class PanelWindowController {
         }
         hideWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.24, execute: item)
+    }
+
+    /// Calls into ClipboardRouter and reacts to its decision. Only
+    /// invoked when changeCount has advanced since the last hide().
+    private func applyAutoRouting() {
+        let decision = ClipboardRouter.decide()
+        NSLog("Notetaker: auto-route decision = \(decision)")
+        switch decision {
+        case .none:
+            return
+        case .notes(let text):
+            do {
+                let note = try environment.noteStore.createNote()
+                try environment.noteStore.updateBody(id: note.id, body: text)
+                presenter.activeTab = .notes
+            } catch {
+                NSLog("Notetaker: auto-route notes failed: \(error)")
+            }
+        case .images(let data, let mime):
+            environment.imageStore.saveImageDeferred(
+                data: data,
+                mimeType: mime,
+                noteId: nil,
+                source: "clipboard"
+            )
+            presenter.activeTab = .images
+        case .videos(let url):
+            if url.isFileURL {
+                _ = try? environment.videoStore.saveLocalFile(url)
+            } else {
+                _ = environment.videoStore.startDownload(url: url.absoluteString)
+            }
+            presenter.activeTab = .videos
+        case .files(let urls):
+            environment.fileStore.stage(urls: urls)
+            presenter.activeTab = .files
+        }
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
     }
 
     private func removeMonitors() {
