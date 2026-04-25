@@ -58,7 +58,12 @@ struct ImagesGridView: View {
                                         )
                                     }
                                 )
+                                // Single-file drag is the baseline. SwiftUI's
+                                // `.onDrag` only emits one NSItemProvider, so
+                                // for multi-selection we layer a different
+                                // drag source on top — see the overlay below.
                                 .onDrag { dragProvider(for: record) }
+                                .overlay(multiSelectDragOverlay(for: record))
                                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
                             }
                         }
@@ -155,41 +160,70 @@ struct ImagesGridView: View {
         .padding(.bottom, DS.Spacing.xxs)
     }
 
+    /// Top-of-grid summary card. Two distinct states:
+    ///
+    /// 1. **No selection** — shows the full image stack, "N images"
+    ///    title, and a "Copy all" CTA. Drag-out hands every image.
+    /// 2. **Selection active** — the stack collapses to just the
+    ///    selected items (up to 4 visible), title flips to "N
+    ///    selected", and the CTA becomes "Copy selected". Drag-out
+    ///    only carries the selected URLs.
+    ///
+    /// This is the user-facing answer to "if they click in one photo
+    /// it should get to the selection button" — clicking a photo flips
+    /// this hero into selection mode immediately, and the prominent
+    /// CTA changes to match. Without this view-level adaptation, the
+    /// selection toolbar at the top reads "5 selected" while the big
+    /// hero card right below it still says "Copy all" — exactly the
+    /// confusion the user reported.
     private var stackHero: some View {
-        let images = Array(imageStore.images.prefix(4))
+        let isSelectionMode = !selected.isEmpty
+        let sourceRecords: [ImageRecord] = isSelectionMode
+            ? imageStore.images.filter { selected.contains($0.id) }
+            : imageStore.images
+        let displayedThumbs = Array(sourceRecords.prefix(4))
+        let dragURLs = sourceRecords.map { imageStore.fullURL(for: $0) }
         let rotations: [Double] = [-6, -2, 3, 7]
         let offsets: [(CGFloat, CGFloat)] = [(-14, -4), (-5, 2), (5, -3), (14, 4)]
 
-        let allURLs = imageStore.images.map { imageStore.fullURL(for: $0) }
+        let titleText = isSelectionMode
+            ? "\(sourceRecords.count) selected"
+            : "\(imageStore.images.count) images"
+        let subtitleText = isSelectionMode
+            ? "Copy or drag the selection"
+            : "Copy or drag the stack"
+        let buttonLabel = isSelectionMode ? "Copy selected" : "Copy all"
+        let buttonAction: () -> Void = isSelectionMode ? copySelected : copyAll
 
         return HStack(spacing: DS.Spacing.md) {
             ZStack {
-                ForEach(Array(images.enumerated().reversed()), id: \.element.id) { idx, record in
+                ForEach(Array(displayedThumbs.enumerated().reversed()), id: \.element.id) { idx, record in
                     stackThumb(record: record)
                         .rotationEffect(.degrees(rotations[min(idx, rotations.count - 1)]))
                         .offset(
                             x: offsets[min(idx, offsets.count - 1)].0,
                             y: offsets[min(idx, offsets.count - 1)].1
                         )
-                        .zIndex(Double(images.count - idx))
+                        .zIndex(Double(displayedThumbs.count - idx))
                 }
             }
             .frame(width: 92, height: 84)
-            .overlay(MultiFileDragSource(fileURLs: allURLs))
+            .overlay(MultiFileDragSource(fileURLs: dragURLs))
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(imageStore.images.count) images")
+                Text(titleText)
                     .font(.nkBody.weight(.semibold))
                     .foregroundStyle(DS.Color.textPrimary)
-                Text("Copy or drag the stack")
+                    .contentTransition(.numericText())
+                Text(subtitleText)
                     .font(.nkMeta)
                     .foregroundStyle(DS.Color.textTertiary)
 
-                Button(action: copyAll) {
+                Button(action: buttonAction) {
                     HStack(spacing: 5) {
                         Image(systemName: "doc.on.doc")
                             .font(.system(size: 10, weight: .semibold))
-                        Text("Copy all")
+                        Text(buttonLabel)
                             .font(.nkMeta.weight(.semibold))
                     }
                     .foregroundStyle(DS.Color.textPrimary)
@@ -197,7 +231,7 @@ struct ImagesGridView: View {
                     .padding(.vertical, 5)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(DS.Color.bgSelected)
+                            .fill(isSelectionMode ? DS.Color.accent.opacity(0.85) : DS.Color.bgSelected)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -218,8 +252,14 @@ struct ImagesGridView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+                .strokeBorder(
+                    isSelectionMode
+                        ? DS.Color.accent.opacity(0.32)
+                        : Color.white.opacity(0.06),
+                    lineWidth: 0.5
+                )
         )
+        .animation(.selection, value: isSelectionMode)
     }
 
     private func stackThumb(record: ImageRecord) -> some View {
@@ -311,11 +351,25 @@ struct ImagesGridView: View {
 
     // MARK: - Actions
 
+    /// Click semantics: every click TOGGLES this cell's selection. The
+    /// user's complaint was that the panel only ever offered "copy all"
+    /// even after clicking individual images — they expected an
+    /// Instagram-/iOS-Photos-style flow where clicking a photo enters
+    /// "selection mode" and subsequent clicks add or remove items.
+    /// Cmd-click is treated identically (kept for muscle memory from
+    /// macOS Finder); to clear the whole selection use the "Deselect"
+    /// button in the toolbar or click the same image again.
+    ///
+    /// The previous behavior (`selected = [id]` on plain click) was
+    /// actually hostile here — it meant clicking a second image
+    /// SILENTLY threw away the first one's selection, which is the
+    /// opposite of what a user trying to "pick a few" expects.
     private func toggleSelection(_ id: String, command: Bool) {
-        if command {
-            if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
+        _ = command  // semantic hook retained for future shift-range support
+        if selected.contains(id) {
+            selected.remove(id)
         } else {
-            selected = [id]
+            selected.insert(id)
         }
     }
 
@@ -375,6 +429,53 @@ struct ImagesGridView: View {
     private func dragProvider(for record: ImageRecord) -> NSItemProvider {
         let url = imageStore.fullURL(for: record)
         return NSItemProvider(contentsOf: url) ?? NSItemProvider()
+    }
+
+    /// When 2+ images are selected and the user drags one of them,
+    /// every selected image should travel together (Finder-style). The
+    /// SwiftUI `.onDrag` modifier only ever vends a single
+    /// NSItemProvider, so we overlay an AppKit-backed `NSDraggingSource`
+    /// on top of cells that are part of a multi-selection. The overlay
+    /// swallows mouse events when active, so we forward bare clicks
+    /// back into `toggleSelection` so the user can still tap a cell to
+    /// pull it out of the selection.
+    ///
+    /// Cells outside the selection — and the lone-selected case — fall
+    /// through to the standard `.onDrag` path. That keeps per-cell
+    /// trash and copy overlays reachable in the common single-image
+    /// flow; multi-select is treated as a "batch operation mode" where
+    /// individual hover affordances yield to the bulk drag.
+    @ViewBuilder
+    private func multiSelectDragOverlay(for record: ImageRecord) -> some View {
+        if selected.count > 1 && selected.contains(record.id) {
+            MultiFileDragSource(
+                fileURLs: selectedFullURLs,
+                dragImageURLs: selectedThumbURLs,
+                onClick: {
+                    toggleSelection(record.id, command: false)
+                }
+            )
+        }
+    }
+
+    /// Selected records, in the same order they appear in the grid —
+    /// so the receiving Finder/Mail/iMessage drop site sees them in
+    /// visual order rather than insertion-set hash order.
+    private var selectedRecords: [ImageRecord] {
+        imageStore.images.filter { selected.contains($0.id) }
+    }
+
+    private var selectedFullURLs: [URL] {
+        selectedRecords.map { imageStore.fullURL(for: $0) }
+    }
+
+    /// Thumbs (not the full-size images) for the dragging preview.
+    /// `MultiFileDragSourceNSView` falls back to the full file when
+    /// these are absent, but loading 4K screenshots just to render a
+    /// 64pt drag chip is expensive — preferring the cached thumb keeps
+    /// the drag start instantaneous.
+    private var selectedThumbURLs: [URL] {
+        selectedRecords.map { imageStore.thumbURL(for: $0) }
     }
 
     // MARK: - Helpers
