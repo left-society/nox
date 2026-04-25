@@ -55,6 +55,17 @@ enum ClipboardService {
         pb.writeObjects(items)
         ClipboardMonitor.shared?.acknowledge()
     }
+
+    /// Files-only paste payload. Used by the Files-tab "Copy all"
+    /// button. NSPasteboard.writeObjects with NSURLs round-trips
+    /// cleanly to Finder, browser file inputs, and other apps that
+    /// accept file URLs.
+    static func copy(fileURLs: [URL]) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects(fileURLs.map { $0 as NSURL })
+        ClipboardMonitor.shared?.acknowledge()
+    }
 }
 
 // MARK: - Drag Monitor

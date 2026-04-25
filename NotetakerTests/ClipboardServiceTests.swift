@@ -23,6 +23,23 @@ final class ClipboardServiceTests: XCTestCase {
         XCTAssertNotNil(NSPasteboard.general.data(forType: .png))
     }
 
+    func test_copyFileURLs_writesURLsToPasteboard() {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CopyTest-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let a = tmp.appendingPathComponent("one.pdf")
+        let b = tmp.appendingPathComponent("two.zip")
+        try? Data([0x25, 0x50]).write(to: a)
+        try? Data([0x50, 0x4B]).write(to: b)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        ClipboardService.copy(fileURLs: [a, b])
+
+        let urls = NSPasteboard.general.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []
+        XCTAssertEqual(urls.count, 2)
+        XCTAssertEqual(urls.map { $0.lastPathComponent }, ["one.pdf", "two.zip"])
+    }
+
     private static func makeTestImage() -> NSImage {
         let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
