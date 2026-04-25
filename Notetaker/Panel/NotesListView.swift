@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import LinkPresentation
 
 struct NotesListView: View {
     @EnvironmentObject var noteStore: NoteStore
@@ -215,9 +216,14 @@ struct NoteRow: View {
     let onDelete: () -> Void
     let onCopy: () -> Void
 
+    @EnvironmentObject private var linkPreviewService: LinkPreviewService
     @State private var isHovered = false
     @State private var justCopied = false
     @FocusState private var editorFocused: Bool
+
+    private var firstURL: URL? {
+        URLExtractor.firstHTTPURL(in: note.body)
+    }
 
     var body: some View {
         Group {
@@ -238,6 +244,9 @@ struct NoteRow: View {
         .onHover { hovering in
             withAnimation(.rowHover) { isHovered = hovering }
         }
+        .onAppear {
+            if let url = firstURL { linkPreviewService.ensure(for: url) }
+        }
     }
 
     private var displayView: some View {
@@ -249,9 +258,7 @@ struct NoteRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
 
-                Text(Self.relativeTime(from: note.updatedAt))
-                    .font(.nkLabel)
-                    .foregroundStyle(DS.Color.textTertiary)
+                metaLine
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -363,6 +370,31 @@ struct NoteRow: View {
         return .clear
     }
 
+    @ViewBuilder
+    private var metaLine: some View {
+        if let url = firstURL {
+            HStack(spacing: 5) {
+                FaviconView(url: url)
+                    .frame(width: 12, height: 12)
+                Text(url.host ?? url.absoluteString)
+                    .font(.nkLabel)
+                    .foregroundStyle(DS.Color.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text("·")
+                    .font(.nkLabel)
+                    .foregroundStyle(DS.Color.textTertiary)
+                Text(Self.relativeTime(from: note.updatedAt))
+                    .font(.nkLabel)
+                    .foregroundStyle(DS.Color.textTertiary)
+            }
+        } else {
+            Text(Self.relativeTime(from: note.updatedAt))
+                .font(.nkLabel)
+                .foregroundStyle(DS.Color.textTertiary)
+        }
+    }
+
     private static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .short
@@ -372,5 +404,47 @@ struct NoteRow: View {
     private static func relativeTime(from epoch: Double) -> String {
         let date = Date(timeIntervalSince1970: epoch)
         return relativeFormatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+/// Renders a 12pt favicon for a URL, sourced from
+/// `LinkPreviewService.previews[url].iconProvider`. Loading is async
+/// (`NSItemProvider.loadObject`), so the view starts blank and fades in
+/// when the icon arrives. Falls back to an SF Symbol globe if metadata
+/// hasn't landed yet.
+private struct FaviconView: View {
+    @EnvironmentObject private var service: LinkPreviewService
+    let url: URL
+    @State private var image: NSImage?
+    @State private var attemptedProviderID: ObjectIdentifier?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            } else {
+                Image(systemName: "globe")
+                    .font(.system(size: 9, weight: .regular))
+                    .foregroundStyle(DS.Color.textTertiary)
+            }
+        }
+        .onAppear { tryLoad() }
+        .onChange(of: service.previews[url]) { _ in tryLoad() }
+    }
+
+    private func tryLoad() {
+        guard image == nil else { return }
+        guard let provider = service.previews[url]?.iconProvider else { return }
+        let id = ObjectIdentifier(provider)
+        if attemptedProviderID == id { return }
+        attemptedProviderID = id
+
+        guard provider.canLoadObject(ofClass: NSImage.self) else { return }
+        provider.loadObject(ofClass: NSImage.self) { obj, _ in
+            guard let img = obj as? NSImage else { return }
+            Task { @MainActor in self.image = img }
+        }
     }
 }

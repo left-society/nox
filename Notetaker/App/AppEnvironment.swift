@@ -16,6 +16,7 @@ final class AppEnvironment: ObservableObject {
     let videoStore: VideoStore
     let fileStore: FileStore
     let retentionService: RetentionService
+    let linkPreviewService: LinkPreviewService
 
     init() throws {
         self.database = try Database()
@@ -30,5 +31,6 @@ final class AppEnvironment: ObservableObject {
             create: true
         ).appendingPathComponent("Notetaker", isDirectory: true)
         self.retentionService = RetentionService(db: database, imageRoot: imageRoot)
+        self.linkPreviewService = LinkPreviewService()
     }
 }

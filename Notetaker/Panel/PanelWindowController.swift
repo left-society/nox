@@ -109,6 +109,7 @@ final class PanelWindowController {
                 .environmentObject(environment.imageStore)
                 .environmentObject(environment.videoStore)
                 .environmentObject(environment.fileStore)
+                .environmentObject(environment.linkPreviewService)
                 .environmentObject(presenter)
         )
         host.frame = contentRect

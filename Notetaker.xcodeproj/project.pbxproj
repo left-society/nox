@@ -35,6 +35,9 @@
 		AB99000000000000000F7B01 /* QuickPasteRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99000000000000000F7A01 /* QuickPasteRouterTests.swift */; };
 		AB99000000000000000F8B01 /* ImageOCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99000000000000000F8A01 /* ImageOCRService.swift */; };
 		AB99000000000000000F9B01 /* ImageOCRServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99000000000000000F9A01 /* ImageOCRServiceTests.swift */; };
+		AB9900000000000001F0B01 /* LinkPreviewService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB9900000000000001F0A01 /* LinkPreviewService.swift */; };
+		AB9900000000000001F1B01 /* URLExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB9900000000000001F1A01 /* URLExtractor.swift */; };
+		AB9900000000000001F2B01 /* URLExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB9900000000000001F2A01 /* URLExtractorTests.swift */; };
 		AB12CD34EF567890FEDC0001 /* ThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB12CD34EF567890FEDC0002 /* ThumbnailCache.swift */; };
 		AB12CD34EF567890FEDC0003 /* LocalThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB12CD34EF567890FEDC0004 /* LocalThumbnailView.swift */; };
 		9C4454DAB3490C57222008FC /* PanelWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F2B24F63B38FFB038957FF /* PanelWindowController.swift */; };
@@ -99,6 +102,9 @@
 		AB99000000000000000F7A01 /* QuickPasteRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPasteRouterTests.swift; sourceTree = "<group>"; };
 		AB99000000000000000F8A01 /* ImageOCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageOCRService.swift; sourceTree = "<group>"; };
 		AB99000000000000000F9A01 /* ImageOCRServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageOCRServiceTests.swift; sourceTree = "<group>"; };
+		AB9900000000000001F0A01 /* LinkPreviewService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkPreviewService.swift; sourceTree = "<group>"; };
+		AB9900000000000001F1A01 /* URLExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLExtractor.swift; sourceTree = "<group>"; };
+		AB9900000000000001F2A01 /* URLExtractorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLExtractorTests.swift; sourceTree = "<group>"; };
 		AB12CD34EF567890FEDC0002 /* ThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailCache.swift; sourceTree = "<group>"; };
 		AB12CD34EF567890FEDC0004 /* LocalThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalThumbnailView.swift; sourceTree = "<group>"; };
 		98E3F8A6AFB9CFA5A2888105 /* VideosGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideosGridView.swift; sourceTree = "<group>"; };
@@ -148,6 +154,7 @@
 				7EE2B5488AC8E315F38FBDC2 /* Resources */,
 				571C7545D876EC8047A3F420 /* Services */,
 				CDE91B76AB3C54C3BB778D76 /* Settings */,
+				AB9900000000000001F3C01 /* Utils */,
 			);
 			path = Notetaker;
 			sourceTree = "<group>";
@@ -163,6 +170,7 @@
 				0C4728BB0F273F145E4D4DB2 /* HotkeyService.swift */,
 				AB99000000000000000F8A01 /* ImageOCRService.swift */,
 				F6681424D04E755BA93A783D /* ImageStore.swift */,
+				AB9900000000000001F0A01 /* LinkPreviewService.swift */,
 				717E181C1DF1BF1637911A32 /* Models.swift */,
 				DE8C4545B6EB30E073A8D77E /* NoteStore.swift */,
 				AB99000000000000000F6A01 /* QuickPasteRouter.swift */,
@@ -220,6 +228,14 @@
 			path = Panel;
 			sourceTree = "<group>";
 		};
+		AB9900000000000001F3C01 /* Utils */ = {
+			isa = PBXGroup;
+			children = (
+				AB9900000000000001F1A01 /* URLExtractor.swift */,
+			);
+			path = Utils;
+			sourceTree = "<group>";
+		};
 		CDE91B76AB3C54C3BB778D76 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
@@ -252,6 +268,7 @@
 				F828A81402E3514A29BEF54D /* NotetakerTests.swift */,
 				AB99000000000000000F7A01 /* QuickPasteRouterTests.swift */,
 				7C727DFD4A4E2C994662FBCD /* RetentionServiceTests.swift */,
+				AB9900000000000001F2A01 /* URLExtractorTests.swift */,
 			);
 			path = NotetakerTests;
 			sourceTree = "<group>";
@@ -397,6 +414,7 @@
 				AB99000000000000000F8B01 /* ImageOCRService.swift in Sources */,
 				C70A5360450254FB8A93100F /* ImageStore.swift in Sources */,
 				8F1E0C1C56B34BA5A69F027B /* ImagesGridView.swift in Sources */,
+				AB9900000000000001F0B01 /* LinkPreviewService.swift in Sources */,
 				AB12CD34EF567890FEDC0003 /* LocalThumbnailView.swift in Sources */,
 				2D18EAD4998253D3AF5370D2 /* MenuBarController.swift in Sources */,
 				4E42547CCEB204EE181E2B34 /* Models.swift in Sources */,
@@ -412,6 +430,7 @@
 				A9761E0D07D7B9244A40A158 /* SettingsWindow.swift in Sources */,
 				AB12CD34EF567890FEDC0001 /* ThumbnailCache.swift in Sources */,
 				D61D1228591E36D78457CCB3 /* Typography.swift in Sources */,
+				AB9900000000000001F1B01 /* URLExtractor.swift in Sources */,
 				BEEC79429921AD66DFB2C84F /* VideoDownloader.swift in Sources */,
 				DE75DAD4610F719015F5E67B /* VideoDropCatcher.swift in Sources */,
 				0AA2269E81CA671E2D69789B /* VideoDropScanner.swift in Sources */,
@@ -434,6 +453,7 @@
 				65BE75628A3DC39F43A16DCA /* NotetakerTests.swift in Sources */,
 				AB99000000000000000F7B01 /* QuickPasteRouterTests.swift in Sources */,
 				2392E7D0307561B283550D39 /* RetentionServiceTests.swift in Sources */,
+				AB9900000000000001F2B01 /* URLExtractorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
