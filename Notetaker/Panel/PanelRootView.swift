@@ -31,7 +31,7 @@ private struct VisualEffectBackground: NSViewRepresentable {
 /// clearly defined while keeping a slight overhead-light bias.
 private struct GlassEdge: View {
     var body: some View {
-        RoundedRectangle(cornerRadius: 20, style: .continuous)
+        RoundedRectangle(cornerRadius: PanelWindowController.innerCornerRadius, style: .continuous)
             .strokeBorder(
                 LinearGradient(
                     colors: [
@@ -55,22 +55,25 @@ private struct GlassEdge: View {
 /// stacked glow layers.
 private struct GlassInnerWall: View {
     var body: some View {
-        RoundedRectangle(cornerRadius: 18.8, style: .continuous)
-            .strokeBorder(
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.25),
-                        Color.white.opacity(0.10),
-                        Color.white.opacity(0.02),
-                        Color.clear
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ),
-                lineWidth: 0.6
-            )
-            .padding(1.2)
-            .allowsHitTesting(false)
+        RoundedRectangle(
+            cornerRadius: PanelWindowController.innerCornerRadius - 1.2,
+            style: .continuous
+        )
+        .strokeBorder(
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(0.25),
+                    Color.white.opacity(0.10),
+                    Color.white.opacity(0.02),
+                    Color.clear
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            ),
+            lineWidth: 0.6
+        )
+        .padding(1.2)
+        .allowsHitTesting(false)
     }
 }
 
@@ -111,7 +114,7 @@ private struct LiquidSpecular: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .padding(.top, 6)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: PanelWindowController.innerCornerRadius, style: .continuous))
         .allowsHitTesting(false)
     }
 }
@@ -167,7 +170,7 @@ private struct EdgeVignette: View {
                 endPoint: .bottom
             )
         }
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: PanelWindowController.innerCornerRadius, style: .continuous))
         .allowsHitTesting(false)
     }
 }
@@ -179,7 +182,7 @@ private struct EdgeVignette: View {
 /// sides where a real lens would refract most.
 private struct InnerLensShadow: View {
     var body: some View {
-        RoundedRectangle(cornerRadius: 20, style: .continuous)
+        RoundedRectangle(cornerRadius: PanelWindowController.innerCornerRadius, style: .continuous)
             .stroke(
                 LinearGradient(
                     colors: [
@@ -193,7 +196,7 @@ private struct InnerLensShadow: View {
                 lineWidth: 6
             )
             .blur(radius: 4)
-            .mask(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .mask(RoundedRectangle(cornerRadius: PanelWindowController.innerCornerRadius, style: .continuous))
             .allowsHitTesting(false)
     }
 }
@@ -217,6 +220,92 @@ struct PanelRootView: View {
     @Namespace private var segmentedPill
 
     var body: some View {
+        // Outer 360×660 frame holds two things: the depth-halo blur
+        // (behind, fades to clear at the outer edges) and the visible
+        // rounded panel anchored to the trailing edge. The user pointed
+        // at Apple's music widget and noted that content NEAR it gets
+        // blurred while content FAR stays sharp — the sharp edge of our
+        // earlier 340×620 panel sat right against readable text. The
+        // halo extends the same `.behindWindow` blur past the rounded
+        // slab on three sides so the wallpaper-and-text smearing fades
+        // into sharpness rather than cutting hard.
+        ZStack(alignment: .trailing) {
+            haloLayer
+            innerPanel
+                .frame(
+                    width: PanelWindowController.innerPanelWidth,
+                    height: PanelWindowController.innerPanelHeight
+                )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .compositingGroup()
+        // Dissolve entry — scale + blur + opacity, anchored top-trailing
+        // (where the menu-bar icon lives) so the panel feels like it's
+        // condensing out of the status item. Both halo and inner slab
+        // animate together because the modifiers sit on the outer ZStack.
+        .scaleEffect(presenter.isShown ? 1.0 : 0.86, anchor: .topTrailing)
+        .blur(radius: presenter.isShown ? 0 : 14)
+        .opacity(presenter.isShown ? 1.0 : 0.0)
+        .animation(
+            presenter.isShown
+                ? .spring(response: 0.46, dampingFraction: 0.78)
+                : .easeOut(duration: 0.18),
+            value: presenter.isShown
+        )
+    }
+
+    // MARK: - Halo
+
+    /// Soft blur halo extending past the inner panel on three sides.
+    /// Same `.behindWindow` material as the inner panel, but the mask is
+    /// sized to MATCH THE INNER PANEL'S POSITION (not the full outer
+    /// frame) and then blurred heavily — so the alpha-1 region of the
+    /// halo is hidden directly behind the inner panel, and only the
+    /// blurred fringe is visible peeking out.
+    ///
+    /// Why not fill the whole frame: the v18 mask used
+    /// `RoundedRectangle(cornerRadius: 60).padding(4).blur(44)` which
+    /// made alpha-1 cover almost the entire 400pt-wide frame. Blur(44)
+    /// only had ~4pt of room to fade before hitting the rectangular
+    /// outer NSPanel boundary, so the corners of that boundary clipped
+    /// a still-non-zero halo and the user saw "way too boxy" — which
+    /// is exactly what they reported.
+    ///
+    /// New approach (matches Apple's music widget):
+    /// 1. Outer NSPanel grows to 440x820 with 100pt of halo space on
+    ///    left/top/bottom (`PanelWindowController.haloPadding`).
+    /// 2. Mask shape is sized to (innerPanelWidth - 20) × (innerPanelHeight
+    ///    - 20), inset 10pt within the inner panel — so alpha-1 sits
+    ///    fully under the inner panel and has no visible edge of its own.
+    /// 3. Mask is anchored trailing (matching the inner panel) and
+    ///    centered vertically.
+    /// 4. Blur(70) feathers the halo ~70pt outward in all directions
+    ///    where there's room (left, top, bottom), fading to ~0 well
+    ///    inside the 100pt of frame slack — no rectangular clipping.
+    private var haloLayer: some View {
+        VisualEffectBackground()
+            .mask(
+                RoundedRectangle(
+                    cornerRadius: PanelWindowController.innerCornerRadius - 10,
+                    style: .continuous
+                )
+                .frame(
+                    width: PanelWindowController.innerPanelWidth - 20,
+                    height: PanelWindowController.innerPanelHeight - 20
+                )
+                // Position the mask exactly where the inner panel sits:
+                // trailing-anchored, centered vertically inside the outer
+                // frame. The blur then fades outward symmetrically on the
+                // three sides where the frame has room.
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                .blur(radius: 70)
+            )
+            .allowsHitTesting(false)
+    }
+
+    // MARK: - Inner panel (the visible rounded glass slab)
+
+    private var innerPanel: some View {
         VStack(spacing: 0) {
             header
             segmented
@@ -266,31 +355,19 @@ struct PanelRootView: View {
         // contentView wrapper) which sits below SwiftUI and handles drops
         // before any SwiftUI hit-testing kicks in. Pure cosmetic here.
         .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: PanelWindowController.innerCornerRadius, style: .continuous)
                 .strokeBorder(DS.Color.accent.opacity(presenter.isDropTargeted ? 0.85 : 0), lineWidth: 1.5)
                 .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
                 .allowsHitTesting(false)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        // Outer drop shadow stack — soft far shadow for ambient lift,
-        // tighter close shadow for contact. Reads as "thick glass lens
-        // hovering above the desktop."
-        .shadow(color: Color.black.opacity(0.35), radius: 22, x: 0, y: 14)
-        .shadow(color: Color.black.opacity(0.20), radius: 4, x: 0, y: 2)
-        .compositingGroup()
-        // Dissolve entry — scale + blur + opacity, anchored top-trailing
-        // (where the menu-bar icon lives) so the panel feels like it's
-        // condensing out of the status item. No rotation — that was a
-        // SwiftUI gimmick, not part of Apple's vocabulary.
-        .scaleEffect(presenter.isShown ? 1.0 : 0.86, anchor: .topTrailing)
-        .blur(radius: presenter.isShown ? 0 : 14)
-        .opacity(presenter.isShown ? 1.0 : 0.0)
-        .animation(
-            presenter.isShown
-                ? .spring(response: 0.46, dampingFraction: 0.78)
-                : .easeOut(duration: 0.18),
-            value: presenter.isShown
-        )
+        .clipShape(RoundedRectangle(cornerRadius: PanelWindowController.innerCornerRadius, style: .continuous))
+        // Tight close shadow only. The previous radius-22 / y-14 stack
+        // extended ~36pt below the inner panel, which got clipped hard
+        // at the outer NSPanel rectangle and read as a visible square
+        // edge ("shadow looks like a box"). The depth cue now comes from
+        // the wallpaper-blur halo behind, so the inner slab only needs
+        // a small contact shadow to feel lifted off the desktop.
+        .shadow(color: Color.black.opacity(0.30), radius: 6, x: 0, y: 3)
     }
 
     // MARK: - Header

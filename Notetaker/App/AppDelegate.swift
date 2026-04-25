@@ -79,6 +79,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         screenshots.start()
         self.screenshotWatcher = screenshots
 
+        // Dev-only: auto-show the panel on launch for visual verification.
+        if ProcessInfo.processInfo.environment["NOTETAKER_AUTOSHOW"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.panelController?.show()
+            }
+        }
+
         // Dev-only: self-trigger a download so we can verify the pipeline
         // without having to drive a browser hotkey. Set NOTETAKER_TEST_URL
         // in the Xcode scheme or launch env to exercise the code path.

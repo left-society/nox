@@ -8,9 +8,38 @@ private final class KeyablePanel: NSPanel {
 
 @MainActor
 final class PanelWindowController {
-    static let panelWidth: CGFloat = 340
-    static let panelHeight: CGFloat = 620
-    private static let cornerRadius: CGFloat = 8
+    /// Outer NSPanel frame — much larger than the visible rounded
+    /// content. The extra `haloPadding` on the left, top, and bottom is
+    /// where we paint the depth halo: the same `.behindWindow` blur as
+    /// the inner panel, fading to clear at the outer edges. That smears
+    /// content immediately next to the panel (matching Apple's music
+    /// widget) instead of leaving sharp text right against a hard edge.
+    /// Right side stays flush with the inner panel because the panel
+    /// docks at the screen edge — there's nothing to halo into.
+    ///
+    /// First pass used 20pt of halo, which the user flagged as "not
+    /// even close to soft" — the music widget reference has a wide
+    /// cloudy halo extending 60-80pt past the widget. Pushed to 60pt
+    /// here so the fade has real distance to play out.
+    static let panelWidth: CGFloat = 440
+    static let panelHeight: CGFloat = 820
+    /// The visible rounded-glass slab the user sees. Anchored trailing
+    /// inside the outer panel so the right edge stays at the same screen
+    /// position as before; the halo wraps it on three sides.
+    static let innerPanelWidth: CGFloat = 340
+    static let innerPanelHeight: CGFloat = 620
+    /// Distance from the inner panel to the outer NSPanel edges on the
+    /// left, top, and bottom. The halo mask blur (see PanelRootView)
+    /// has to fully fade to alpha 0 within this distance — otherwise the
+    /// rectangular outer NSPanel boundary clips a still-non-zero halo
+    /// and the user sees a boxy edge. 100pt gives a 70pt mask blur ~30pt
+    /// of slack to fade cleanly.
+    static let haloPadding: CGFloat = 100
+    /// Corner radius of the inner glass panel itself. Bumped from 20 to
+    /// 28 — the user said the previous sharper corners read as "boxy"
+    /// next to Apple's music-widget reference, which has a pillowier
+    /// rounding closer to 28-32pt for a similar-sized container.
+    static let innerCornerRadius: CGFloat = 28
     private static let edgeGap: CGFloat = 10
     private static let topGap: CGFloat = 40
 
@@ -208,8 +237,16 @@ final class PanelWindowController {
     private func originOnRightEdge(for size: NSSize) -> NSPoint {
         let screen = NSScreen.main
         let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        // Right edge of the OUTER panel lands at the same gap from the
+        // screen edge as before — the inner panel is anchored trailing
+        // and stays at exactly the same screen position. The y origin
+        // shifts up by `haloPadding` so the inner panel's TOP also stays
+        // put; only the halo zone extends further upward (within the
+        // visibleFrame, which excludes the menu bar).
         let x = visible.maxX - size.width - PanelWindowController.edgeGap
-        let y = visible.maxY - size.height - PanelWindowController.topGap
+        let y = visible.maxY - size.height
+            - PanelWindowController.topGap
+            + PanelWindowController.haloPadding
         return NSPoint(x: x, y: y)
     }
 }
