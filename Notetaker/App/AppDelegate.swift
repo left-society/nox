@@ -85,8 +85,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         screenshots.start()
         self.screenshotWatcher = screenshots
 
-        // Cursor-into-notch → open panel. Bails fast (no-op) when the
-        // panel is already visible, so it can fire freely.
+        // Cursor-into-notch → two-stage hover gesture, matching what
+        // the user described from Alcove / Elkhob: "when I'm going to
+        // the cursor into that thing, it just moves a little bit; it
+        // doesn't open the whole thing. When I'm placing the cursor
+        // for like 0.2 seconds or a little bit longer, it opens."
+        //
+        // - onTeaseStart: cursor entered the hot zone → tease the
+        //   panel (small pre-bloom pill, no content tree). Gives
+        //   immediate visual feedback so the entry feels acknowledged.
+        // - onTeaseEnd: cursor left before the dwell completed →
+        //   collapse the tease and order out. The panel returns to
+        //   hidden; nothing else happens.
+        // - onActivate: cursor stayed for the dwell window → promote
+        //   to a full slab open. show() detects we're already teasing
+        //   and lets animateOpen blend smoothly from the tease frame
+        //   into the slab without a setFrame snap.
         //
         // Pass `mode: .hover` so the panel installs cursor-leave
         // monitors and auto-dismisses when the user moves away — the
@@ -94,12 +108,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // thing it should just close automatically" for hover-opened
         // panels, while click/hotkey-opened panels stay sticky until
         // an explicit click-outside.
-        let hover = HoverActivator { [weak self] in
-            guard let self, let panel = self.panelController else { return }
-            if !panel.isVisible {
-                panel.show(mode: .hover)
+        let hover = HoverActivator(
+            onTeaseStart: { [weak self] in
+                self?.panelController?.tease()
+            },
+            onTeaseEnd: { [weak self] in
+                self?.panelController?.dismissTease()
+            },
+            onActivate: { [weak self] in
+                guard let self, let panel = self.panelController else { return }
+                if !panel.isVisible {
+                    panel.show(mode: .hover)
+                }
             }
-        }
+        )
         hover.start()
         self.hoverActivator = hover
 

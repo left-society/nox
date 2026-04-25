@@ -130,27 +130,50 @@ final class NotchOrchestrator {
 
     /// Decide whether the latest now-playing snapshot warrants a HUD
     /// bloom. Rules:
-    /// - First emission after start() is silent (we want the HUD to
-    ///   bloom on the *next* track change, not on launch with whatever
-    ///   was already playing — that would feel intrusive).
+    /// - **First emission after start() is silent UNLESS music is
+    ///   actively playing.** The user explicitly asked for Alcove-style
+    ///   ambient behavior — if tunes are going when the app launches,
+    ///   the pill should already be on screen reflecting that, not wait
+    ///   for the next track change. A *paused* track on launch still
+    ///   stays silent because blooming for music the user isn't actively
+    ///   listening to would feel intrusive.
     /// - Title or play-state change → bloom. Those are the moments
     ///   the user is glancing at the notch for confirmation.
     /// - Artwork-only or artist-only change without a title flip is
     ///   ignored — some apps reload the artwork mid-playback (Spotify
     ///   does this when the device finishes prefetching the next track),
     ///   and we don't want the HUD to chatter on those.
-    /// - nil snapshot (nothing playing) hides any visible HUD.
+    /// - nil snapshot (nothing playing) collapses the now-playing pill
+    ///   without disturbing a charging pill that happens to be up.
+    ///
+    /// The HUD's *persistence* (stays visible while music plays) is
+    /// enforced inside `NotchHUDWindowController.scheduleAutoHide` —
+    /// the orchestrator just emits presentations; the controller decides
+    /// which ones merit an auto-hide timer.
     private func handleNowPlayingChange(_ info: NowPlayingInfo?) {
         defer { lastNowPlaying = info }
 
-        guard didReceiveInitialNowPlaying else {
+        let isInitial = !didReceiveInitialNowPlaying
+        if isInitial {
             didReceiveInitialNowPlaying = true
-            return
         }
 
         guard let info else {
-            // Nothing playing → if a now-playing pill is visible, hide
-            // it. Charging pills aren't affected by media events.
+            // Nothing playing → collapse the now-playing pill (charging
+            // pill unaffected). Also handles the "music app closed" /
+            // "queue exhausted" edge cases; without this the previous
+            // track's pill could linger forever in persistent mode.
+            hudController.hideIfShowingNowPlaying()
+            return
+        }
+
+        if isInitial {
+            // Launch-time emission. Show iff music is actively playing
+            // (ambient pill, Alcove parity); silence if paused so the
+            // app doesn't loudly announce itself with stale music data.
+            if info.isPlaying {
+                hudController.show(presentation: .nowPlaying(info))
+            }
             return
         }
 

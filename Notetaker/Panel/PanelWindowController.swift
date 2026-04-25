@@ -96,6 +96,22 @@ final class PanelWindowController {
     /// reading as the notch hardware itself growing a tiny black
     /// blister rather than a separate window dropping below the bar.
     static let closedPillBump: CGFloat = 14
+    /// Tease (hover-intent) geometry. When the cursor enters the notch
+    /// hot zone, we orderFront the panel at a slightly-wider, slightly-
+    /// taller pill to give immediate visual feedback that the system
+    /// noticed. If the cursor stays for `HoverActivator.dwellSeconds`,
+    /// the tease promotes to a full slab open. If the cursor leaves
+    /// first, the tease retracts.
+    ///
+    /// The size delta is small on purpose — the user described the
+    /// reference behavior (Alcove / Elkhob) as "it just moves a little
+    /// bit; it doesn't open the whole thing." 220×24 vs the resting
+    /// 200×14 reads as the notch hardware noticing the cursor — same
+    /// visual vocabulary as the closed pill, just with a hint of
+    /// "pre-bloom" energy. Anything bigger reads as a misfired full
+    /// open; anything smaller is invisible feedback.
+    static let teasePillWidth: CGFloat = 220
+    static let teasePillBump: CGFloat = 24
     private static let edgeGap: CGFloat = 10
     private static let topGap: CGFloat = 40
     /// True Alcove-style placement: the NSPanel's TOP edge sits AT the
@@ -139,6 +155,14 @@ final class PanelWindowController {
     private let presenter: PanelPresenter
     private let environment: AppEnvironment
     private(set) var isVisible = false
+    /// True between `tease()` and either `dismissTease()` or
+    /// `promoteToShow()`. Distinct from `isVisible` because a teasing
+    /// panel is on screen but in an intermediate "pre-open" state — no
+    /// dismissal monitors armed, no auto-routing run yet, content tree
+    /// not mounted. The HoverActivator drives this lifecycle in
+    /// response to cursor entry into the notch hot zone, then promotes
+    /// to a full open if the user dwells, or dismisses if they leave.
+    private(set) var isTeasing = false
     private var openMode: OpenMode = .click
     private var clickOutsideMonitor: Any?
     private var keyMonitor: Any?
@@ -173,9 +197,21 @@ final class PanelWindowController {
         let size = PanelWindowController.panelSize(for: NSScreen.main)
         let contentRect = NSRect(origin: .zero, size: size)
 
+        // .borderless instead of .titled: every notch-HUD reference
+        // implementation that's been benchmarked smooth (ComfyNotch,
+        // Alcove tear-downs) uses borderless for this exact morph. The
+        // titled style mask carries hidden titlebar machinery — auto-
+        // resize subviews, NSToolbar attachment points, traffic-light
+        // hit-test stubs — that all has to be invalidated/relaid-out
+        // every time the window frame changes. With panel.animator()
+        // .setFrame firing per CADisplayLink tick during the morph,
+        // that's per-frame work the GPU shouldn't have to wait on.
+        // Borderless ditches all of it. We never showed a title or
+        // traffic lights anyway (titleVisibility=.hidden + buttons
+        // hidden), so this is pure cleanup.
         panel = KeyablePanel(
             contentRect: contentRect,
-            styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
+            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -284,6 +320,14 @@ final class PanelWindowController {
     }
 
     func show(mode: OpenMode = .click) {
+        // Clear any in-flight tease state — we're going to a full open
+        // now, so the tease has served its purpose. If show() was called
+        // from a non-tease entry point (click, hotkey), this is a no-op.
+        // If we got here via tease promotion (HoverActivator dwell), the
+        // existing `if !panel.isVisible` guard below correctly skips
+        // the pillFrame snap so animateOpen blends smoothly from the
+        // tease frame into the slab.
+        isTeasing = false
         openMode = mode
 
         // Smart auto-routing — only fires if the clipboard has
@@ -313,7 +357,16 @@ final class PanelWindowController {
             panel.setFrame(pillFrame, display: false)
         }
         panel.alphaValue = 1
-        presenter.isShown = false
+        // Deliberately NOT writing `presenter.isShown = false` here.
+        // It's already false (hide() flips it before the close morph),
+        // and @Published.publisher emits on EVERY set regardless of
+        // equality — so a redundant assign here would force a SwiftUI
+        // body re-evaluation immediately before the morph starts. Tiny
+        // hitch, but exactly at the wrong moment: the panel is sitting
+        // at pill geometry waiting for its dive frame, and we'd be
+        // queuing layout work right as `animator().setFrame` is about
+        // to fire. Trust hide() to leave the state correct, and only
+        // touch `isShown` once the morph completes.
         panel.orderFrontRegardless()
         // Deliberately NOT calling `panel.makeKey()` — that would steal
         // keyboard focus from whatever app the user was typing in.
@@ -485,6 +538,79 @@ final class PanelWindowController {
         animateClose(to: pillFrame)
     }
 
+    // MARK: - Hover-intent tease
+    //
+    // Two-stage hover gesture, matching what the user described from
+    // Alcove / Elkhob: "When I'm going to the cursor into that thing,
+    // it just moves a little bit; it doesn't open the whole thing.
+    // When I'm placing the cursor for like 0.2 seconds or a little bit
+    // longer, it opens." So:
+    //
+    // 1. Cursor enters notch hot zone → `tease()` orderFronts the panel
+    //    at a slightly-larger-than-resting pill geometry. Subtle visual
+    //    cue: "the notch noticed you." No content tree mounted, no
+    //    dismissal monitors armed — this is a transient pre-bloom state.
+    // 2. Cursor stays for HoverActivator's dwellSeconds → AppDelegate
+    //    calls `show(mode: .hover)`, which transitions seamlessly from
+    //    tease geometry to full slab via the existing animator-based
+    //    morph (no setFrame snap, no orderFront re-do — see the
+    //    `if !panel.isVisible` guard in show()).
+    // 3. Cursor leaves before dwell → AppDelegate calls `dismissTease()`,
+    //    which animates back to the closed-pill frame and orders out.
+
+    /// Order the panel front at tease geometry. No-op if already
+    /// teasing or if a full panel is open.
+    func tease() {
+        if isTeasing { return }
+        if isVisible { return }
+        isTeasing = true
+
+        let screen = NSScreen.main
+        let closedFrame = closedPillFrame(for: screen)
+        let teaseFrame = teasePillFrame(for: screen)
+
+        // Start at the closed-pill frame (almost invisible bump), then
+        // animate the small grow to tease size. Without this initial
+        // snap the panel would pop in at full tease size, which reads
+        // as "appeared" rather than "noticed." Even a 60ms grow makes
+        // the cursor entry feel acknowledged rather than declared.
+        panel.setFrame(closedFrame, display: false)
+        panel.alphaValue = 1
+        // Content tree must stay torn down — tease should NOT include
+        // a flash of header/segmented content. PanelRootView's
+        // `if presenter.isShown` gate already handles this, but assert
+        // the state is correct in case some path left it true.
+        presenter.isShown = false
+        panel.orderFrontRegardless()
+
+        animateTease(to: teaseFrame)
+    }
+
+    /// Cursor left the notch zone before dwell completed — collapse the
+    /// tease and order the panel out. No-op if not currently teasing.
+    func dismissTease() {
+        guard isTeasing else { return }
+        isTeasing = false
+
+        let screen = panel.screen ?? NSScreen.main
+        let closedFrame = closedPillFrame(for: screen)
+
+        animationGeneration &+= 1
+        let myGen = animationGeneration
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.16
+            // Quick ease-in retract — the tease was a "maybe" and the
+            // user said "no thanks." Snappy collapse, no bounce.
+            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0, 0.6, 1)
+            ctx.allowsImplicitAnimation = true
+            self.panel.animator().setFrame(closedFrame, display: true)
+        }, completionHandler: { [weak self] in
+            guard let self, self.animationGeneration == myGen else { return }
+            self.panel.orderOut(nil)
+        })
+    }
+
     /// ⌘N quick paste — copies the Nth visible item of the currently
     /// active tab to the system clipboard, then hides the panel after
     /// a brief beat so the user can paste with ⌘V wherever they were
@@ -636,6 +762,24 @@ final class PanelWindowController {
         )
     }
 
+    /// Tease-pill frame: a 220pt-wide, 24pt-bump pre-bloom geometry.
+    /// Slightly wider AND taller than the resting closed pill — enough
+    /// for the size delta to register as "the notch noticed you" without
+    /// reading as a misfired full open. Used during the hover-intent
+    /// dwell (see `tease()`).
+    private func teasePillFrame(for screen: NSScreen?) -> NSRect {
+        let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let overlap = PanelWindowController.notchOverlap(for: screen)
+        let height = overlap + PanelWindowController.teasePillBump
+        let width = PanelWindowController.teasePillWidth
+        return NSRect(
+            x: frame.midX - width / 2,
+            y: frame.maxY - height,
+            width: width,
+            height: height
+        )
+    }
+
     /// Open-slab frame: the full HUD silhouette. Same upper-edge
     /// anchoring as the pill — the top sits at screen.frame.maxY so the
     /// notch-overlap portion stays hidden, and only the
@@ -667,6 +811,28 @@ final class PanelWindowController {
     // (e.g. y=1.2 in the dive curve) for the overshoot kick; the
     // recoil curve uses an even stronger early-bias control point
     // (y=1.8) so the settle arrives quickly without a visible bounce.
+
+    /// Single-stage ease-out grow for the hover tease. No overshoot —
+    /// this is a calm "noticed you" cue, not a dramatic bloom. The
+    /// shorter duration (0.18s vs the open path's 0.45s combined) keeps
+    /// the visual feedback feeling responsive: you flick the cursor
+    /// up there and the panel is already done acknowledging by the time
+    /// you'd finish dwelling.
+    private func animateTease(to target: NSRect) {
+        animationGeneration &+= 1
+        let myGen = animationGeneration
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.18
+            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 1.0, 0.5, 1.0)
+            ctx.allowsImplicitAnimation = true
+            self.panel.animator().setFrame(target, display: true)
+        }, completionHandler: { [weak self] in
+            guard let self, self.animationGeneration == myGen else { return }
+            // Sub-pixel snap — same reason as animateOpen's final snap.
+            self.panel.setFrame(target, display: true)
+        })
+    }
 
     private func animateOpen(to target: NSRect) {
         animationGeneration &+= 1
@@ -709,11 +875,6 @@ final class PanelWindowController {
             self.panel.animator().setFrame(overFrame, display: true)
         }, completionHandler: { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
-            // Flip isShown=true at the seam between dive and recoil.
-            // SwiftUI's 0.16s content fade-in then runs in parallel
-            // with the 0.20s recoil settle — the user sees content
-            // "arrive as the panel finishes blooming," not "after."
-            self.presenter.isShown = true
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = recoilDuration
                 ctx.timingFunction = recoilCurve
@@ -725,6 +886,26 @@ final class PanelWindowController {
                 // leave sub-pixel residuals after a recoil; an explicit
                 // setFrame fixes that without a visible jump.
                 self.panel.setFrame(target, display: true)
+                // Mount the content tree AFTER the morph finishes — not
+                // at the dive→recoil seam. The previous version flipped
+                // `isShown=true` mid-morph so the 0.16s content fade
+                // would overlap the 0.20s recoil; that read elegant on
+                // paper but landed as visible jank because the SwiftUI
+                // mount cost (header + segmented + NotesListView's
+                // composer + LazyVStack + ScrollView + drag/copy
+                // gesture wiring + @FocusState) hits in a 30-50ms
+                // chunk on the main thread, which the eye reads as a
+                // dropped frame exactly during the recoil's settle —
+                // i.e. the most perceptually-sensitive part of the
+                // animation. Moving the flip here means the morph
+                // runs over a STATIC `Color.black` slab (zero SwiftUI
+                // work) and the content fades in as a CLEAN separate
+                // beat after the panel has visibly stopped moving.
+                // Total time goes from "morph 450ms with hitch" to
+                // "morph 450ms smooth → 160ms content fade" ≈ 610ms,
+                // which the user perceives as faster because nothing
+                // hitches.
+                self.presenter.isShown = true
             })
         })
     }

@@ -1,6 +1,23 @@
 import AppKit
 import SwiftUI
 
+/// AppKit clamps NSPanel frames to `visibleFrame` (the screen area
+/// EXCLUDING the menu bar) by default. The whole "emerge from the
+/// notch" trick depends on the HUD window's TOP edge sitting at the
+/// SCREEN's max-Y — i.e. ABOVE the menu bar, with the upper portion
+/// of the window hidden BEHIND the notch hardware / menu-bar strip.
+/// Without this override, AppKit silently snaps our y-origin back
+/// down by `safeAreaInsets.top` (~37pt), and the pill renders below
+/// the menu bar instead of bleeding out of the notch — which is the
+/// "showing under the hood" bug the user reported. Returning the
+/// rect unchanged hands frame ownership to us, same pattern as
+/// `KeyablePanel` in `PanelWindowController.swift`.
+private final class NotchHUDPanel: NSPanel {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        return frameRect
+    }
+}
+
 /// Discriminated union of every HUD presentation the notch can show.
 /// Equatable so the SwiftUI root view can use `.onChange(of: presentation)`
 /// to drive its morph-in animation when the orchestrator swaps in a new
@@ -21,6 +38,12 @@ enum NotchPresentation: Equatable {
 /// with show()/hide() so the pill blooms after the window is on screen
 /// (and collapses before the window orders out).
 ///
+/// The `topInset` parameter is the height of the window's upper region
+/// that sits BEHIND the menu bar / notch hardware. The visible pill
+/// content is pushed down by exactly that amount so the bottom of the
+/// menu bar visually flushes against the top of the pill — reads as
+/// the pill emerging from the notch, not floating below it.
+///
 /// The `onCommand` closure routes media-control button taps back up to
 /// the controller / orchestrator without leaking the MediaRemote service
 /// dependency into the SwiftUI tree (keeps previews compilable in
@@ -28,6 +51,7 @@ enum NotchPresentation: Equatable {
 private struct NotchHUDRoot: View {
     let presentation: NotchPresentation?
     let isShown: Bool
+    let topInset: CGFloat
     let onCommand: (MediaRemoteService.Command) -> Void
 
     var body: some View {
@@ -51,7 +75,15 @@ private struct NotchHUDRoot: View {
                 Color.clear
             }
         }
+        // Push the pill below the menu-bar zone. Without this, the
+        // pill renders at the window's top edge — which is ABOVE the
+        // menu bar, so the visible portion would sit hidden behind
+        // the notch hardware. With `topInset` ≈ safeAreaInsets.top
+        // (~37pt), the pill's top lands exactly at the menu bar's
+        // bottom edge, so it visually drops out of the notch.
+        .padding(.top, topInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .ignoresSafeArea(.all, edges: .top)
     }
 }
 
@@ -63,6 +95,15 @@ private struct NotchHUDRoot: View {
 private final class NotchHUDState: ObservableObject {
     @Published var presentation: NotchPresentation? = nil
     @Published var isShown: Bool = false
+    /// Vertical inset between the window's top edge and the visible
+    /// pill's top edge, in points. Matches the screen's notch overlap
+    /// (`safeAreaInsets.top` ~= 37pt on a notched MacBook). The window
+    /// itself sits ABOVE the menu bar — its upper `topInset` points
+    /// are hidden behind the menu-bar strip / notch hardware. Pushing
+    /// the visible pill content down by this amount makes the pill
+    /// appear to drop OUT of the menu bar's bottom edge rather than
+    /// floating below it.
+    @Published var topInset: CGFloat = 0
 }
 
 /// Window controller for the notch HUD. Hosts a borderless,
@@ -128,7 +169,14 @@ final class NotchHUDWindowController {
         // bringing the app to the foreground (the user is likely in
         // another app when they plug their charger in — flipping focus
         // would be hostile).
-        panel = NSPanel(
+        //
+        // NotchHUDPanel (subclass) overrides constrainFrameRect so we
+        // can position above the menu bar — required for the "emerge
+        // from the notch" silhouette. A plain NSPanel here would get
+        // clamped to visibleFrame and the pill would render below the
+        // menu bar instead, which is the bug the user reported as
+        // "showing under the hood."
+        panel = NotchHUDPanel(
             contentRect: contentRect,
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
@@ -136,7 +184,14 @@ final class NotchHUDWindowController {
         )
 
         panel.isFloatingPanel = true
-        panel.level = .statusBar
+        // .popUpMenu (101) draws OVER the menu bar — same level the
+        // main panel uses. .statusBar (25) draws AT the menu bar's
+        // level: in a z-order tie the system menu wins, so portions
+        // of our pill that overlap the menu-bar strip would be hidden.
+        // popUpMenu makes the overlap explicit. We only ever overlap
+        // the dead zone around the notch (no app menus there to
+        // trample), so this is safe.
+        panel.level = .popUpMenu
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -234,12 +289,35 @@ final class NotchHUDWindowController {
         )
     }
 
+    /// Collapse the pill iff the current presentation is now-playing.
+    /// Used by the orchestrator when MediaRemote reports "nothing
+    /// playing" so we can clear the music HUD without disturbing a
+    /// charging pill that happens to be on screen at the same time.
+    /// (Charging is rare-but-possible to coincide with a track change
+    /// — e.g. plugging in a laptop while listening.)
+    func hideIfShowingNowPlaying() {
+        if case .nowPlaying = state.presentation {
+            hide()
+        }
+    }
+
     // MARK: - Internals
 
-    /// Pick the right auto-hide delay and arm the timer. Hovering on a
-    /// now-playing pill suppresses the schedule entirely — the user is
-    /// engaging with the controls, so the HUD should stay until they
-    /// move on.
+    /// Pick the right auto-hide delay and arm the timer. Two cases
+    /// suppress the schedule entirely:
+    ///
+    /// 1. **Hovering on a now-playing pill** — the user is engaging
+    ///    with the controls, yanking the HUD mid-tap would feel hostile.
+    ///
+    /// 2. **Now-playing while music is actively playing** — Alcove
+    ///    parity. The pill becomes an ambient indicator that stays on
+    ///    screen the whole time the user has tunes going, only
+    ///    collapsing when playback pauses or the source app goes away.
+    ///    The user explicitly asked for this ("It should be playing
+    ///    music. It should be showing music just like Elkhob does").
+    ///    Charging still auto-hides because nothing about a plugged
+    ///    charger needs constant glanceability — once "100% Charging"
+    ///    has registered, the HUD is just visual noise.
     private func scheduleAutoHide(for presentation: NotchPresentation) {
         if isHovered {
             switch presentation {
@@ -248,6 +326,17 @@ final class NotchHUDWindowController {
             case .charging:
                 break
             }
+        }
+
+        // Persistent presentations stay until externally cleared — no
+        // timer armed. Switching to a non-persistent presentation (e.g.
+        // music pauses) re-enters scheduleAutoHide via show(), which
+        // takes the normal path below.
+        switch presentation {
+        case .nowPlaying(let info) where info.isPlaying:
+            return
+        case .charging, .nowPlaying:
+            break
         }
 
         let delay: TimeInterval
@@ -323,23 +412,45 @@ final class NotchHUDWindowController {
         onMediaCommand?(command)
     }
 
-    /// Place the panel so its TOP edge sits flush with the menu bar's
-    /// bottom (visibleFrame.maxY) and it's horizontally centered on
-    /// screen — directly under the physical notch on a notched MacBook.
-    /// Same anchoring rule the main panel uses.
+    /// Place the panel so its TOP edge sits at the SCREEN's max-Y —
+    /// above the menu bar — with the upper `notchOverlap` portion
+    /// hidden behind the notch hardware / menu-bar strip. The visible
+    /// pill content is then offset DOWN by the same `notchOverlap`
+    /// inside SwiftUI (see `NotchHUDState.topInset`), so the pill's
+    /// top edge lands flush with the menu bar's bottom — reads as
+    /// the pill emerging FROM the notch.
+    ///
+    /// Mirrors the main panel's positioning math (see
+    /// `PanelWindowController.closedPillFrame`). Earlier the HUD used
+    /// `visibleFrame.maxY - height` which placed it BELOW the menu
+    /// bar, leading to the "animation showing under the hood" bug
+    /// the user reported.
     private func positionAtNotch() {
         let screen = NSScreen.main
-        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let size = NSSize(
             width: NotchHUDWindowController.windowWidth,
             height: NotchHUDWindowController.windowHeight
         )
-        let x = visible.midX - size.width / 2
+        let x = frame.midX - size.width / 2
         // panel.frame.y is the BOTTOM in screen coords; we want the TOP
-        // at visible.maxY, so y = visible.maxY - height.
-        let y = visible.maxY - size.height
+        // at frame.maxY (above menu bar), so y = frame.maxY - height.
+        let y = frame.maxY - size.height
         panel.setContentSize(size)
         panel.setFrameOrigin(NSPoint(x: x, y: y))
+        // Push the SwiftUI pill content down past the menu-bar zone.
+        // Same overlap math the main panel uses.
+        state.topInset = Self.notchOverlap(for: screen)
+    }
+
+    /// Height of the menu-bar strip (and notch hardware) in points.
+    /// Notched Macs expose this directly via `safeAreaInsets.top`;
+    /// non-notched Macs fall back to the difference between full and
+    /// visible frame.
+    private static func notchOverlap(for screen: NSScreen?) -> CGFloat {
+        guard let s = screen ?? NSScreen.main else { return 0 }
+        if s.safeAreaInsets.top > 0 { return s.safeAreaInsets.top }
+        return max(0, s.frame.maxY - s.visibleFrame.maxY)
     }
 }
 
@@ -355,6 +466,7 @@ private struct NotchHUDRootHost: View {
         NotchHUDRoot(
             presentation: state.presentation,
             isShown: state.isShown,
+            topInset: state.topInset,
             onCommand: onCommand
         )
     }

@@ -77,11 +77,15 @@ struct PanelRootView: View {
             // animate here — those are NSPanel-level Core Animation
             // (see PanelWindowController.animateOpen / animateClose).
             //
-            // 0.16s ease-out is fast enough that content "arriving as
-            // the panel finishes blooming" reads as one cohesive motion
-            // rather than two stages. Pairs with PanelWindowController
-            // setting isShown=true at the seam between dive and recoil
-            // — the 0.16s fade then overlaps the 0.20s recoil settle.
+            // PanelWindowController flips `isShown=true` AFTER the
+            // panel-frame morph finishes (not at the dive→recoil seam,
+            // as an earlier version did). That means this fade runs as
+            // a separate clean beat after the panel has visibly come
+            // to rest — no SwiftUI mount cost competing with the
+            // recoil's settle frames. The 0.16s ease-out is the entire
+            // visible "content arrives" beat; pair it with the post-
+            // morph completion handler to get morph (450ms smooth) →
+            // content fade (160ms) as two distinct, hitch-free phases.
             .animation(.easeOut(duration: 0.16), value: presenter.isShown)
             .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
             // PERF GATE: shadow renders only when isShown=true (i.e.
