@@ -11,9 +11,14 @@ struct ImagesGridView: View {
     @State private var selected: Set<String> = []
     @State private var showClearConfirm = false
 
+    // Wider gutter (10pt) so each tile's hard drop-shadow has room
+    // to breathe before bleeding into its neighbors. With shadows
+    // packed against each other the grid read as a flat patchwork;
+    // the extra few points of negative space is what sells the
+    // "discrete elevated cards" look.
     private let columns = [
-        GridItem(.flexible(), spacing: 6),
-        GridItem(.flexible(), spacing: 6)
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10)
     ]
 
     var body: some View {
@@ -33,7 +38,7 @@ struct ImagesGridView: View {
                                 .padding(.top, DS.Spacing.xs)
                         }
 
-                        LazyVGrid(columns: columns, spacing: 6) {
+                        LazyVGrid(columns: columns, spacing: 10) {
                             // Inflight uploads first — placeholder cells with
                             // a spinner. They flow into real ImageCells as
                             // saves complete, so the grid shifts gracefully
@@ -240,20 +245,47 @@ struct ImagesGridView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: DS.Spacing.sm) {
-            Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 32, weight: .light))
-                .foregroundStyle(DS.Color.textTertiary)
-            Text("No images yet")
-                .font(.nkBody.weight(.medium))
-                .foregroundStyle(DS.Color.textSecondary)
-            Text("Paste with ⌘V, drop here, or take a screenshot.")
-                .font(.nkMeta)
-                .foregroundStyle(DS.Color.textTertiary)
-                .multilineTextAlignment(.center)
+        VStack(spacing: DS.Spacing.md) {
+            // Soft accent blob behind the icon — the empty state used
+            // to be a flat icon + two lines of text on a dark void,
+            // which read as "feature broken" more than "ready for
+            // your stuff". The radial gives the illusion of warmth
+            // even when the panel is empty.
+            ZStack {
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                DS.Color.accent.opacity(0.32),
+                                DS.Color.accent.opacity(0.08),
+                                Color.clear
+                            ],
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: 56
+                        )
+                    )
+                    .frame(width: 112, height: 112)
+                    .blur(radius: 8)
+
+                Image(systemName: "photo.on.rectangle.angled")
+                    .font(.system(size: 36, weight: .light))
+                    .foregroundStyle(DS.Color.textSecondary)
+                    .shadow(color: DS.Color.accent.opacity(0.4), radius: 6, y: 1)
+            }
+
+            VStack(spacing: 4) {
+                Text("Nothing here yet")
+                    .font(.nkBody.weight(.semibold))
+                    .foregroundStyle(DS.Color.textPrimary)
+                Text("Paste with ⌘V, drop here, or take a screenshot.")
+                    .font(.nkMeta)
+                    .foregroundStyle(DS.Color.textTertiary)
+                    .multilineTextAlignment(.center)
+            }
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 72)
+        .padding(.top, 60)
         .padding(.horizontal, 40)
     }
 
@@ -373,17 +405,52 @@ struct ImageCell: View {
     @State private var isHovered = false
     @State private var justCopied = false
 
+    /// Pillowy 14pt — bigger than `DS.Radius.row` (6) because these
+    /// are full-bleed image cards now, not table rows. The previous
+    /// 6pt radius made cells look like miniature thumbs slapped onto
+    /// a flat surface; 14 turns them into proper cards.
+    private static let cornerRadius: CGFloat = 14
+    /// 96 instead of 84 — the extra 12pt makes the hard shadow's lift
+    /// register without crowding the trash/copy overlays.
+    private static let cellHeight: CGFloat = 96
+
     var body: some View {
-        LocalThumbnailView(
+        let shape = RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+
+        return LocalThumbnailView(
             id: record.id,
             url: imageStore.thumbURL(for: record)
         )
-        .frame(height: 84)
+        .frame(height: Self.cellHeight)
         .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous))
+        .clipShape(shape)
+        // Glass-pane sheen: the top edge of every card catches a
+        // brighter rim and fades to nothing at the bottom. Mimics the
+        // way real photo prints catch light — the eye reads it as a
+        // physical object resting on a surface, not a flat picture
+        // glued to the panel. 0.8pt stroke is wide enough to read but
+        // not heavy enough to look like a button border.
         .overlay(
-            RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous)
-                .strokeBorder(strokeColor, lineWidth: strokeWidth)
+            shape.strokeBorder(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.32),
+                        Color.white.opacity(0.06)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ),
+                lineWidth: 0.8
+            )
+        )
+        // Selection ring sits above the gradient sheen so the accent
+        // wins visually when a card is checked. Thicker than the
+        // sheen (1.6pt) so it pops at small sizes too.
+        .overlay(
+            shape.strokeBorder(
+                isSelected ? DS.Color.accent : Color.clear,
+                lineWidth: 1.6
+            )
         )
         .overlay(alignment: .topTrailing) {
             if isSelected {
@@ -409,21 +476,46 @@ struct ImageCell: View {
                 .opacity(isHovered || justCopied ? 1 : 0)
                 .animation(.rowHover, value: isHovered || justCopied)
         }
-        // Subtle per-tile drop shadow so a grid full of images reads as
-        // discrete elevated cards instead of a flat patchwork. Hover
-        // bumps the shadow a touch to confirm the tile is interactive.
+        // Lift on hover: -3pt offset + scale 1.02. Small numbers but
+        // when the springed shadow underneath grows alongside, the
+        // tile reads as physically rising off the surface.
+        .scaleEffect(isHovered ? 1.02 : 1.0)
+        .offset(y: isHovered ? -3 : 0)
+        // Double-shadow language matches the stackHero up top so the
+        // whole tab reads as one consistent "premium card stack"
+        // aesthetic. Tight inner shadow gives every tile a crisp
+        // contact edge against whatever's behind it; soft outer
+        // shadow does the depth work. Selection bumps the soft
+        // shadow into accent-tinted territory so checked cards
+        // visibly hover above the pack.
         .shadow(
-            color: Color.black.opacity(isHovered ? 0.40 : 0.28),
-            radius: isHovered ? 6 : 4,
-            y: isHovered ? 3 : 2
+            color: shadowFar,
+            radius: isHovered ? 16 : 11,
+            y: isHovered ? 12 : 8
         )
-        .contentShape(Rectangle())
+        .shadow(
+            color: Color.black.opacity(0.55),
+            radius: 1.5,
+            y: 1
+        )
+        .contentShape(shape)
         .onTapGesture { onTap() }
         .onHover { hovering in
             withAnimation(.rowHover) { isHovered = hovering }
         }
         .animation(.rowHover, value: isSelected)
         .animation(.rowHover, value: isHovered)
+    }
+
+    /// Far-shadow color picks up the accent tint when the card is
+    /// selected so the "lifted" feeling is reinforced — the user
+    /// reads accent-colored shadow as "this one's chosen" before
+    /// they even spot the corner check.
+    private var shadowFar: Color {
+        if isSelected {
+            return DS.Color.accent.opacity(isHovered ? 0.55 : 0.42)
+        }
+        return Color.black.opacity(isHovered ? 0.55 : 0.42)
     }
 
     private var copyButton: some View {
@@ -486,15 +578,6 @@ struct ImageCell: View {
         }
     }
 
-    private var strokeColor: Color {
-        if isSelected { return DS.Color.accent }
-        if isHovered { return Color.white.opacity(0.15) }
-        return .clear
-    }
-
-    private var strokeWidth: CGFloat {
-        isSelected ? 2 : 1
-    }
 }
 
 // MARK: - Inflight cell
@@ -520,8 +603,16 @@ struct ImageCell: View {
 struct InflightImageCell: View {
     let upload: ImageStore.InflightUpload
 
+    /// Match ImageCell — same 14pt pillow corners + 96pt height so
+    /// the inflight placeholder doesn't visually pop when it swaps
+    /// out for the real cell on save completion.
+    private static let cornerRadius: CGFloat = 14
+    private static let cellHeight: CGFloat = 96
+
     var body: some View {
-        ZStack {
+        let shape = RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+
+        return ZStack {
             if let preview = upload.preview {
                 Image(nsImage: preview)
                     .resizable()
@@ -530,18 +621,18 @@ struct InflightImageCell: View {
                 Rectangle().fill(DS.Color.bgSubtle)
             }
         }
-        .frame(height: 84)
+        .frame(height: Self.cellHeight)
         .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous))
+        .clipShape(shape)
         .overlay(loadingScrim)
         .overlay(
-            RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous)
-                .strokeBorder(DS.Color.accent.opacity(0.55), lineWidth: 1)
+            shape.strokeBorder(DS.Color.accent.opacity(0.62), lineWidth: 1.4)
         )
-        // Soft accent halo so the inflight cell pops out of a grid full
-        // of finished images — important when the panel opens straight
-        // to images and you need to find which cell is still saving.
-        .shadow(color: DS.Color.accent.opacity(0.35), radius: 5, y: 0)
+        // Same double-shadow as the finished cell, but tinted accent
+        // so the still-saving tile glows in a way that's clearly
+        // "in flight, not done yet".
+        .shadow(color: DS.Color.accent.opacity(0.42), radius: 14, y: 6)
+        .shadow(color: Color.black.opacity(0.5), radius: 1.5, y: 1)
         .animation(.easeInOut(duration: 0.18), value: upload.preview != nil)
         .allowsHitTesting(false)
     }
@@ -555,7 +646,7 @@ struct InflightImageCell: View {
                     .controlSize(.regular)
                     .tint(.white)
             }
-            .clipShape(RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
             .transition(.opacity)
         } else {
             // Preview is showing — the accent border + halo carry the
