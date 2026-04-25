@@ -131,53 +131,37 @@ private struct LiquidSpecular: View {
 private struct EdgeVignette: View {
     var body: some View {
         ZStack {
-            // Primary radial — center clear, corners darken to ~62%
-            // black. Center biased slightly upward (y: 0.40) so the
-            // bottom darkens more than the top, matching a real overhead
-            // light source. Tighter inner stop keeps the lit area
-            // focused so the vignette reads as a "halo of shadow around
-            // the rim" rather than a global dimming.
-            RadialGradient(
-                colors: [
-                    Color.clear,
-                    Color.clear,
-                    Color.black.opacity(0.38),
-                    Color.black.opacity(0.62)
-                ],
-                center: UnitPoint(x: 0.5, y: 0.40),
-                startRadius: 50,
-                endRadius: 230
-            )
-            // Side reinforcement — a left-to-right gradient that
-            // darkens the LEFT and RIGHT edges specifically, since a
-            // pure radial only catches the corners and the straight
-            // side panels would still look flat. Symmetric horizontal
-            // mask hits both sides equally. Pushed to 0.62 — the long
-            // vertical sides now read as nearly fully black, matching
-            // the iOS music widget's pronounced rim shadow. Falls off
-            // quickly (clear by 25% in) so the dark band is a tight
-            // rim, not a global dim that flattens the center.
+            // Side rim only — soft dark bands on the left and right
+            // edges that fall off to clear well before the middle, so
+            // the rim reads as "edge" without creating a hot center.
+            // The previous version stacked a strong radial gradient
+            // (clear center → 62% black corners) on top of these side
+            // bands, which produced a spotlight halo where the bright
+            // center contrast against the rim made the panel look like
+            // a glowing bulb. Pulled the radial entirely; the side rim
+            // alone delivers the "rich edge" cue that matches the iOS
+            // music widget without the spotlight artifact.
             LinearGradient(
                 stops: [
-                    .init(color: Color.black.opacity(0.62), location: 0.0),
-                    .init(color: Color.black.opacity(0.26), location: 0.10),
-                    .init(color: Color.clear, location: 0.25),
-                    .init(color: Color.clear, location: 0.75),
-                    .init(color: Color.black.opacity(0.26), location: 0.90),
-                    .init(color: Color.black.opacity(0.62), location: 1.0)
+                    .init(color: Color.black.opacity(0.42), location: 0.0),
+                    .init(color: Color.black.opacity(0.12), location: 0.08),
+                    .init(color: Color.clear, location: 0.22),
+                    .init(color: Color.clear, location: 0.78),
+                    .init(color: Color.black.opacity(0.12), location: 0.92),
+                    .init(color: Color.black.opacity(0.42), location: 1.0)
                 ],
                 startPoint: .leading,
                 endPoint: .trailing
             )
-            // Bottom lift — extra darkening on the bottom edge.
-            // Sells the "light comes from above" lighting model and
-            // keeps the panel from feeling bottom-heavy. Pushed to
-            // 0.32 to match the stronger side rims.
+            // Bottom edge darken — subtle, keeps a hint of overhead
+            // light bias without pulling the eye downward. Tight stop
+            // (kicks in at 0.86) so it stays a rim cue, not a body
+            // darkening that fights the uniform tint.
             LinearGradient(
                 stops: [
                     .init(color: Color.clear, location: 0.0),
-                    .init(color: Color.clear, location: 0.74),
-                    .init(color: Color.black.opacity(0.32), location: 1.0)
+                    .init(color: Color.clear, location: 0.86),
+                    .init(color: Color.black.opacity(0.20), location: 1.0)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -248,17 +232,18 @@ struct PanelRootView: View {
                 // single material. Wallpaper colors smear through as
                 // diffuse fog, the panel content stays visible on top.
                 VisualEffectBackground()
-                // Dark tint over the blurred wallpaper. Two competing
-                // requirements: (1) text behind must dissolve out — pure
-                // blur from .hudWindow isn't strong enough on its own, so
-                // the dark layer has to carry some of the obscuring;
-                // (2) wallpaper hue must still bleed through visibly so
-                // the panel reads as "glass on top of the desktop"
-                // rather than a solid sheet. Dropped to 0.12 to lean
-                // hard on bleed-through — wallpaper color now clearly
-                // tints the center, with the much-stronger vignette
-                // below carrying the rim darkness instead.
-                Color.black.opacity(0.12)
+                // Uniform dark tint over the blurred wallpaper. Has to
+                // carry most of the text-obscuring work because
+                // NSVisualEffectView's blur radius is fixed by the
+                // material — it isn't strong enough alone to dissolve
+                // sharp text behind. Pushed to 0.32 for two reasons:
+                // (1) text behind genuinely disappears, matching the
+                // music-widget heaviness the user wants, and (2) it's
+                // even across the whole panel, which avoids the
+                // "spotlight" look that was happening when the body was
+                // light (0.12) but the rim was very dark — the contrast
+                // made the bright center read as a glowing bulb.
+                Color.black.opacity(0.32)
                 // Edge vignette — darker sides + bottom for the "rich
                 // premium" vibe the user pointed to in the music widget.
                 // A real glass slab catches less light at its periphery
