@@ -77,16 +77,24 @@ struct PanelRootView: View {
             // animate here — those are NSPanel-level Core Animation
             // (see PanelWindowController.animateOpen / animateClose).
             //
-            // PanelWindowController flips `isShown=true` AFTER the
-            // panel-frame morph finishes (not at the dive→recoil seam,
-            // as an earlier version did). That means this fade runs as
-            // a separate clean beat after the panel has visibly come
-            // to rest — no SwiftUI mount cost competing with the
-            // recoil's settle frames. The 0.16s ease-out is the entire
-            // visible "content arrives" beat; pair it with the post-
-            // morph completion handler to get morph (450ms smooth) →
-            // content fade (160ms) as two distinct, hitch-free phases.
-            .animation(.easeOut(duration: 0.16), value: presenter.isShown)
+            // The content tree below is now ALWAYS-MOUNTED (see
+            // contentOverlay) — its instantiation cost (NotesListView
+            // composer + LazyVStack + image/video/file grids + drag/
+            // copy gesture wiring + @FocusState scaffolding) hits ONCE
+            // at app launch when no animation is running, so the user
+            // never sees it. Subsequent show() / hide() cycles are
+            // just opacity flips, which are essentially free (Core
+            // Animation hardware path on the layer compositor).
+            //
+            // PanelWindowController now flips `isShown=true` BEFORE
+            // the panel morph starts. That means this 0.18s opacity
+            // fade-in runs CONCURRENTLY with the 450ms panel morph —
+            // by the time the panel is ~40% of the way through its
+            // dive, the content is already fully visible. Net effect:
+            // panel and content arrive together as a single perceptual
+            // beat, with no mid-morph mount hitch competing for main-
+            // thread time.
+            .animation(.easeOut(duration: 0.18), value: presenter.isShown)
             .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
             // PERF GATE: shadow renders only when isShown=true (i.e.
             // the morph has progressed past the dive and content is
@@ -107,30 +115,59 @@ struct PanelRootView: View {
 
     @ViewBuilder
     private var contentOverlay: some View {
-        if presenter.isShown {
-            VStack(spacing: 0) {
-                header
-                segmented
-                    .padding(.horizontal, DS.Spacing.md)
-                divider
-                    .padding(.top, DS.Spacing.sm)
-                content
-            }
-            // Push UI below the menu-bar zone. The top `notchOverlap`
-            // points of the panel are hidden behind the notch /
-            // menu-bar strip; we offset visible widgets down by exactly
-            // that amount so the header lands flush below the bar.
-            .padding(.top, notchOverlap)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            // SwiftUI's built-in opacity transition pairs with the
-            // `.animation(.easeOut(duration: 0.16), value: isShown)`
-            // on the parent — content fades in over 0.16s when shown
-            // becomes true, fades out over 0.16s when it becomes false.
-            // Heavy children (image grid cells, AVPlayer hosts, store-
-            // backed lists) only mount when `isShown==true`, so they
-            // never re-lay out during the morph itself.
-            .transition(.opacity)
+        // ALWAYS-MOUNTED. The previous gated form (`if presenter.isShown
+        // { ... }`) made the heavy content tree (NotesListView + image/
+        // video/file grids + composer + LazyVStack + ScrollView + drag-
+        // and-drop wiring + @FocusState scaffolding) un-mount and re-
+        // mount on every show / hide cycle. Even after we deferred the
+        // mount until AFTER the panel morph finished (so the morph
+        // itself ran cleanly over an empty Color.black slab), the
+        // 30-50ms SwiftUI mount + initial layout still landed AS A
+        // VISIBLE HITCH right after the recoil settled — the user
+        // perceived the gap between "panel arrived" and "content
+        // visible" as lag. Reported across multiple iterations as
+        // "much better than before but still lagging."
+        //
+        // Always-mount amortizes the mount cost to app launch, where
+        // there's no animation competing for main-thread time and the
+        // user can't see it. show() / hide() then just toggles the
+        // opacity, which Core Animation can render on a single
+        // CALayer alpha update — essentially free.
+        //
+        // Trade-off: the content tree IS evaluated when the panel is
+        // hidden (e.g. @Published changes still trigger body re-evals
+        // in mounted children). That's why we use `.opacity(0)` rather
+        // than `.hidden()`: opacity-0 keeps layout stable but the
+        // SwiftUI render path skips painting transparent fragments
+        // entirely. LazyVStack inside ScrollView is lazy by definition
+        // and only materializes visible cells, so the hidden cost is
+        // dominated by the wrapper views (header, segmented, divider,
+        // active-tab content frame), all of which are cheap to keep
+        // around. ImagesGridView's thumbnail loader gates work on
+        // `presenter.isShown` upstream so it doesn't decode JPEGs in
+        // the background.
+        //
+        // `.allowsHitTesting(presenter.isShown)` ensures the invisible
+        // content can't intercept clicks. Without this, a click that
+        // landed in the closed-pill region while the panel is hidden
+        // could be eaten by an invisible search-bar TextField or
+        // segmented-control button.
+        VStack(spacing: 0) {
+            header
+            segmented
+                .padding(.horizontal, DS.Spacing.md)
+            divider
+                .padding(.top, DS.Spacing.sm)
+            content
         }
+        // Push UI below the menu-bar zone. The top `notchOverlap`
+        // points of the panel are hidden behind the notch /
+        // menu-bar strip; we offset visible widgets down by exactly
+        // that amount so the header lands flush below the bar.
+        .padding(.top, notchOverlap)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .opacity(presenter.isShown ? 1 : 0)
+        .allowsHitTesting(presenter.isShown)
     }
 
     // MARK: - Drop-target accent ring

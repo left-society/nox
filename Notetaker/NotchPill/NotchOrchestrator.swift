@@ -163,6 +163,7 @@ final class NotchOrchestrator {
             // pill unaffected). Also handles the "music app closed" /
             // "queue exhausted" edge cases; without this the previous
             // track's pill could linger forever in persistent mode.
+            NSLog("Notetaker: orchestrator nowPlaying=nil isInitial=\(isInitial) → hideIfShowingNowPlaying")
             hudController.hideIfShowingNowPlaying()
             return
         }
@@ -171,6 +172,7 @@ final class NotchOrchestrator {
             // Launch-time emission. Show iff music is actively playing
             // (ambient pill, Alcove parity); silence if paused so the
             // app doesn't loudly announce itself with stale music data.
+            NSLog("Notetaker: orchestrator INITIAL nowPlaying isPlaying=\(info.isPlaying) → \(info.isPlaying ? "show" : "silent")")
             if info.isPlaying {
                 hudController.show(presentation: .nowPlaying(info))
             }
@@ -180,6 +182,7 @@ final class NotchOrchestrator {
         let titleChanged = info.title != lastNowPlaying?.title
             || info.artist != lastNowPlaying?.artist
         let playStateChanged = info.isPlaying != (lastNowPlaying?.isPlaying ?? !info.isPlaying)
+        NSLog("Notetaker: orchestrator nowPlaying titleChanged=\(titleChanged) playStateChanged=\(playStateChanged) isPlaying=\(info.isPlaying)")
         guard titleChanged || playStateChanged else { return }
 
         hudController.show(presentation: .nowPlaying(info))

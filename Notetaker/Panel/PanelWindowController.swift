@@ -365,8 +365,7 @@ final class PanelWindowController {
         // hitch, but exactly at the wrong moment: the panel is sitting
         // at pill geometry waiting for its dive frame, and we'd be
         // queuing layout work right as `animator().setFrame` is about
-        // to fire. Trust hide() to leave the state correct, and only
-        // touch `isShown` once the morph completes.
+        // to fire.
         panel.orderFrontRegardless()
         // Deliberately NOT calling `panel.makeKey()` — that would steal
         // keyboard focus from whatever app the user was typing in.
@@ -381,13 +380,26 @@ final class PanelWindowController {
 
         isVisible = true
 
+        // Flip `isShown` BEFORE the panel morph starts. PanelRootView's
+        // content overlay is now ALWAYS-MOUNTED (see contentOverlay's
+        // .opacity gate), so this assignment doesn't trigger any
+        // SwiftUI mount work — it just kicks off the 0.18s opacity
+        // fade-in of the already-laid-out content tree. That fade
+        // runs in PARALLEL with the 450ms panel morph, so by the time
+        // the panel reaches ~40% of its dive the content is already
+        // fully visible. Net perception: panel and content arrive as
+        // a single blooming surface, no perceptible hitch anywhere.
+        //
+        // This is a deliberate inversion of the previous strategy
+        // (mount AFTER recoil): always-mount makes the SwiftUI cost
+        // a one-time hit at app launch, so the show() path has nothing
+        // to do but tick a published bool. Repeated open/close cycles
+        // are now essentially free on the SwiftUI side.
+        presenter.isShown = true
+
         // Start the pure-Core-Animation morph. NSAnimationContext drives
         // panel.animator().setFrame at the window-server level — GPU-
-        // accelerated, no SwiftUI body re-evaluation per frame. The
-        // animateOpen helper flips presenter.isShown=true in the seam
-        // between dive and recoil so SwiftUI's content fade-in (~0.16s)
-        // overlaps the recoil settle (~0.20s) — content "arrives as the
-        // panel finishes blooming," matching the perception target.
+        // accelerated, no SwiftUI body re-evaluation per frame.
         animateOpen(to: slabFrame)
 
         clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -520,11 +532,12 @@ final class PanelWindowController {
         // the user copied something new in between.
         lastSeenChangeCount = NSPasteboard.general.changeCount
         removeMonitors()
-        // Flip isShown FIRST so SwiftUI tears down the heavy content
-        // tree (header / segmented / grid / shadow) before the morph
-        // begins. The shrink runs over an empty Color.black slab, not
-        // a still-laying-out tab tree — that's what kills the squish-
-        // during-shrink stutter the user reported earlier.
+        // Flip `isShown=false` to start the 0.18s content fade-out
+        // (PanelRootView gates the always-mounted content overlay's
+        // opacity on this flag). The fade runs IN PARALLEL with the
+        // ~350ms close morph, so content disappears smoothly as the
+        // panel shrinks back into the notch — no abrupt content snap
+        // mid-morph, no still-rendering subviews fighting the shrink.
         presenter.isShown = false
         isVisible = false
 
@@ -576,10 +589,12 @@ final class PanelWindowController {
         // the cursor entry feel acknowledged rather than declared.
         panel.setFrame(closedFrame, display: false)
         panel.alphaValue = 1
-        // Content tree must stay torn down — tease should NOT include
-        // a flash of header/segmented content. PanelRootView's
-        // `if presenter.isShown` gate already handles this, but assert
-        // the state is correct in case some path left it true.
+        // Content overlay must stay invisible — tease should NOT include
+        // a flash of header/segmented content. PanelRootView's content
+        // overlay is always-mounted now (one-time launch cost) and gated
+        // on `presenter.isShown` via opacity; asserting false here keeps
+        // the overlay at alpha 0 during the tease in case some path
+        // left it true.
         presenter.isShown = false
         panel.orderFrontRegardless()
 
@@ -885,27 +900,13 @@ final class PanelWindowController {
                 // Snap the frame exactly to target. Core Animation can
                 // leave sub-pixel residuals after a recoil; an explicit
                 // setFrame fixes that without a visible jump.
+                //
+                // Note: `presenter.isShown=true` was already flipped at
+                // the START of show() (before animateOpen). The content
+                // tree is always-mounted (see PanelRootView), so by the
+                // time we get here the opacity fade has already run to
+                // completion alongside the morph — nothing left to do.
                 self.panel.setFrame(target, display: true)
-                // Mount the content tree AFTER the morph finishes — not
-                // at the dive→recoil seam. The previous version flipped
-                // `isShown=true` mid-morph so the 0.16s content fade
-                // would overlap the 0.20s recoil; that read elegant on
-                // paper but landed as visible jank because the SwiftUI
-                // mount cost (header + segmented + NotesListView's
-                // composer + LazyVStack + ScrollView + drag/copy
-                // gesture wiring + @FocusState) hits in a 30-50ms
-                // chunk on the main thread, which the eye reads as a
-                // dropped frame exactly during the recoil's settle —
-                // i.e. the most perceptually-sensitive part of the
-                // animation. Moving the flip here means the morph
-                // runs over a STATIC `Color.black` slab (zero SwiftUI
-                // work) and the content fades in as a CLEAN separate
-                // beat after the panel has visibly stopped moving.
-                // Total time goes from "morph 450ms with hitch" to
-                // "morph 450ms smooth → 160ms content fade" ≈ 610ms,
-                // which the user perceives as faster because nothing
-                // hitches.
-                self.presenter.isShown = true
             })
         })
     }
