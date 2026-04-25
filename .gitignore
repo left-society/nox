@@ -23,3 +23,7 @@ Package.resolved
 *.p8
 *.mobileprovision
 ExportOptions.plist
+
+# Bundled tools — fetched via scripts/fetch-binaries.sh
+Notetaker/Resources/bin/yt-dlp
+Notetaker/Resources/bin/ffmpeg

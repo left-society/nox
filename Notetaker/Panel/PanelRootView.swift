@@ -1,7 +1,71 @@
 import SwiftUI
+import AppKit
+
+private struct VisualEffectBackground: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .underWindowBackground
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+
+private struct GlassEdge: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .strokeBorder(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.22),
+                        Color.white.opacity(0.06)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ),
+                lineWidth: 0.8
+            )
+    }
+}
+
+private struct GlassHighlight: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.08),
+                        Color.white.opacity(0.015),
+                        Color.clear
+                    ],
+                    startPoint: .top,
+                    endPoint: UnitPoint(x: 0.5, y: 0.3)
+                )
+            )
+            .allowsHitTesting(false)
+    }
+}
+
+private struct BottomGlassShadow: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.clear,
+                        Color.black.opacity(0.18)
+                    ],
+                    startPoint: UnitPoint(x: 0.5, y: 0.68),
+                    endPoint: .bottom
+                )
+            )
+            .allowsHitTesting(false)
+    }
+}
 
 enum PanelTab: String, CaseIterable, Identifiable {
-    case notes, images
+    case notes, images, videos
 
     var id: String { rawValue }
 
@@ -9,12 +73,13 @@ enum PanelTab: String, CaseIterable, Identifiable {
         switch self {
         case .notes: return "Notes"
         case .images: return "Images"
+        case .videos: return "Videos"
         }
     }
 }
 
 struct PanelRootView: View {
-    @State private var activeTab: PanelTab = .notes
+    @EnvironmentObject var presenter: PanelPresenter
     @Namespace private var segmentedPill
 
     var body: some View {
@@ -23,11 +88,33 @@ struct PanelRootView: View {
             segmented
                 .padding(.horizontal, DS.Spacing.md)
             divider
-                .padding(.top, DS.Spacing.md)
+                .padding(.top, DS.Spacing.sm)
             content
         }
-        .frame(width: 480, height: 640)
-        .background(Color.clear)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            ZStack {
+                VisualEffectBackground()
+                Color.black.opacity(0.82)
+                RadialGradient(
+                    colors: [
+                        Color(red: 0.48, green: 0.36, blue: 0.72).opacity(0.12),
+                        Color.clear
+                    ],
+                    center: UnitPoint(x: 0.15, y: 0.08),
+                    startRadius: 0,
+                    endRadius: 320
+                )
+                GlassHighlight()
+                BottomGlassShadow()
+            }
+        )
+        .overlay(GlassEdge())
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .compositingGroup()
+        .offset(x: presenter.isShown ? 0 : 360)
+        .opacity(presenter.isShown ? 1.0 : 0.0)
+        .animation(presenter.isShown ? .panelOpen : .panelClose, value: presenter.isShown)
     }
 
     // MARK: - Header
@@ -35,7 +122,7 @@ struct PanelRootView: View {
     private var header: some View {
         HStack(spacing: DS.Spacing.sm) {
             Image(systemName: "square.and.pencil")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(DS.Color.textSecondary)
 
             Text("Notetaker")
@@ -49,8 +136,8 @@ struct PanelRootView: View {
             SettingsButton()
         }
         .padding(.horizontal, DS.Spacing.md)
-        .padding(.top, DS.Spacing.md)
-        .padding(.bottom, DS.Spacing.sm)
+        .padding(.top, DS.Spacing.sm)
+        .padding(.bottom, DS.Spacing.xs)
     }
 
     // MARK: - Segmented
@@ -69,15 +156,15 @@ struct PanelRootView: View {
     }
 
     private func segmentButton(for tab: PanelTab) -> some View {
-        let isSelected = activeTab == tab
+        let isSelected = presenter.activeTab == tab
         return Button {
-            withAnimation(.selection) { activeTab = tab }
+            withAnimation(.selection) { presenter.activeTab = tab }
         } label: {
             Text(tab.title)
                 .font(.nkMeta.weight(isSelected ? .semibold : .regular))
                 .foregroundStyle(isSelected ? DS.Color.textPrimary : DS.Color.textSecondary)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 5)
+                .padding(.vertical, 4)
                 .background(
                     ZStack {
                         if isSelected {
@@ -102,11 +189,13 @@ struct PanelRootView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch activeTab {
+        switch presenter.activeTab {
         case .notes:
             NotesListView()
         case .images:
             ImagesGridView()
+        case .videos:
+            VideosGridView()
         }
     }
 
@@ -173,6 +262,6 @@ private struct SettingsButton: View {
 #Preview {
     PanelRootView()
         .preferredColorScheme(.dark)
-        .frame(width: 480, height: 640)
+        .frame(width: 340, height: 700)
         .background(Color.black.opacity(0.85))
 }

@@ -28,5 +28,7 @@
 	<string>Copyright © 2026 Aritra Debnath.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Notetaker transcribes your voice offline to create notes. Audio never leaves your Mac.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Notetaker reads the current tab URL from your browser when you press ⌥⌘V so it can download the video you're watching.</string>
 </dict>
 </plist>

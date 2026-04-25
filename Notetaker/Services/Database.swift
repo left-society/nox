@@ -91,6 +91,47 @@ final class Database {
             )
         }
 
+        m.registerMigration("v2_videos") { db in
+            try db.create(table: "videos") { t in
+                t.column("id", .text).primaryKey()
+                t.column("note_id", .text).references("notes", onDelete: .cascade)
+                t.column("file_path", .text).notNull()
+                t.column("thumb_path", .text).notNull()
+                t.column("source_url", .text)
+                t.column("title", .text)
+                t.column("width", .integer)
+                t.column("height", .integer)
+                t.column("duration_sec", .double)
+                t.column("size_bytes", .integer)
+                t.column("mime_type", .text)
+                t.column("source", .text)
+                t.column("created_at", .double).notNull()
+                t.column("status", .text).notNull().defaults(to: "active")
+                t.column("trashed_at", .double)
+            }
+            try db.create(
+                index: "idx_videos_status_created",
+                on: "videos",
+                columns: ["status", "created_at"]
+            )
+            try db.create(
+                index: "idx_videos_source_url",
+                on: "videos",
+                columns: ["source_url"]
+            )
+        }
+
+        m.registerMigration("v3_image_expiry") { db in
+            try db.alter(table: "images") { t in
+                t.add(column: "expires_at", .double)
+            }
+            try db.create(
+                index: "idx_images_expires_at",
+                on: "images",
+                columns: ["expires_at"]
+            )
+        }
+
         return m
     }
 }

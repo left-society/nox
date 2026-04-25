@@ -42,6 +42,7 @@ struct ImageRecord: Identifiable, Codable, FetchableRecord, MutablePersistableRe
     var createdAt: Double
     var status: String
     var trashedAt: Double?
+    var expiresAt: Double?
 
     static let databaseTableName = "images"
 
@@ -53,6 +54,7 @@ struct ImageRecord: Identifiable, Codable, FetchableRecord, MutablePersistableRe
         static let status = Column("status")
         static let createdAt = Column("created_at")
         static let trashedAt = Column("trashed_at")
+        static let expiresAt = Column("expires_at")
     }
 
     enum CodingKeys: String, CodingKey {
@@ -60,6 +62,51 @@ struct ImageRecord: Identifiable, Codable, FetchableRecord, MutablePersistableRe
         case noteId = "note_id"
         case filePath = "file_path"
         case thumbPath = "thumb_path"
+        case mimeType = "mime_type"
+        case createdAt = "created_at"
+        case trashedAt = "trashed_at"
+        case expiresAt = "expires_at"
+    }
+}
+
+struct VideoRecord: Identifiable, Codable, FetchableRecord, MutablePersistableRecord, Equatable {
+    var id: String
+    var noteId: String?
+    var filePath: String
+    var thumbPath: String
+    var sourceUrl: String?
+    var title: String?
+    var width: Int?
+    var height: Int?
+    var durationSec: Double?
+    var sizeBytes: Int?
+    var mimeType: String?
+    var source: String?
+    var createdAt: Double
+    var status: String
+    var trashedAt: Double?
+
+    static let databaseTableName = "videos"
+
+    enum Columns {
+        static let id = Column("id")
+        static let noteId = Column("note_id")
+        static let filePath = Column("file_path")
+        static let thumbPath = Column("thumb_path")
+        static let sourceUrl = Column("source_url")
+        static let status = Column("status")
+        static let createdAt = Column("created_at")
+        static let trashedAt = Column("trashed_at")
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, width, height, source, status
+        case noteId = "note_id"
+        case filePath = "file_path"
+        case thumbPath = "thumb_path"
+        case sourceUrl = "source_url"
+        case durationSec = "duration_sec"
+        case sizeBytes = "size_bytes"
         case mimeType = "mime_type"
         case createdAt = "created_at"
         case trashedAt = "trashed_at"

@@ -30,9 +30,26 @@ targets:
       - path: Notetaker
         excludes:
           - "Resources/Models/**"
+          - "Resources/bin/**"
     resources:
       - path: Notetaker/Resources/Models
         optional: true
+    postCompileScripts:
+      - name: Copy yt-dlp + ffmpeg binaries
+        script: |
+          set -e
+          BIN_SRC="${SRCROOT}/Notetaker/Resources/bin"
+          BIN_DST="${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app/Contents/Resources/bin"
+          mkdir -p "$BIN_DST"
+          cp -f "$BIN_SRC/yt-dlp"  "$BIN_DST/yt-dlp"
+          cp -f "$BIN_SRC/ffmpeg"  "$BIN_DST/ffmpeg"
+          chmod +x "$BIN_DST/yt-dlp" "$BIN_DST/ffmpeg"
+        inputFiles:
+          - $(SRCROOT)/Notetaker/Resources/bin/yt-dlp
+          - $(SRCROOT)/Notetaker/Resources/bin/ffmpeg
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(PRODUCT_NAME).app/Contents/Resources/bin/yt-dlp
+          - $(TARGET_BUILD_DIR)/$(PRODUCT_NAME).app/Contents/Resources/bin/ffmpeg
     dependencies:
       - package: GRDB
       - package: HotKey

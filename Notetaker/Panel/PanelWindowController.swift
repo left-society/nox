@@ -6,21 +6,35 @@ private final class KeyablePanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+@MainActor
 final class PanelWindowController {
-    static let panelSize = NSSize(width: 480, height: 640)
-    private static let cornerRadius: CGFloat = 10
-    private static let gapBelowMenuBar: CGFloat = 8
-    private static let dropRise: CGFloat = 6
+    static let panelWidth: CGFloat = 340
+    static let panelHeight: CGFloat = 620
+    private static let cornerRadius: CGFloat = 8
+    private static let edgeGap: CGFloat = 10
+    private static let topGap: CGFloat = 40
+
+    static func panelSize(for screen: NSScreen?) -> NSSize {
+        let available = (screen ?? NSScreen.main)?.visibleFrame.height ?? 800
+        return NSSize(width: panelWidth, height: min(panelHeight, available - topGap - 24))
+    }
 
     private let panel: NSPanel
-    private var isVisible = false
+    private let presenter: PanelPresenter
+    private let environment: AppEnvironment
+    private(set) var isVisible = false
     private var clickOutsideMonitor: Any?
     private var keyMonitor: Any?
+    private var hideWorkItem: DispatchWorkItem?
 
     weak var menuBarController: MenuBarController?
 
     init(environment: AppEnvironment) {
-        let contentRect = NSRect(origin: .zero, size: PanelWindowController.panelSize)
+        self.environment = environment
+        let presenter = PanelPresenter()
+        self.presenter = presenter
+        let size = PanelWindowController.panelSize(for: NSScreen.main)
+        let contentRect = NSRect(origin: .zero, size: size)
 
         panel = KeyablePanel(
             contentRect: contentRect,
@@ -43,23 +57,15 @@ final class PanelWindowController {
         panel.backgroundColor = .clear
         panel.hidesOnDeactivate = false
 
-        let visualEffect = NSVisualEffectView()
-        visualEffect.material = .hudWindow
-        visualEffect.blendingMode = .behindWindow
-        visualEffect.state = .active
-        visualEffect.wantsLayer = true
-        visualEffect.layer?.cornerRadius = PanelWindowController.cornerRadius
-        visualEffect.layer?.cornerCurve = .continuous
-        visualEffect.layer?.masksToBounds = true
-
         let host = NSHostingView(
-            rootView: PanelRootView().environmentObject(environment)
+            rootView: PanelRootView()
+                .environmentObject(environment)
+                .environmentObject(presenter)
         )
         host.frame = contentRect
         host.autoresizingMask = [.width, .height]
-        visualEffect.addSubview(host)
 
-        panel.contentView = visualEffect
+        panel.contentView = host
     }
 
     func toggle() {
@@ -70,26 +76,47 @@ final class PanelWindowController {
         }
     }
 
+    func showOnTab(_ tab: PanelTab) {
+        presenter.activeTab = tab
+        if !isVisible { show() }
+    }
+
     func show() {
-        let finalOrigin = originUnderMenuBarIcon()
-        panel.setFrameOrigin(NSPoint(x: finalOrigin.x, y: finalOrigin.y + PanelWindowController.dropRise))
-        panel.alphaValue = 0
+        hideWorkItem?.cancel()
+        hideWorkItem = nil
+
+        let size = PanelWindowController.panelSize(for: NSScreen.main)
+        panel.setContentSize(size)
+        panel.setFrameOrigin(originOnRightEdge(for: size))
+        panel.alphaValue = 1
+        presenter.isShown = false
         panel.orderFrontRegardless()
         panel.makeKey()
+        let screens = NSScreen.screens.map { "\($0.frame)" }.joined(separator: " | ")
+        NSLog("Notetaker: show() panel.frame=\(panel.frame) main=\(NSScreen.main?.frame ?? .zero) screens=\(screens)")
 
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.28
-            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1.0)
-            ctx.allowsImplicitAnimation = true
-            panel.animator().setFrameOrigin(finalOrigin)
-            panel.animator().alphaValue = 1
+        // Flip on the next runloop tick so SwiftUI sees false→true and animates the spring.
+        DispatchQueue.main.async { [weak self] in
+            self?.presenter.isShown = true
         }
         isVisible = true
 
         clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] _ in
-            self?.hide()
+            guard let self else { return }
+            // Don't yank the panel away while a download is still running —
+            // the user needs to see the progress bar to trust that the
+            // hotkey actually worked. The jobs list auto-clears itself once
+            // everything is in a terminal state, so this is self-resetting.
+            let activeDownload = self.environment.videoStore.jobs
+                .contains { !$0.state.isTerminal }
+            if activeDownload {
+                NSLog("Notetaker: global mouse-down → keep panel up (download in flight)")
+                return
+            }
+            NSLog("Notetaker: global mouse-down → hide")
+            self.hide()
         }
 
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -102,15 +129,17 @@ final class PanelWindowController {
     }
 
     func hide() {
+        NSLog("Notetaker: hide() called, isVisible=\(isVisible)")
+        guard isVisible else { return }
         removeMonitors()
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.18
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            panel.animator().alphaValue = 0
-        }, completionHandler: { [weak self] in
-            self?.panel.orderOut(nil)
-        })
+        presenter.isShown = false
         isVisible = false
+
+        let item = DispatchWorkItem { [weak self] in
+            self?.panel.orderOut(nil)
+        }
+        hideWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.24, execute: item)
     }
 
     private func removeMonitors() {
@@ -124,18 +153,11 @@ final class PanelWindowController {
         }
     }
 
-    private func originUnderMenuBarIcon() -> NSPoint {
-        let size = PanelWindowController.panelSize
-        if let iconFrame = menuBarController?.iconFrame {
-            let x = iconFrame.midX - size.width / 2
-            let y = iconFrame.minY - size.height - PanelWindowController.gapBelowMenuBar
-            return NSPoint(x: x, y: y)
-        }
-        if let screen = NSScreen.main {
-            let x = screen.visibleFrame.maxX - size.width - 20
-            let y = screen.visibleFrame.maxY - size.height - 20
-            return NSPoint(x: x, y: y)
-        }
-        return .zero
+    private func originOnRightEdge(for size: NSSize) -> NSPoint {
+        let screen = NSScreen.main
+        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let x = visible.maxX - size.width - PanelWindowController.edgeGap
+        let y = visible.maxY - size.height - PanelWindowController.topGap
+        return NSPoint(x: x, y: y)
     }
 }

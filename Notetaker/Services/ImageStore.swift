@@ -48,7 +48,16 @@ final class ImageStore: ObservableObject {
     }
 
     @discardableResult
-    func saveImage(data: Data, mimeType: String, noteId: String?, source: String) throws -> ImageRecord {
+    func saveImage(
+        data: Data,
+        mimeType: String,
+        noteId: String?,
+        source: String,
+        expiresAt: Double? = nil
+    ) throws -> ImageRecord {
+        if let existing = duplicateRecord(for: data) {
+            return existing
+        }
         let id = UUID().uuidString
         let ext = Self.ext(for: mimeType)
         let fileRel = "images/\(id).\(ext)"
@@ -72,11 +81,30 @@ final class ImageStore: ObservableObject {
             source: source,
             createdAt: Date().timeIntervalSince1970,
             status: "active",
-            trashedAt: nil
+            trashedAt: nil,
+            expiresAt: expiresAt
         )
         try db.dbQueue.write { try record.insert($0) }
         images.insert(record, at: 0)
         return record
+    }
+
+    /// Clears the TTL on an auto-saved screenshot when the user triggers
+    /// a burst — we want to keep it around permanently now.
+    func clearExpiry(id: String) {
+        do {
+            try db.dbQueue.write { conn in
+                try conn.execute(
+                    sql: "UPDATE images SET expires_at = NULL WHERE id = ?",
+                    arguments: [id]
+                )
+            }
+            if let idx = images.firstIndex(where: { $0.id == id }) {
+                images[idx].expiresAt = nil
+            }
+        } catch {
+            NSLog("clearExpiry failed: \(error)")
+        }
     }
 
     func fullURL(for record: ImageRecord) -> URL {
@@ -87,7 +115,31 @@ final class ImageStore: ObservableObject {
         rootURL.appendingPathComponent(record.thumbPath)
     }
 
+    func trashAll() throws {
+        let now = Date().timeIntervalSince1970
+        try db.dbQueue.write { conn in
+            try conn.execute(
+                sql: "UPDATE images SET status = 'trashed', trashed_at = ? WHERE status = 'active'",
+                arguments: [now]
+            )
+        }
+        images = []
+    }
+
     // MARK: - Helpers
+
+    // Scans the most recent active images and returns the first one whose
+    // bytes match the incoming data. Stops after a small window so this stays
+    // cheap even with large libraries.
+    private func duplicateRecord(for data: Data) -> ImageRecord? {
+        let window = 8
+        for record in images.prefix(window) {
+            let url = fullURL(for: record)
+            guard let existing = try? Data(contentsOf: url) else { continue }
+            if existing == data { return record }
+        }
+        return nil
+    }
 
     private static func ext(for mime: String) -> String {
         switch mime {
