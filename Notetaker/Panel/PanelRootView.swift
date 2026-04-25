@@ -435,6 +435,7 @@ private struct SettingsButton: View {
         // into it via `NSHostingController` — bypassing the scene
         // plumbing entirely.
         Button {
+            NSLog("Notetaker: gear button tapped")
             SettingsWindow.open()
         } label: {
             Image(systemName: "gearshape")

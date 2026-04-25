@@ -3,6 +3,13 @@ import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Static handle so callers (e.g. `SettingsWindow.open`, NSAlert
+    /// callbacks) can reach us without going through `NSApp.delegate`.
+    /// SwiftUI's `@NSApplicationDelegateAdaptor` sometimes wraps the
+    /// delegate behind its own forwarder, which makes the
+    /// `NSApp.delegate as? AppDelegate` cast unreliable.
+    static private(set) var shared: AppDelegate?
+
     var environment: AppEnvironment?
     var menuBarController: MenuBarController?
     var panelController: PanelWindowController?
@@ -43,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let soloTTL: TimeInterval = 14400
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.shared = self
         NSApp.setActivationPolicy(.accessory)
 
         do {
@@ -211,6 +219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///    we revert to `.accessory` on close so the Dock icon doesn't
     ///    linger.
     func openSettings() {
+        NSLog("Notetaker: openSettings() entered, env=\(environment != nil), cached=\(settingsWindow != nil)")
         panelController?.hide()
 
         NSApp.setActivationPolicy(.regular)
@@ -250,6 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         settingsWindow = window
         window.makeKeyAndOrderFront(nil)
+        NSLog("Notetaker: settings window ordered front, level=\(window.level.rawValue) visible=\(window.isVisible)")
     }
 
     private func grabCurrentBrowserTab() {

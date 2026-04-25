@@ -98,6 +98,15 @@ enum SettingsWindow {
     /// in by hand sidesteps the entire scene-plumbing problem.
     @MainActor
     static func open() {
-        (NSApp.delegate as? AppDelegate)?.openSettings()
+        NSLog("Notetaker: SettingsWindow.open invoked, shared=\(AppDelegate.shared != nil) appDelegate=\(NSApp.delegate.map { String(describing: type(of: $0)) } ?? "nil")")
+        if let app = AppDelegate.shared {
+            app.openSettings()
+            return
+        }
+        if let app = NSApp.delegate as? AppDelegate {
+            app.openSettings()
+            return
+        }
+        NSLog("Notetaker: SettingsWindow.open could not reach AppDelegate")
     }
 }
