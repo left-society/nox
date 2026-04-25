@@ -257,50 +257,90 @@ struct PanelRootView: View {
     // MARK: - Halo
 
     /// Soft blur halo extending past the inner panel on three sides.
-    /// Same `.behindWindow` material as the inner panel, but the mask is
-    /// sized to MATCH THE INNER PANEL'S POSITION (not the full outer
-    /// frame) and then blurred heavily — so the alpha-1 region of the
-    /// halo is hidden directly behind the inner panel, and only the
-    /// blurred fringe is visible peeking out.
+    /// Same `.behindWindow` material as the inner panel, but masked so
+    /// it shows ONLY in a band around the inner panel — never as a
+    /// rectangle that touches the outer NSPanel edges.
     ///
-    /// Why not fill the whole frame: the v18 mask used
-    /// `RoundedRectangle(cornerRadius: 60).padding(4).blur(44)` which
-    /// made alpha-1 cover almost the entire 400pt-wide frame. Blur(44)
-    /// only had ~4pt of room to fade before hitting the rectangular
-    /// outer NSPanel boundary, so the corners of that boundary clipped
-    /// a still-non-zero halo and the user saw "way too boxy" — which
-    /// is exactly what they reported.
+    /// Why the mask must extend PAST the inner panel:
     ///
-    /// New approach (matches Apple's music widget):
-    /// 1. Outer NSPanel grows to 440x820 with 100pt of halo space on
-    ///    left/top/bottom (`PanelWindowController.haloPadding`).
-    /// 2. Mask shape is sized to (innerPanelWidth - 20) × (innerPanelHeight
-    ///    - 20), inset 10pt within the inner panel — so alpha-1 sits
-    ///    fully under the inner panel and has no visible edge of its own.
-    /// 3. Mask is anchored trailing (matching the inner panel) and
-    ///    centered vertically.
-    /// 4. Blur(70) feathers the halo ~70pt outward in all directions
-    ///    where there's room (left, top, bottom), fading to ~0 well
-    ///    inside the 100pt of frame slack — no rectangular clipping.
+    /// First boxy attempt sized the mask to nearly fill the frame and
+    /// blurred heavily — alpha-1 reached the outer NSPanel boundary,
+    /// which is rectangular, and the user saw a hard box.
+    ///
+    /// Second attempt over-corrected: mask was 20pt SMALLER than the
+    /// inner panel on every side. That made alpha-1 sit fully UNDER the
+    /// inner panel, with only the very faint blur fringe peeking out.
+    /// Result: no halo visible at all — the content next to the panel
+    /// stayed sharp, the opposite of what the music-widget reference
+    /// shows. User reported "nothing?" on a screenshot.
+    ///
+    /// Right answer: the alpha-1 zone of the mask must extend OUTWARD
+    /// past the inner panel by enough to be obviously blurred (so the
+    /// strip directly next to the panel edge clearly smears whatever's
+    /// behind it), then blur fades the outer edge of the alpha-1 zone
+    /// to alpha-0 well inside the 100pt of frame slack so it never
+    /// reaches the rectangular outer NSPanel boundary.
+    ///
+    /// Numbers (frame is 440×820, inner panel 340×620 anchored
+    /// trailing/center, so 100pt of slack on left/top/bottom):
+    /// - Mask shape: 400×720 anchored trailing, vertically centered.
+    ///   That puts alpha-1 at x∈[40,440] and y∈[50,770]. Inner panel
+    ///   is x∈[100,440], y∈[100,720]. So the alpha-1 zone extends
+    ///   60pt past inner panel's LEFT edge, and 50pt past TOP/BOTTOM.
+    ///   Right edge is flush (panel docks at screen edge — nothing to
+    ///   halo into).
+    /// - Blur(radius: 30): the alpha-1 edge fades to ~0 over ~60pt of
+    ///   visual extent (3σ). With mask left edge at x=40 and outer
+    ///   frame at x=0, the fade lands well inside the 40pt of remaining
+    ///   slack. Same on top/bottom (mask edges at 50/770, frame at
+    ///   0/820, 50pt of slack).
     private var haloLayer: some View {
-        VisualEffectBackground()
-            .mask(
-                RoundedRectangle(
-                    cornerRadius: PanelWindowController.innerCornerRadius - 10,
-                    style: .continuous
-                )
-                .frame(
-                    width: PanelWindowController.innerPanelWidth - 20,
-                    height: PanelWindowController.innerPanelHeight - 20
-                )
-                // Position the mask exactly where the inner panel sits:
-                // trailing-anchored, centered vertically inside the outer
-                // frame. The blur then fades outward symmetrically on the
-                // three sides where the frame has room.
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                .blur(radius: 70)
+        // Depth-of-field halo: blurred AND visibly darker right next to
+        // the panel, fading to invisible by the time it reaches the
+        // outer NSPanel rectangle (so no box).
+        //
+        // Stack inside the mask:
+        //   1. VisualEffectBackground — .hudWindow blur of the content
+        //      behind, so wallpaper colors next to the panel are smeared.
+        //   2. Color.black.opacity(0.30) — explicit darkening so the
+        //      halo zone reads as "out-of-focus / recessed" even against
+        //      bright wallpapers (Google's saturated blob shapes had
+        //      hidden the pure-blur halo entirely).
+        //
+        // Mask geometry:
+        //   - Shape extends 20pt past the inner panel on left and
+        //     10pt past on top/bottom so the alpha-1 darkening zone
+        //     sits visibly OUTSIDE the panel, not just under it.
+        //   - blur(24) on the mask means alpha decays as a Gaussian
+        //     from the shape edge. With mask edge at x=80 (20pt past
+        //     panel) and frame edge at x=0, that's 80pt of falloff.
+        //     alpha at frame edge ≈ exp(-(80/24)²/2) ≈ 0.001, which
+        //     is invisible. Same on top/bottom (90pt of slack vs. ~70pt
+        //     of effective fade extent at 3σ).
+        //
+        // Explicit outer .frame() — without it the masked
+        // NSViewRepresentable has no size hint and renders blank.
+        ZStack {
+            VisualEffectBackground()
+            Color.black.opacity(0.72)
+        }
+        .frame(
+            width: PanelWindowController.panelWidth,
+            height: PanelWindowController.panelHeight
+        )
+        .mask(
+            RoundedRectangle(
+                cornerRadius: PanelWindowController.innerCornerRadius + 6,
+                style: .continuous
             )
-            .allowsHitTesting(false)
+            .frame(
+                width: PanelWindowController.innerPanelWidth + 20,
+                height: PanelWindowController.innerPanelHeight + 20
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+            .blur(radius: 24)
+        )
+        .allowsHitTesting(false)
     }
 
     // MARK: - Inner panel (the visible rounded glass slab)
