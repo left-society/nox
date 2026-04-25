@@ -42,6 +42,9 @@ final class PanelWindowController {
     static let innerCornerRadius: CGFloat = 28
     private static let edgeGap: CGFloat = 10
     private static let topGap: CGFloat = 40
+    /// Alcove-style: panel emerges from the notch (top-center) and
+    /// settles a few pixels below the menu bar. Was right-edge before.
+    private static let notchTopGap: CGFloat = 4
 
     static func panelSize(for screen: NSScreen?) -> NSSize {
         let available = (screen ?? NSScreen.main)?.visibleFrame.height ?? 800
@@ -192,7 +195,7 @@ final class PanelWindowController {
 
         let size = PanelWindowController.panelSize(for: NSScreen.main)
         panel.setContentSize(size)
-        panel.setFrameOrigin(originOnRightEdge(for: size))
+        panel.setFrameOrigin(originUnderNotch(for: size))
         panel.alphaValue = 1
         presenter.isShown = false
         panel.orderFrontRegardless()
@@ -431,6 +434,22 @@ final class PanelWindowController {
         let y = visible.maxY - size.height
             - PanelWindowController.topGap
             + PanelWindowController.haloPadding
+        return NSPoint(x: x, y: y)
+    }
+
+    /// Alcove-style placement: the NSPanel's TOP edge sits a few pixels
+    /// below the menu bar's bottom, centered horizontally on the screen
+    /// (right under the notch on a notched MacBook). The inner SwiftUI
+    /// slab is anchored top-center inside the panel, so it grows DOWN
+    /// from the menu bar exactly like Alcove drops out of the notch.
+    private func originUnderNotch(for size: NSSize) -> NSPoint {
+        let screen = NSScreen.main
+        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let x = visible.midX - size.width / 2
+        // panel.frame.y is the NSPanel's BOTTOM in screen coords; we want
+        // its TOP at visible.maxY - notchTopGap. Top = y + size.height,
+        // so y = visible.maxY - notchTopGap - size.height.
+        let y = visible.maxY - PanelWindowController.notchTopGap - size.height
         return NSPoint(x: x, y: y)
     }
 }

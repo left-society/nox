@@ -23,15 +23,13 @@ private struct VisualEffectBackground: NSViewRepresentable {
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
-/// Outer rim — clean white edge stroke around the whole panel. The
-/// rim must be visible on all four corners or the panel reads as
-/// asymmetric ("dissolving away at the bottom"). Was a 0.45 → 0.06
-/// gradient which made bottom corners nearly invisible against a dark
-/// wallpaper; now a tighter 0.40 → 0.20 range so every corner is
-/// clearly defined while keeping a slight overhead-light bias.
+/// Outer rim — clean white edge stroke around the whole panel. Takes
+/// the cornerRadius as a param so it can morph alongside the panel
+/// during the Alcove notch-emerge animation (pill → full slab).
 private struct GlassEdge: View {
+    let cornerRadius: CGFloat
     var body: some View {
-        RoundedRectangle(cornerRadius: PanelWindowController.innerCornerRadius, style: .continuous)
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .strokeBorder(
                 LinearGradient(
                     colors: [
@@ -48,15 +46,13 @@ private struct GlassEdge: View {
     }
 }
 
-/// Inner wall — a second stroke inset 1.2pt from the outer rim. Gives
-/// the glass visible thickness (the "wall" of the lens) without the
-/// haloing `plusLighter` was producing. Subtle on purpose — Apple's
-/// Glass material relies on the matrix-lift + clean stroke combo, not
-/// stacked glow layers.
+/// Inner wall — second stroke inset 1.2pt from the outer rim. cornerRadius
+/// param tracks the morphing panel radius.
 private struct GlassInnerWall: View {
+    let cornerRadius: CGFloat
     var body: some View {
         RoundedRectangle(
-            cornerRadius: PanelWindowController.innerCornerRadius - 1.2,
+            cornerRadius: max(cornerRadius - 1.2, 0),
             style: .continuous
         )
         .strokeBorder(
@@ -84,6 +80,7 @@ private struct GlassInnerWall: View {
 /// in the upper third, falls off fast, with a brighter horizontal
 /// streak that suggests the wet/glossy surface.
 private struct LiquidSpecular: View {
+    let cornerRadius: CGFloat
     var body: some View {
         ZStack {
             // Bright focused arc just inside the top edge — the "lens
@@ -114,7 +111,7 @@ private struct LiquidSpecular: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .padding(.top, 6)
         }
-        .clipShape(RoundedRectangle(cornerRadius: PanelWindowController.innerCornerRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .allowsHitTesting(false)
     }
 }
@@ -132,6 +129,7 @@ private struct LiquidSpecular: View {
 /// material below, so it darkens *the wallpaper showing through* rather
 /// than painting an opaque rectangle on top.
 private struct EdgeVignette: View {
+    let cornerRadius: CGFloat
     var body: some View {
         ZStack {
             // Side rim only — soft dark bands on the left and right
@@ -170,19 +168,18 @@ private struct EdgeVignette: View {
                 endPoint: .bottom
             )
         }
-        .clipShape(RoundedRectangle(cornerRadius: PanelWindowController.innerCornerRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .allowsHitTesting(false)
     }
 }
 
-/// Inner lens shadow — soft inset shadow that hugs the rim, simulating
-/// the way light bends through the curved edge of a thick glass element.
-/// Adds dimension without darkening the body, so the wallpaper still
-/// bleeds through clearly. The shadow is concentrated at the bottom and
-/// sides where a real lens would refract most.
+/// Inner lens shadow — soft inset shadow that hugs the rim. cornerRadius
+/// param tracks the morph so the inset shadow follows the pill→slab
+/// transition.
 private struct InnerLensShadow: View {
+    let cornerRadius: CGFloat
     var body: some View {
-        RoundedRectangle(cornerRadius: PanelWindowController.innerCornerRadius, style: .continuous)
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .stroke(
                 LinearGradient(
                     colors: [
@@ -196,7 +193,7 @@ private struct InnerLensShadow: View {
                 lineWidth: 6
             )
             .blur(radius: 4)
-            .mask(RoundedRectangle(cornerRadius: PanelWindowController.innerCornerRadius, style: .continuous))
+            .mask(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .allowsHitTesting(false)
     }
 }
@@ -220,37 +217,53 @@ struct PanelRootView: View {
     @EnvironmentObject var presenter: PanelPresenter
     @Namespace private var segmentedPill
 
+    /// Closed-state geometry — the "pill at the notch" the panel emerges
+    /// from. Width matches a typical notch span (~200pt), height is
+    /// thin enough to read as a tab/pill of menu-bar substance, radius
+    /// hits the same pill-shape as the macOS notch's bottom corners.
+    private static let notchPillWidth: CGFloat = 200
+    private static let notchPillHeight: CGFloat = 32
+    private static let notchPillRadius: CGFloat = 16
+
+    private var currentWidth: CGFloat {
+        presenter.isShown
+            ? PanelWindowController.innerPanelWidth
+            : Self.notchPillWidth
+    }
+    private var currentHeight: CGFloat {
+        presenter.isShown
+            ? PanelWindowController.innerPanelHeight
+            : Self.notchPillHeight
+    }
+    private var currentRadius: CGFloat {
+        presenter.isShown
+            ? PanelWindowController.innerCornerRadius
+            : Self.notchPillRadius
+    }
+
     var body: some View {
-        // Outer 360×660 frame holds two things: the depth-halo blur
-        // (behind, fades to clear at the outer edges) and the visible
-        // rounded panel anchored to the trailing edge. The user pointed
-        // at Apple's music widget and noted that content NEAR it gets
-        // blurred while content FAR stays sharp — the sharp edge of our
-        // earlier 340×620 panel sat right against readable text. The
-        // halo extends the same `.behindWindow` blur past the rounded
-        // slab on three sides so the wallpaper-and-text smearing fades
-        // into sharpness rather than cutting hard.
-        ZStack(alignment: .trailing) {
+        // Alcove-style notch emergence: the inner panel starts as a tiny
+        // rounded pill stuck to the top-center of the NSPanel (right
+        // under the menu bar / notch) and springs out into the full
+        // 340×620 slab. Width, height, and corner radius all morph in
+        // a single spring; content inside fades in *after* the shell
+        // finishes growing so the pill never shows squished UI.
+        //
+        // Anchor: .top — so the inner panel always pins to the menu bar
+        // edge and grows DOWNWARD only, exactly like Alcove drops out
+        // of the notch.
+        ZStack(alignment: .top) {
             haloLayer
+                .opacity(presenter.isShown ? 1 : 0)
             innerPanel
-                .frame(
-                    width: PanelWindowController.innerPanelWidth,
-                    height: PanelWindowController.innerPanelHeight
-                )
+                .frame(width: currentWidth, height: currentHeight)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .compositingGroup()
-        // Dissolve entry — scale + blur + opacity, anchored top-trailing
-        // (where the menu-bar icon lives) so the panel feels like it's
-        // condensing out of the status item. Both halo and inner slab
-        // animate together because the modifiers sit on the outer ZStack.
-        .scaleEffect(presenter.isShown ? 1.0 : 0.86, anchor: .topTrailing)
-        .blur(radius: presenter.isShown ? 0 : 14)
-        .opacity(presenter.isShown ? 1.0 : 0.0)
         .animation(
             presenter.isShown
-                ? .spring(response: 0.46, dampingFraction: 0.78)
-                : .easeOut(duration: 0.18),
+                ? .spring(response: 0.55, dampingFraction: 0.66)
+                : .spring(response: 0.28, dampingFraction: 0.92),
             value: presenter.isShown
         )
     }
@@ -296,9 +309,10 @@ struct PanelRootView: View {
     ///   slack. Same on top/bottom (mask edges at 50/770, frame at
     ///   0/820, 50pt of slack).
     private var haloLayer: some View {
-        // Depth-of-field halo: blurred AND visibly darker right next to
-        // the panel, fading to invisible by the time it reaches the
-        // outer NSPanel rectangle (so no box).
+        // Depth-of-field halo: tracks the morphing inner panel. When
+        // the panel is in pill state, the halo wraps the small pill;
+        // as the panel springs open, the halo grows alongside.
+        // Anchored .top to match the inner panel anchor.
         //
         // Stack inside the mask:
         //   1. VisualEffectBackground — .hudWindow blur of the content
@@ -331,14 +345,14 @@ struct PanelRootView: View {
         )
         .mask(
             RoundedRectangle(
-                cornerRadius: PanelWindowController.innerCornerRadius + 6,
+                cornerRadius: currentRadius + 6,
                 style: .continuous
             )
             .frame(
-                width: PanelWindowController.innerPanelWidth + 20,
-                height: PanelWindowController.innerPanelHeight + 20
+                width: currentWidth + 20,
+                height: currentHeight + 20
             )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .blur(radius: 24)
         )
         .allowsHitTesting(false)
@@ -355,60 +369,40 @@ struct PanelRootView: View {
                 .padding(.top, DS.Spacing.sm)
             content
         }
+        // Content fades in *after* the shell finishes springing open
+        // — otherwise the header + tabs + list flash inside the tiny
+        // pill state and look squished. Reverse on close: content fades
+        // out fast so the shell can collapse back into a clean pill.
+        .opacity(presenter.isShown ? 1 : 0)
+        .animation(
+            presenter.isShown
+                ? .easeOut(duration: 0.22).delay(0.18)
+                : .easeIn(duration: 0.08),
+            value: presenter.isShown
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             ZStack {
-                // Behind-window blur — `.hudWindow` is macOS's heaviest
-                // single material. Wallpaper colors smear through as
-                // diffuse fog, the panel content stays visible on top.
                 VisualEffectBackground()
-                // Uniform dark tint over the blurred wallpaper. Has to
-                // carry most of the text-obscuring work because
-                // NSVisualEffectView's blur radius is fixed by the
-                // material — it isn't strong enough alone to dissolve
-                // sharp text behind. Pushed to 0.32 for two reasons:
-                // (1) text behind genuinely disappears, matching the
-                // music-widget heaviness the user wants, and (2) it's
-                // even across the whole panel, which avoids the
-                // "spotlight" look that was happening when the body was
-                // light (0.12) but the rim was very dark — the contrast
-                // made the bright center read as a glowing bulb.
                 Color.black.opacity(0.32)
-                // Edge vignette — darker sides + bottom for the "rich
-                // premium" vibe the user pointed to in the music widget.
-                // A real glass slab catches less light at its periphery
-                // than at its center; this gradient simulates that.
-                EdgeVignette()
-                // Focused specular reflection — bright arc at the top
-                // edge that reads as overhead light catching the curve.
-                LiquidSpecular()
-                // Inner lens shadow — soft inset shadow that hugs the
-                // rim, simulating the curved edge of a thick glass lens.
-                InnerLensShadow()
+                EdgeVignette(cornerRadius: currentRadius)
+                LiquidSpecular(cornerRadius: currentRadius)
+                InnerLensShadow(cornerRadius: currentRadius)
             }
         )
-        // Outer rim and inner wall — clean white strokes, no
-        // `plusLighter` halo. Combined with the white-lift body, they
-        // make the glass read as a thick lens with visible walls.
-        .overlay(GlassEdge())
-        .overlay(GlassInnerWall())
-        // Drop targeting ring — driven by PanelDropContainer (the NSPanel
-        // contentView wrapper) which sits below SwiftUI and handles drops
-        // before any SwiftUI hit-testing kicks in. Pure cosmetic here.
+        .overlay(GlassEdge(cornerRadius: currentRadius))
+        .overlay(GlassInnerWall(cornerRadius: currentRadius))
         .overlay(
-            RoundedRectangle(cornerRadius: PanelWindowController.innerCornerRadius, style: .continuous)
+            RoundedRectangle(cornerRadius: currentRadius, style: .continuous)
                 .strokeBorder(DS.Color.accent.opacity(presenter.isDropTargeted ? 0.85 : 0), lineWidth: 1.5)
                 .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
                 .allowsHitTesting(false)
         )
-        .clipShape(RoundedRectangle(cornerRadius: PanelWindowController.innerCornerRadius, style: .continuous))
-        // Tight close shadow only. The previous radius-22 / y-14 stack
-        // extended ~36pt below the inner panel, which got clipped hard
-        // at the outer NSPanel rectangle and read as a visible square
-        // edge ("shadow looks like a box"). The depth cue now comes from
-        // the wallpaper-blur halo behind, so the inner slab only needs
-        // a small contact shadow to feel lifted off the desktop.
-        .shadow(color: Color.black.opacity(0.30), radius: 6, x: 0, y: 3)
+        .clipShape(RoundedRectangle(cornerRadius: currentRadius, style: .continuous))
+        // Stronger drop shadow now that the panel hangs out of the menu
+        // bar — Alcove uses a clean black-30 shadow with ~16pt blur and
+        // 8pt y-offset to sell the "dropped down out of the notch" feel.
+        .shadow(color: Color.black.opacity(0.40), radius: 16, x: 0, y: 8)
     }
 
     // MARK: - Header
