@@ -602,8 +602,17 @@ struct ImageCell: View {
         .contentShape(shape)
         .onTapGesture { onTap() }
         .contextMenu {
+            // Vision-based OCR — fast, offline, every line as-is.
+            // Right tool for "give me the words on this poster".
             Button("Copy Text from Image") {
                 handleOCR()
+            }
+            // Gemini-based extraction tuned for chat screenshots.
+            // Strips timestamps/reactions/UI chrome, attributes
+            // multi-sender threads. Right tool for "I screenshotted
+            // an Instagram conversation, paste it as plain text".
+            Button("Extract Messages → Clipboard") {
+                handleGeminiExtract()
             }
         }
         .onHover { hovering in
@@ -630,6 +639,59 @@ struct ImageCell: View {
                     NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
                 }
             }
+        }
+    }
+
+    /// Pull chat messages out of the screenshot via Gemini and drop
+    /// the result on the clipboard. Three buckets of outcome:
+    ///
+    /// * **Success** — clipboard gets the transcript, alignment haptic
+    ///   plays so the user feels the operation land.
+    /// * **No API key** — pop a one-time NSAlert that walks the user
+    ///   to Settings. This is the *only* error path that's actionable,
+    ///   so it earns a real dialog rather than a silent haptic. Once
+    ///   configured the alert never fires again.
+    /// * **Anything else** — levelChange haptic and NSLog. Includes
+    ///   "Gemini said NO_MESSAGES", network failures, malformed
+    ///   response. The panel deliberately avoids stealing focus for
+    ///   transient errors; the haptic is the user's cue to retry or
+    ///   pick a different image.
+    private func handleGeminiExtract() {
+        let url = imageStore.fullURL(for: record)
+        Task {
+            let result = await GeminiOCRService.extractMessages(from: url)
+            await MainActor.run {
+                switch result {
+                case .success(let text) where !text.isEmpty:
+                    ClipboardService.copy(text: text)
+                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+                case .success:
+                    NSLog("Notetaker: Gemini extract returned no messages for \(record.id)")
+                    NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+                case .missingAPIKey:
+                    promptForGeminiKey()
+                case .failure(let message):
+                    NSLog("Notetaker: Gemini extract failed: \(message)")
+                    NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+                }
+            }
+        }
+    }
+
+    /// One-shot dialog steering the user to Settings the first time
+    /// they invoke chat extraction without configuring a key. Modal
+    /// against `nil` so it floats above whatever's frontmost — the
+    /// notes panel can't host an attached sheet because it's a
+    /// borderless `NSPanel` rather than a real window with a title bar.
+    private func promptForGeminiKey() {
+        let alert = NSAlert()
+        alert.messageText = "Gemini API key required"
+        alert.informativeText = "Add a key in Notetaker Settings to extract chat messages from screenshots."
+        alert.addButton(withTitle: "Open Settings")
+        alert.addButton(withTitle: "Cancel")
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            SettingsWindow.open()
         }
     }
 

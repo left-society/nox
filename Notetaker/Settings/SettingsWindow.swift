@@ -6,6 +6,19 @@ struct SettingsView: View {
     @AppStorage("retentionDays") private var retentionDays: Int = 2
     @AppStorage("trashRetentionDays") private var trashRetentionDays: Int = 7
     @AppStorage("launchAtLogin") private var launchAtLogin: Bool = true
+    /// Gemini API key, used by `GeminiOCRService` to extract chat
+    /// messages from screenshots. Stored in NSUserDefaults — same as
+    /// any other personal-but-non-secret app setting. The user enters
+    /// the key here once and it survives across launches.
+    ///
+    /// We deliberately do NOT use the macOS Keychain. The key is only
+    /// readable from this app (sandboxed defaults), the user supplies
+    /// it themselves rather than receiving it from us, and the
+    /// Keychain prompt-on-first-read UX would be jarring for what's
+    /// essentially "paste this string into a textbox and forget it".
+    /// If a future scenario calls for tighter handling we can migrate
+    /// without touching the rest of the OCR pipeline.
+    @AppStorage(GeminiOCRService.apiKeyDefaultsKey) private var geminiApiKey: String = ""
 
     var body: some View {
         Form {
@@ -38,9 +51,18 @@ struct SettingsView: View {
                         setLaunchAtLogin(on)
                     }
             }
+
+            Section("Chat Extraction (Gemini)") {
+                SecureField("Gemini API key", text: $geminiApiKey, prompt: Text("Paste key…"))
+                    .textFieldStyle(.roundedBorder)
+                Text("Used to turn chat screenshots into pasteable text via right-click → Extract Messages. Get a key at aistudio.google.com — leave blank to disable.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 380, height: 260)
+        .frame(width: 420, height: 380)
         .onAppear { syncRetentionFromAppStorage() }
     }
 

@@ -35,6 +35,7 @@
 		7633A806C1D9674E27061185 /* HotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C4728BB0F273F145E4D4DB2 /* HotkeyService.swift */; };
 		77B704A862EB57DA5E0711D0 /* NoteStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E97F851F210BDA6D7291F2C4 /* NoteStoreTests.swift */; };
 		77B8B5813C759AAB081120D6 /* ImageOCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2114F9D66F7C2C0537F7F7E /* ImageOCRService.swift */; };
+		9E3A2F1B5C8D4E7F60214A35 /* GeminiOCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D4E7F60214A359E3A2F1B5C /* GeminiOCRService.swift */; };
 		7876B26DCDCCEC94003948CC /* ClipboardRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EFF0F9F35088F54C400F6A7 /* ClipboardRouter.swift */; };
 		82DDE6EA7985D2F3965F0E71 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4B1A65817F2DD32A78B84F4 /* AppEnvironment.swift */; };
 		83635AA9CA68E7CA34A6423F /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 17C000E0AB2B8576CD22086B /* GRDB */; };
@@ -122,6 +123,7 @@
 		A3F2B24F63B38FFB038957FF /* PanelWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelWindowController.swift; sourceTree = "<group>"; };
 		A5497B7A683A649575231482 /* QuickPasteRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPasteRouterTests.swift; sourceTree = "<group>"; };
 		B2114F9D66F7C2C0537F7F7E /* ImageOCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageOCRService.swift; sourceTree = "<group>"; };
+		8D4E7F60214A359E3A2F1B5C /* GeminiOCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiOCRService.swift; sourceTree = "<group>"; };
 		BA4DFB7481EC57847B2A244A /* HoverActivator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HoverActivator.swift; sourceTree = "<group>"; };
 		C23BC1CC4ACF47017EB87F7D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		CB0296047884620F7222CFC0 /* RetentionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetentionService.swift; sourceTree = "<group>"; };
@@ -186,6 +188,7 @@
 				1FB98CADB6E11EE3D5131617 /* ClipboardService.swift */,
 				56F0E884BA061699C7F2CB95 /* Database.swift */,
 				200887B134644E26FF57F8EE /* FileStore.swift */,
+				8D4E7F60214A359E3A2F1B5C /* GeminiOCRService.swift */,
 				0C4728BB0F273F145E4D4DB2 /* HotkeyService.swift */,
 				BA4DFB7481EC57847B2A244A /* HoverActivator.swift */,
 				B2114F9D66F7C2C0537F7F7E /* ImageOCRService.swift */,
@@ -448,6 +451,7 @@
 				BD41AD52A5D114B6148B8E88 /* FilesGridView.swift in Sources */,
 				7633A806C1D9674E27061185 /* HotkeyService.swift in Sources */,
 				716A2C5BE1E45C55CF28EC5C /* HoverActivator.swift in Sources */,
+				9E3A2F1B5C8D4E7F60214A35 /* GeminiOCRService.swift in Sources */,
 				77B8B5813C759AAB081120D6 /* ImageOCRService.swift in Sources */,
 				C70A5360450254FB8A93100F /* ImageStore.swift in Sources */,
 				8F1E0C1C56B34BA5A69F027B /* ImagesGridView.swift in Sources */,
