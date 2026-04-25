@@ -85,12 +85,52 @@ struct SettingsView: View {
 }
 
 enum SettingsWindow {
+    /// Surface the SwiftUI `Settings` scene from imperative code (e.g. an
+    /// `NSAlert` button callback). For SwiftUI-button call sites prefer
+    /// `SettingsLink` directly — it talks to the same scene through the
+    /// proper SwiftUI environment plumbing instead of guessing at the
+    /// responder chain.
+    ///
+    /// Why this is more careful than `NSApp.sendAction(...)` alone: on
+    /// `LSUIElement = true` apps the panel is an `NSPanel`, never the
+    /// main window, so the standard selector dispatch starting at
+    /// `NSApp.mainWindow` finds nobody to handle `showSettingsWindow:`
+    /// and the click silently no-ops. Sending the action with
+    /// `to: NSApp.delegate` falls back to the application's responder
+    /// chain, where SwiftUI's Settings-scene plumbing actually lives.
+    /// The post-dispatch window scan is the ultimate belt-and-suspenders
+    /// — if a Settings window already exists from a prior open, we just
+    /// bring it forward rather than fire-and-forget.
     static func open() {
-        NSApp.activate(ignoringOtherApps: true)
         if #available(macOS 14, *) {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            NSApp.activate()
         } else {
-            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+
+        let selector = if #available(macOS 14, *) {
+            Selector(("showSettingsWindow:"))
+        } else {
+            Selector(("showPreferencesWindow:"))
+        }
+
+        // Try the standard responder chain first; if nobody handles
+        // it (LSUIElement quirk), retarget at the app delegate which
+        // hosts the SwiftUI Scene tree.
+        if !NSApp.sendAction(selector, to: nil, from: nil) {
+            NSApp.sendAction(selector, to: NSApp.delegate, from: nil)
+        }
+
+        // Some macOS versions create the Settings window async after
+        // the action fires. Hop one runloop turn, then make sure the
+        // window is actually visible and frontmost.
+        DispatchQueue.main.async {
+            for window in NSApp.windows
+            where window.title == "Settings"
+                || window.title == "Preferences"
+                || window.title == "Notetaker Settings" {
+                window.makeKeyAndOrderFront(nil)
+            }
         }
     }
 }

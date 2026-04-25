@@ -421,17 +421,41 @@ private struct SettingsButton: View {
     @State private var isHovered = false
 
     var body: some View {
-        Button(action: { SettingsWindow.open() }) {
-            Image(systemName: "gearshape")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(isHovered ? DS.Color.textSecondary : DS.Color.textTertiary)
-                .frame(width: 20, height: 20)
-                .contentShape(Rectangle())
+        // `SettingsLink` (macOS 14+) is the canonical way to open the
+        // SwiftUI `Settings` scene — it goes through the proper
+        // environment plumbing instead of guessing at the responder
+        // chain via `NSApp.sendAction(...)`. The earlier imperative
+        // call silently no-oped on this LSUIElement app because the
+        // panel isn't a main/key window, so the action selector
+        // couldn't find a handler. The legacy fallback below is a
+        // courtesy for macOS 13 (technically still our deployment
+        // target, though we expect ~zero users on it).
+        Group {
+            if #available(macOS 14, *) {
+                SettingsLink {
+                    gearGlyph
+                }
+                .buttonStyle(.plain)
+            } else {
+                Button {
+                    SettingsWindow.open()
+                } label: {
+                    gearGlyph
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .buttonStyle(.plain)
         .onHover { hovering in
             withAnimation(.rowHover) { isHovered = hovering }
         }
+    }
+
+    private var gearGlyph: some View {
+        Image(systemName: "gearshape")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(isHovered ? DS.Color.textSecondary : DS.Color.textTertiary)
+            .frame(width: 20, height: 20)
+            .contentShape(Rectangle())
     }
 }
 
