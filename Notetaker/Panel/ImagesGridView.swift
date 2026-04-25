@@ -225,10 +225,18 @@ struct ImagesGridView: View {
         .frame(width: 60, height: 60)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .overlay(
+            // Brighter rim helps the top edge of each card pop against
+            // the card directly underneath it — without it, the cards
+            // visually melt into each other once shadows get heavy.
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.22), lineWidth: 0.8)
+                .strokeBorder(Color.white.opacity(0.32), lineWidth: 0.8)
         )
-        .shadow(color: Color.black.opacity(0.35), radius: 3, y: 1)
+        // Doubled-up shadow: a soft far one for depth + a tight close
+        // one for that "card resting on a card" contact edge. Single
+        // shadows looked muddy here because each card's blur landed on
+        // top of the card below, washing it out.
+        .shadow(color: Color.black.opacity(0.55), radius: 7, y: 4)
+        .shadow(color: Color.black.opacity(0.35), radius: 1.5, y: 1)
     }
 
     private var emptyState: some View {
@@ -412,12 +420,21 @@ struct ImageCell: View {
                 .opacity(isHovered || justCopied ? 1 : 0)
                 .animation(.rowHover, value: isHovered || justCopied)
         }
+        // Subtle per-tile drop shadow so a grid full of images reads as
+        // discrete elevated cards instead of a flat patchwork. Hover
+        // bumps the shadow a touch to confirm the tile is interactive.
+        .shadow(
+            color: Color.black.opacity(isHovered ? 0.40 : 0.28),
+            radius: isHovered ? 6 : 4,
+            y: isHovered ? 3 : 2
+        )
         .contentShape(Rectangle())
         .onTapGesture { onTap() }
         .onHover { hovering in
             withAnimation(.rowHover) { isHovered = hovering }
         }
         .animation(.rowHover, value: isSelected)
+        .animation(.rowHover, value: isHovered)
     }
 
     private var copyButton: some View {

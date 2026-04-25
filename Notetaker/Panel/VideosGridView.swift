@@ -493,7 +493,15 @@ private struct InlineVideoPlayer: View {
         ZStack(alignment: .topTrailing) {
             Group {
                 if let player {
-                    VideoPlayer(player: player)
+                    // We host AVPlayerView via NSViewRepresentable instead
+                    // of using SwiftUI's `VideoPlayer`. On macOS 26.4 the
+                    // runtime crashes inside `VideoPlayer` with "failed to
+                    // demangle superclass of VideoPlayerView from mangled
+                    // name 'So12AVPlayerViewC'" — nothing in our binary
+                    // references AVPlayerView directly, so the metadata
+                    // chain doesn't resolve. Owning the AVPlayerView
+                    // ourselves links the symbol and dodges the crash.
+                    AVPlayerHost(player: player)
                 } else {
                     Rectangle().fill(Color.black)
                 }
@@ -543,6 +551,32 @@ private struct InlineVideoPlayer: View {
         let h = CGFloat(record.height ?? 0)
         guard w > 0, h > 0 else { return 16.0 / 9.0 }
         return w / h
+    }
+}
+
+/// Hosts an `AVPlayerView` directly so SwiftUI's `VideoPlayer`-induced
+/// metadata crash on macOS 26.4 is avoided. See call site for the full
+/// crash signature; the short version is that owning an `AVPlayerView`
+/// instance from our own code forces the linker to retain the class
+/// symbol and the runtime can demangle the superclass.
+private struct AVPlayerHost: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let v = AVPlayerView()
+        v.player = player
+        v.controlsStyle = .inline
+        v.videoGravity = .resizeAspect
+        v.allowsPictureInPicturePlayback = false
+        v.showsFullScreenToggleButton = false
+        v.showsTimecodes = false
+        return v
+    }
+
+    func updateNSView(_ nsView: AVPlayerView, context: Context) {
+        if nsView.player !== player {
+            nsView.player = player
+        }
     }
 }
 
