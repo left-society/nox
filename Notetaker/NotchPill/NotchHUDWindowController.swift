@@ -301,6 +301,48 @@ final class NotchHUDWindowController {
         }
     }
 
+    /// Refresh the displayed presentation WITHOUT re-blooming. Used
+    /// when the underlying info changes but the user-visible "this is
+    /// a new event" semantics don't apply — primarily artwork landing
+    /// from the iTunes Search fallback after the title/artist already
+    /// rendered.
+    ///
+    /// Without this path, the orchestrator's "only bloom on title or
+    /// play-state change" dedup blocks artwork-only updates from ever
+    /// reaching the SwiftUI tree — which is why the user reported "no
+    /// music thumbnail on the live thing." YouTube tabs don't carry
+    /// artwork in MediaRemote's dict, so the first publish lands with
+    /// `artworkData == nil` and the iTunes lookup fills it in seconds
+    /// later. Without an update path, that fill never makes it to the
+    /// pill.
+    ///
+    /// Two things this method DOES NOT do compared to `show(_:)`:
+    ///   - No `cancelTimers` / `scheduleAutoHide` round-trip — the
+    ///     timer the bloom set up is still appropriate for the same
+    ///     track. Resetting it would extend "auto-hide in 6s" every
+    ///     time artwork lands, which feels wrong.
+    ///   - No `panel.orderFrontRegardless` — the panel is already on
+    ///     screen by definition; re-fronting can briefly steal the
+    ///     pointer focus on some macOS versions.
+    ///
+    /// If the panel is hidden when this is called, we silently bail.
+    /// Reviving a collapsed pill on artwork arrival would be more
+    /// surprising than helpful — if the user dismissed it, they don't
+    /// want it back without a fresh user-visible event.
+    func updateContent(_ presentation: NotchPresentation) {
+        guard panel.isVisible else { return }
+        // Same case match — refuse to swap kinds via this path; that's
+        // a real presentation change and should go through show().
+        switch (state.presentation, presentation) {
+        case (.nowPlaying, .nowPlaying):
+            state.presentation = presentation
+        case (.charging, .charging):
+            state.presentation = presentation
+        default:
+            return
+        }
+    }
+
     // MARK: - Internals
 
     /// Pick the right auto-hide delay and arm the timer. Two cases

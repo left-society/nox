@@ -344,11 +344,78 @@ final class MediaRemoteService {
 
     // MARK: - Commands
 
-    /// Fire a media command at whichever app currently owns the
-    /// now-playing slot. Returns silently if the symbol wasn't
-    /// resolved (e.g. on a future macOS that locks it down).
+    /// Fire a media command at the SAME app whose info we're currently
+    /// displaying. The user reported "when I pause it pauses a different
+    /// app than the one playing" — that's because
+    /// `MRMediaRemoteSendCommand` routes to whichever app MediaRemote
+    /// considers the system "primary" client, and that client can drift
+    /// from the one publishing the info we're showing (Spotify is paused
+    /// but Music has the slot, etc.).
+    ///
+    /// The fix: when the displayed track came from an app with a
+    /// well-known AppleScript dictionary (Spotify, Apple Music — both
+    /// inherited the pre-iTunes-rename API), drive that specific app
+    /// directly. AppleScript naming is stable across decades, can't be
+    /// "stolen" by another app holding the system media slot, and runs
+    /// without any private-framework entitlements.
+    ///
+    /// For unknown source apps (Safari/YouTube tabs, Chrome/Arc, podcast
+    /// clients without a stable AppleScript surface), fall through to
+    /// `MRMediaRemoteSendCommand`. It's not perfect, but for those
+    /// sources MediaRemote is usually the only signal we have, so they
+    /// already are the system primary by definition.
     func send(_ command: Command) {
-        _ = sendCommand?(command.rawValue, nil)
+        let bundleID = lastInfo?.sourceBundleID
+        switch bundleID {
+        case "com.spotify.client":
+            runAppleScript(forApp: "Spotify", command: command)
+        case "com.apple.Music":
+            runAppleScript(forApp: "Music", command: command)
+        default:
+            // Unknown / nil source — best-effort MediaRemote fallback.
+            // This is the path Safari + Chrome tabs end up on.
+            _ = sendCommand?(command.rawValue, nil)
+        }
+    }
+
+    /// Run a play/pause/skip command via AppleScript against a specific
+    /// app. Both Spotify and Apple Music expose the same verbs in their
+    /// AppleScript dictionary — `play`, `pause`, `playpause`,
+    /// `next track`, `previous track`. Spotify inherited this API from
+    /// iTunes back when it was the de-facto music app on macOS, and
+    /// Apple kept it stable through the iTunes → Music rename, so a
+    /// single helper handles both apps.
+    ///
+    /// The first invocation in a session triggers a system permission
+    /// prompt ("Notetaker would like to control \"Spotify\""). The user
+    /// has to grant it once; afterwards macOS remembers in System
+    /// Settings → Privacy → Automation. We surface the failure as a
+    /// log line rather than a UI error because the alternative path
+    /// (MediaRemote) usually still works for the same track — just
+    /// imprecisely — so a denied prompt isn't a hard break.
+    private func runAppleScript(forApp app: String, command: Command) {
+        let verb: String
+        switch command {
+        case .play: verb = "play"
+        case .pause: verb = "pause"
+        case .togglePlayPause: verb = "playpause"
+        case .stop: verb = "pause"            // both apps lack stop; pause is the closest behavior
+        case .next: verb = "next track"
+        case .previous: verb = "previous track"
+        }
+        let source = "tell application \"\(app)\" to \(verb)"
+        guard let script = NSAppleScript(source: source) else {
+            NSLog("Notetaker: AppleScript construction failed for \(app)/\(verb)")
+            return
+        }
+        var error: NSDictionary?
+        script.executeAndReturnError(&error)
+        if let error {
+            NSLog("Notetaker: AppleScript error for \(app)/\(verb): \(error)")
+            // Fall back to MediaRemote so a denied automation prompt
+            // doesn't leave the user with totally-broken transport.
+            _ = sendCommand?(command.rawValue, nil)
+        }
     }
 
     // MARK: - State refresh
@@ -468,7 +535,40 @@ final class MediaRemoteService {
     }
 
     private func publish(_ info: NowPlayingInfo) {
-        NSLog("Notetaker: MediaRemote.publish title=\"\(info.title)\" artist=\"\(info.artist)\" isPlaying=\(info.isPlaying) hasArt=\(info.artworkData != nil)")
+        // Inherit sourceBundleID from lastInfo when the new info doesn't
+        // carry one but it's clearly the same track. Without this, the
+        // app-notification path publishes with sourceBundleID set
+        // ("com.spotify.client"), then a follow-up MediaRemote refresh
+        // for the same track publishes with sourceBundleID=nil and
+        // OVERWRITES the good ID — leaving send() with nothing to route
+        // commands against. The user's "pause hits a different app"
+        // bug is downstream of this clobber.
+        //
+        // We only inherit when title and artist match, so a real track
+        // change still resets the source. Empty-payload publishes
+        // (clears) skip this — they take the "nothing playing" branch
+        // below.
+        var info = info
+        if info.sourceBundleID == nil,
+           let last = lastInfo,
+           last.sourceBundleID != nil,
+           !info.title.isEmpty,
+           info.title == last.title,
+           info.artist == last.artist {
+            info = NowPlayingInfo(
+                title: info.title,
+                artist: info.artist,
+                album: info.album,
+                artworkData: info.artworkData,
+                isPlaying: info.isPlaying,
+                sourceBundleID: last.sourceBundleID,
+                duration: info.duration,
+                elapsedTime: info.elapsedTime,
+                infoTimestamp: info.infoTimestamp
+            )
+        }
+
+        NSLog("Notetaker: MediaRemote.publish title=\"\(info.title)\" artist=\"\(info.artist)\" isPlaying=\(info.isPlaying) hasArt=\(info.artworkData != nil) source=\(info.sourceBundleID ?? "nil")")
         // Dedup — many notifications fire spurious refreshes (every
         // ~1s for elapsed-time updates on some sources). Without this
         // check the HUD would re-bloom every second during playback.

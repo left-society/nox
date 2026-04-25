@@ -214,8 +214,29 @@ final class NotchOrchestrator {
             || info.artist != lastNowPlaying?.artist
         let playStateChanged = info.isPlaying != (lastNowPlaying?.isPlaying ?? !info.isPlaying)
         NSLog("Notetaker: orchestrator nowPlaying titleChanged=\(titleChanged) playStateChanged=\(playStateChanged) isPlaying=\(info.isPlaying)")
-        guard titleChanged || playStateChanged else { return }
 
-        hudController.show(presentation: .nowPlaying(info))
+        if titleChanged || playStateChanged {
+            // Real user-visible event — bloom the HUD (or re-bloom
+            // with the new info if it's already up).
+            hudController.show(presentation: .nowPlaying(info))
+            return
+        }
+
+        // Same track, same play-state — but something else changed.
+        // The most common case is artwork-only updates: YouTube tabs
+        // and Spotify's app-notification path both publish without
+        // artwork bytes, then a later `fetchArtworkIfNeeded` lookup
+        // fills it in. We want that fresh artwork to reach the SwiftUI
+        // tree (so the pill's gradient backdrop colors-up from the
+        // album art), but without re-blooming — that would feel like
+        // a stutter for what's logically the same now-playing state.
+        //
+        // sourceBundleID can also flip here: the app-notification
+        // path publishes "com.spotify.client", and a subsequent
+        // MediaRemote dict refresh used to clobber it to nil. We've
+        // since taught publish() to inherit, but the same code path
+        // also handles cases where MediaRemote eventually publishes
+        // a real source ID for a track that initially landed with nil.
+        hudController.updateContent(.nowPlaying(info))
     }
 }
