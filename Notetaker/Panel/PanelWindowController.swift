@@ -12,14 +12,18 @@ private final class KeyablePanel: NSPanel {
     /// i.e. ABOVE the menu bar, with the upper portion of the panel
     /// hidden BEHIND the notch hardware and menu strip. Without this
     /// override, AppKit silently snaps the y-origin we set in
-    /// `originUnderNotch` back down by `safeAreaInsets.top` (~37pt),
-    /// and the panel renders as a floating block in the middle of the
-    /// screen instead of bleeding out of the notch.
+    /// `closedPillFrame` / `openSlabFrame` back down by
+    /// `safeAreaInsets.top` (~37pt), and the panel renders as a
+    /// floating block in the middle of the screen instead of bleeding
+    /// out of the notch.
     ///
     /// Returning the rect unchanged hands frame ownership entirely to
     /// us — the cost is that we're responsible for keeping the panel
     /// somewhere reasonable on screen, which we already do via
-    /// `originUnderNotch(for:)`.
+    /// `closedPillFrame(for:)` and `openSlabFrame(for:)`. This matters
+    /// during the morph too: `panel.animator().setFrame(...)` calls
+    /// inside `animateOpen` / `animateClose` would otherwise be
+    /// clamped per-frame, breaking the smooth bloom.
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         return frameRect
     }
@@ -71,6 +75,27 @@ final class PanelWindowController {
     /// expanded card on iPhone — the visual cue users associate most
     /// strongly with "notch HUD" surfaces.
     static let innerCornerRadius: CGFloat = 34
+    /// Closed-pill geometry. The morph is now driven entirely by
+    /// `NSAnimationContext.runAnimationGroup` animating
+    /// `panel.animator().setFrame(...)` between these two frames — pure
+    /// Core Animation, GPU-driven. SwiftUI inside the panel is STATIC
+    /// during the morph (no `.animation(value:)` on width/height/radius),
+    /// so body re-evaluation cost during the bloom is zero. The visible
+    /// silhouette change (wide-pill bottom curve → tall slab with subtle
+    /// rounding) comes for free from SwiftUI re-clipping `Color.black`
+    /// with a fixed-radius `UnevenRoundedRectangle` against the morphing
+    /// NSHostingView bounds — no shape rebuild per frame, no path-data
+    /// interpolation. This pattern is lifted from ComfyNotch's
+    /// `ScrollOpening.swift` (open-source notch HUD), which we
+    /// benchmarked against after the user said the previous SwiftUI-
+    /// only morph was "not even close to smooth."
+    static let closedPillWidth: CGFloat = 200
+    /// How far the closed pill extends below the menu-bar bottom. The
+    /// upper `notchOverlap` portion of the panel sits BEHIND the menu
+    /// bar / notch hardware; only this 14pt bump is visible on screen,
+    /// reading as the notch hardware itself growing a tiny black
+    /// blister rather than a separate window dropping below the bar.
+    static let closedPillBump: CGFloat = 14
     private static let edgeGap: CGFloat = 10
     private static let topGap: CGFloat = 40
     /// True Alcove-style placement: the NSPanel's TOP edge sits AT the
@@ -123,7 +148,16 @@ final class PanelWindowController {
     private var hoverLocalMonitor: Any?
     private var hoverHasEnteredPanel = false
     private var hoverLeaveWorkItem: DispatchWorkItem?
-    private var hideWorkItem: DispatchWorkItem?
+    /// Bumped every time `animateOpen` / `animateClose` start a new
+    /// morph. NSAnimationContext can't be cancelled — once started, the
+    /// completion handler chain runs to completion. This token lets us
+    /// detect "I'm a stale completion handler from a morph that was
+    /// superseded by a newer one" and skip our work. Without it, a
+    /// fast close-then-open would see the close's recoil completion
+    /// fire AFTER the new open started — and since the close's recoil
+    /// calls `panel.animator().setFrame(pillFrame)`, it would drag the
+    /// panel back to pill mid-bloom.
+    private var animationGeneration: UInt64 = 0
     /// `NSPasteboard.general.changeCount` captured at the last hide().
     /// Initialized to -1 so the very first show() always evaluates the
     /// clipboard. Updated on every hide() so we only re-route when
@@ -251,8 +285,6 @@ final class PanelWindowController {
 
     func show(mode: OpenMode = .click) {
         openMode = mode
-        hideWorkItem?.cancel()
-        hideWorkItem = nil
 
         // Smart auto-routing — only fires if the clipboard has
         // changed since the last hide(). Avoids the annoying case
@@ -265,9 +297,21 @@ final class PanelWindowController {
         }
         lastSeenChangeCount = currentCount
 
-        let size = PanelWindowController.panelSize(for: NSScreen.main)
-        panel.setContentSize(size)
-        panel.setFrameOrigin(originUnderNotch(for: size))
+        let screen = NSScreen.main
+        let pillFrame = closedPillFrame(for: screen)
+        let slabFrame = openSlabFrame(for: screen)
+
+        // Position the panel at its CLOSED-pill geometry BEFORE
+        // ordering it front — but only if the panel is not currently
+        // visible (i.e. fresh open after a completed close). If a
+        // close is still in flight (panel mid-shrink, orderOut not yet
+        // fired), DON'T snap it back to the pill frame: that would
+        // cause a visible jump. Instead, let `animateOpen`'s animator
+        // call take over from the panel's current frame — Core
+        // Animation handles the velocity blend smoothly.
+        if !panel.isVisible {
+            panel.setFrame(pillFrame, display: false)
+        }
         panel.alphaValue = 1
         presenter.isShown = false
         panel.orderFrontRegardless()
@@ -280,19 +324,18 @@ final class PanelWindowController {
         // `KeyablePanel.canBecomeKey` is true), so the search bar still
         // accepts input — it just doesn't grab focus the moment we appear.
         let screens = NSScreen.screens.map { "\($0.frame)" }.joined(separator: " | ")
-        NSLog("Notetaker: show() panel.frame=\(panel.frame) main=\(NSScreen.main?.frame ?? .zero) screens=\(screens)")
+        NSLog("Notetaker: show() pill=\(pillFrame) slab=\(slabFrame) main=\(NSScreen.main?.frame ?? .zero) screens=\(screens)")
 
-        // Hold the pill state for ~50ms BEFORE flipping isShown.
-        // Without a hold the pill shows for a single runloop tick and
-        // the user just sees a slab drop into place; the "emerging
-        // from the notch" cue is lost. 50ms (≈ 6 frames at 120Hz) is
-        // the minimum that still registers as a deliberate two-stage
-        // bloom. Earlier 90ms felt like an artificial delay before
-        // the panel responded.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.presenter.isShown = true
-        }
         isVisible = true
+
+        // Start the pure-Core-Animation morph. NSAnimationContext drives
+        // panel.animator().setFrame at the window-server level — GPU-
+        // accelerated, no SwiftUI body re-evaluation per frame. The
+        // animateOpen helper flips presenter.isShown=true in the seam
+        // between dive and recoil so SwiftUI's content fade-in (~0.16s)
+        // overlaps the recoil settle (~0.20s) — content "arrives as the
+        // panel finishes blooming," matching the perception target.
+        animateOpen(to: slabFrame)
 
         clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
@@ -424,20 +467,22 @@ final class PanelWindowController {
         // the user copied something new in between.
         lastSeenChangeCount = NSPasteboard.general.changeCount
         removeMonitors()
+        // Flip isShown FIRST so SwiftUI tears down the heavy content
+        // tree (header / segmented / grid / shadow) before the morph
+        // begins. The shrink runs over an empty Color.black slab, not
+        // a still-laying-out tab tree — that's what kills the squish-
+        // during-shrink stutter the user reported earlier.
         presenter.isShown = false
         isVisible = false
 
-        let item = DispatchWorkItem { [weak self] in
-            self?.panel.orderOut(nil)
-        }
-        hideWorkItem = item
-        // 0.36s matches the close spring (.spring(response: 0.32,
-        // dampingFraction: 0.94)) — close finishes ~4 frames after
-        // the spring's nominal response time. Yanking earlier shows
-        // a snap-cut as the panel disappears mid-collapse; waiting
-        // longer leaves an invisible window in front of clicks for
-        // no visual benefit.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.36, execute: item)
+        // Pure-CA close: dive past the pill into a slight undershoot,
+        // then recoil up to the resting pill frame. orderOut fires in
+        // the recoil completion handler so the panel disappears
+        // exactly as the morph settles — no invisible window left in
+        // front of clicks, no premature snap-cut mid-shrink.
+        let screen = panel.screen ?? NSScreen.main
+        let pillFrame = closedPillFrame(for: screen)
+        animateClose(to: pillFrame)
     }
 
     /// ⌘N quick paste — copies the Nth visible item of the currently
@@ -572,38 +617,167 @@ final class PanelWindowController {
         panel.acceptsMouseMovedEvents = false
     }
 
-    private func originOnRightEdge(for size: NSSize) -> NSPoint {
-        let screen = NSScreen.main
-        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        // Right edge of the OUTER panel lands at the same gap from the
-        // screen edge as before — the inner panel is anchored trailing
-        // and stays at exactly the same screen position. The y origin
-        // shifts up by `haloPadding` so the inner panel's TOP also stays
-        // put; only the halo zone extends further upward (within the
-        // visibleFrame, which excludes the menu bar).
-        let x = visible.maxX - size.width - PanelWindowController.edgeGap
-        let y = visible.maxY - size.height
-            - PanelWindowController.topGap
-            + PanelWindowController.haloPadding
-        return NSPoint(x: x, y: y)
+    // MARK: - Morph frames
+
+    /// Closed-pill frame: a 200pt-wide bump centered horizontally below
+    /// the notch, with the upper `notchOverlap` portion sitting BEHIND
+    /// the menu bar / notch hardware. Only the bottom `closedPillBump`
+    /// (14pt) is visible on screen.
+    private func closedPillFrame(for screen: NSScreen?) -> NSRect {
+        let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let overlap = PanelWindowController.notchOverlap(for: screen)
+        let height = overlap + PanelWindowController.closedPillBump
+        let width = PanelWindowController.closedPillWidth
+        return NSRect(
+            x: frame.midX - width / 2,
+            y: frame.maxY - height,
+            width: width,
+            height: height
+        )
     }
 
-    /// True Alcove placement: NSPanel TOP at the SCREEN top (frame.maxY),
-    /// not the menu-bar bottom. The upper `safeAreaInsets.top` portion
-    /// of the panel sits ABOVE the menu bar — physically hidden behind
-    /// the notch hardware and the menu bar strip. SwiftUI offsets the
-    /// content downward by the same amount so the header, tabs, and
-    /// grid still appear below the menu bar. Net effect: the visible
-    /// silhouette starts INSIDE the notch and grows DOWN from there,
-    /// instead of dropping out from below the menu bar.
-    private func originUnderNotch(for size: NSSize) -> NSPoint {
-        let screen = NSScreen.main
+    /// Open-slab frame: the full HUD silhouette. Same upper-edge
+    /// anchoring as the pill — the top sits at screen.frame.maxY so the
+    /// notch-overlap portion stays hidden, and only the
+    /// `innerPanelHeight` (480pt) bump emerges below the menu bar.
+    private func openSlabFrame(for screen: NSScreen?) -> NSRect {
         let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let x = frame.midX - size.width / 2
-        // panel.frame.y is the NSPanel's BOTTOM in screen coords; we want
-        // its TOP at frame.maxY (the very top of the display). Top = y +
-        // size.height, so y = frame.maxY - size.height.
-        let y = frame.maxY - size.height
-        return NSPoint(x: x, y: y)
+        let overlap = PanelWindowController.notchOverlap(for: screen)
+        let height = overlap + PanelWindowController.innerPanelHeight
+        let width = PanelWindowController.innerPanelWidth
+        return NSRect(
+            x: frame.midX - width / 2,
+            y: frame.maxY - height,
+            width: width,
+            height: height
+        )
+    }
+
+    // MARK: - Two-stage Core Animation morph
+    //
+    // ComfyNotch's `ScrollOpening.swift` (open-source notch HUD) uses
+    // exactly this pattern: NSAnimationContext.runAnimationGroup with
+    // `panel.animator().setFrame(...)` for the geometry change. It's
+    // pure Core Animation at the window-server level — GPU-driven, no
+    // SwiftUI body re-evaluation per frame, no Metal/CALayer
+    // reconfiguration. Two-stage dive/recoil emulates a spring without
+    // the unpredictability of CASpringAnimation: a "dive" phase
+    // overshoots the target by 2pt, then a "recoil" phase settles back
+    // to the resting frame. Cubic-bezier control points push past 1.0
+    // (e.g. y=1.2 in the dive curve) for the overshoot kick; the
+    // recoil curve uses an even stronger early-bias control point
+    // (y=1.8) so the settle arrives quickly without a visible bounce.
+
+    private func animateOpen(to target: NSRect) {
+        animationGeneration &+= 1
+        let myGen = animationGeneration
+
+        // 2pt overshoot in width and height. The frame is anchored at
+        // `screen.frame.maxY` (top edge) so we extend `down` (smaller y)
+        // for the height overshoot, and outward symmetrically (smaller
+        // minX, larger maxX) for the width overshoot.
+        let overshoot: CGFloat = 2
+        let overFrame = NSRect(
+            x: target.minX - overshoot / 2,
+            y: target.minY - overshoot,
+            width: target.width + overshoot,
+            height: target.height + overshoot
+        )
+
+        let diveDuration: TimeInterval = 0.25
+        let recoilDuration: TimeInterval = 0.20
+        // Dive curve overshoots: y2=1.2 means the curve passes ABOVE
+        // the linear interpolation, kicking the panel past `target` to
+        // `overFrame` with a hint of momentum.
+        let diveCurve = CAMediaTimingFunction(controlPoints: 0.2, 1.2, 0.4, 1.0)
+        // Recoil curve has a strong early bias (y2=1.8) so the settle
+        // arrives quickly without a visible second bounce — reads as
+        // "lands cleanly," not "wobbles."
+        let recoilCurve = CAMediaTimingFunction(controlPoints: 0.6, 1.8, 0.4, 1.0)
+
+        // No `panel.setFrame(start, display: false)` here — show()
+        // already positioned the panel at the pill frame (only when the
+        // panel was not visible). Calling animator().setFrame from the
+        // panel's CURRENT frame is what gives us free handover when a
+        // re-open lands mid-close: the animator blends from wherever
+        // the close had reached.
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = diveDuration
+            ctx.timingFunction = diveCurve
+            ctx.allowsImplicitAnimation = true
+            self.panel.animator().setFrame(overFrame, display: true)
+        }, completionHandler: { [weak self] in
+            guard let self, self.animationGeneration == myGen else { return }
+            // Flip isShown=true at the seam between dive and recoil.
+            // SwiftUI's 0.16s content fade-in then runs in parallel
+            // with the 0.20s recoil settle — the user sees content
+            // "arrive as the panel finishes blooming," not "after."
+            self.presenter.isShown = true
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = recoilDuration
+                ctx.timingFunction = recoilCurve
+                ctx.allowsImplicitAnimation = true
+                self.panel.animator().setFrame(target, display: true)
+            }, completionHandler: { [weak self] in
+                guard let self, self.animationGeneration == myGen else { return }
+                // Snap the frame exactly to target. Core Animation can
+                // leave sub-pixel residuals after a recoil; an explicit
+                // setFrame fixes that without a visible jump.
+                self.panel.setFrame(target, display: true)
+            })
+        })
+    }
+
+    private func animateClose(to target: NSRect) {
+        animationGeneration &+= 1
+        let myGen = animationGeneration
+
+        // 2pt undershoot in width and height — mirror image of the
+        // open dive. The frame is anchored at the top (the upper
+        // notch-overlap portion stays hidden behind the menu bar), so
+        // shrinking means smaller width AND smaller height with `y`
+        // moving UP (larger minY) to keep the top edge pinned.
+        let undershoot: CGFloat = 2
+        let underFrame = NSRect(
+            x: target.minX + undershoot / 2,
+            y: target.minY + undershoot,
+            width: target.width - undershoot,
+            height: target.height - undershoot
+        )
+
+        // Close is faster than open. ComfyNotch uses 0.20s + 0.15s
+        // (we mirror that). Dynamic Island's collapse is also visibly
+        // tighter than its bloom — a slow close reads as "panel
+        // dragging its feet" once the user has decided to dismiss.
+        let diveDuration: TimeInterval = 0.20
+        let recoilDuration: TimeInterval = 0.15
+        // Close curves emphasize ease-out without overshoot — the
+        // panel should "snap back into the notch," not bounce.
+        let diveCurve = CAMediaTimingFunction(controlPoints: 0.65, 1.0, 0.5, 1.0)
+        let recoilCurve = CAMediaTimingFunction(controlPoints: 0.75, 1.0, 0.8, 1.0)
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = diveDuration
+            ctx.timingFunction = diveCurve
+            ctx.allowsImplicitAnimation = true
+            self.panel.animator().setFrame(underFrame, display: true)
+        }, completionHandler: { [weak self] in
+            guard let self, self.animationGeneration == myGen else { return }
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = recoilDuration
+                ctx.timingFunction = recoilCurve
+                ctx.allowsImplicitAnimation = true
+                self.panel.animator().setFrame(target, display: true)
+            }, completionHandler: { [weak self] in
+                guard let self, self.animationGeneration == myGen else { return }
+                // orderOut in the completion handler so the panel
+                // disappears exactly as the morph settles — no
+                // invisible window left intercepting clicks, no
+                // visible snap-cut mid-shrink.
+                self.panel.setFrame(target, display: true)
+                self.panel.orderOut(nil)
+            })
+        })
     }
 }
