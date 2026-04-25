@@ -265,6 +265,21 @@ final class ImageStore: ObservableObject {
         images = []
     }
 
+    /// Soft-delete a single image. The retention service eventually
+    /// purges trashed rows + their files; doing it lazily here keeps
+    /// the click cheap (no disk I/O) and lets us undo trivially in a
+    /// future "Recently Deleted" view if we want one.
+    func trash(id: String) throws {
+        let now = Date().timeIntervalSince1970
+        try db.dbQueue.write { conn in
+            try conn.execute(
+                sql: "UPDATE images SET status = 'trashed', trashed_at = ? WHERE id = ?",
+                arguments: [now, id]
+            )
+        }
+        images.removeAll { $0.id == id }
+    }
+
     // MARK: - Helpers
 
     // Scans the most recent active images and returns the first one whose

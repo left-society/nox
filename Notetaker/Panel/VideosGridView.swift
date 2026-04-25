@@ -66,6 +66,13 @@ struct VideosGridView: View {
                                             }
                                         )
                                     )
+                                    // Trash overlay layered AFTER the drag source so
+                                    // SwiftUI hit-tests it first — otherwise the
+                                    // MultiFileDragSource NSView swallows the click
+                                    // and the trash button never fires.
+                                    .overlay(alignment: .topLeading) {
+                                        videoTrashButton(for: record)
+                                    }
                                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
                             }
                         }
@@ -79,6 +86,15 @@ struct VideosGridView: View {
             .scrollIndicators(.never)
         }
         .background(shortcuts)
+        // Collapse the inline player if the video being played got
+        // deleted (per-cell trash, bulk Clear, retention purge…).
+        // Without this the player keeps showing a stale frame for a
+        // record that no longer exists.
+        .onChange(of: env.videoStore.videos.map(\.id)) { ids in
+            if let playing = playingRecord, !ids.contains(playing.id) {
+                withAnimation(.selection) { playingRecord = nil }
+            }
+        }
         .alert("Clear all videos?", isPresented: $showClearConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Clear", role: .destructive) {
@@ -87,6 +103,23 @@ struct VideosGridView: View {
         } message: {
             Text("This removes all \(env.videoStore.videos.count) videos from the panel.")
         }
+    }
+
+    private func videoTrashButton(for record: VideoRecord) -> some View {
+        Button {
+            try? env.videoStore.trash(id: record.id)
+        } label: {
+            Image(systemName: "trash.fill")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Color.white)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.black.opacity(0.72)))
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .padding(6)
+        .help("Delete video")
     }
 
     private var toolbar: some View {

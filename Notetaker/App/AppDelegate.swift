@@ -173,7 +173,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // one of those.
         if Self.isEditorContext() { return }
 
-        let text = NSPasteboard.general.string(forType: .string)
+        let pb = NSPasteboard.general
+
+        // Image clipboard FIRST — Ctrl+Shift+Cmd+3/4 (macOS clipboard
+        // screenshot) and "copy image" from browsers don't write a file,
+        // so the FSEvents screenshot watcher never sees them. Catch them
+        // here so the auto-save behavior matches what the user expects:
+        // capture → cell shows up immediately, no extra clicks needed.
+        if let pngData = pb.data(forType: .png) {
+            saveClipboardImage(env: env, data: pngData, mime: "image/png")
+            panel.showOnTab(.images)
+            return
+        }
+        if let tiffData = pb.data(forType: .tiff),
+           let pngData = Self.tiffToPNG(tiffData) {
+            saveClipboardImage(env: env, data: pngData, mime: "image/png")
+            panel.showOnTab(.images)
+            return
+        }
+
+        let text = pb.string(forType: .string)
         if let text = text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             if env.noteStore.notes.contains(where: { $0.body == text }) {
                 if !panel.isVisible { panel.show() }
@@ -189,6 +208,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !panel.isVisible {
             panel.show()
         }
+    }
+
+    /// Routes a clipboard image into the same deferred-save path that
+    /// file screenshots use, so the user gets the inflight cell + spinner
+    /// regardless of how the screenshot was captured.
+    private func saveClipboardImage(env: AppEnvironment, data: Data, mime: String) {
+        let now = Date().timeIntervalSince1970
+        let id = env.imageStore.saveImageDeferred(
+            data: data,
+            mimeType: mime,
+            noteId: nil,
+            source: "screenshot-clipboard",
+            expiresAt: now + soloTTL
+        )
+        // Treat clipboard screenshots as part of the same burst window
+        // as file screenshots — two captures in 3s either way means the
+        // user is intentionally collecting and we should drop the TTL.
+        recentScreenshots.removeAll { now - $0.time > burstWindow }
+        recentScreenshots.append((time: now, id: id))
+        if recentScreenshots.count >= burstCount {
+            for entry in recentScreenshots {
+                env.imageStore.clearExpiryDeferred(id: entry.id)
+            }
+        }
+    }
+
+    private static func tiffToPNG(_ data: Data) -> Data? {
+        guard let rep = NSBitmapImageRep(data: data) else { return nil }
+        return rep.representation(using: .png, properties: [:])
     }
 
     private static func isEditorContext() -> Bool {

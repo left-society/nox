@@ -414,6 +414,14 @@ struct ImageCell: View {
                     .transition(.scale.combined(with: .opacity))
             }
         }
+        // Per-cell trash sits in the top-left so it never overlaps the
+        // selection check at top-right. Kept always slightly visible
+        // (opacity 0.55 off-hover, 1.0 on-hover) so clicks register the
+        // instant the cursor lands on it — SwiftUI doesn't have to wait
+        // for a fade-in animation to finish before the hit-test counts.
+        .overlay(alignment: .topLeading) {
+            cellTrashButton
+        }
         .overlay(alignment: .bottomTrailing) {
             copyButton
                 .padding(6)
@@ -462,6 +470,30 @@ struct ImageCell: View {
         .animation(.selection, value: justCopied)
     }
 
+    private var cellTrashButton: some View {
+        Button(action: handleTrash) {
+            Image(systemName: "trash.fill")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Color.white)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.black.opacity(0.72)))
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .padding(6)
+        // No animation on opacity — the button needs to be hittable the
+        // instant the cursor lands on it. Animated fade-ins delay the
+        // visual but not the hit-test, which felt unresponsive in
+        // testing ("clicked but nothing happened").
+        .opacity(isHovered ? 1.0 : 0.55)
+        .help("Delete")
+    }
+
+    private func handleTrash() {
+        try? env.imageStore.trash(id: record.id)
+    }
+
     private func handleCopy() {
         let url = env.imageStore.fullURL(for: record)
         guard let image = NSImage(contentsOf: url) else { return }
@@ -507,20 +539,31 @@ struct InflightImageCell: View {
         .frame(maxWidth: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous))
         .overlay(
-            // Dim + spinner so the cell reads as "still working" without
-            // hiding the preview entirely.
+            // Heavy dim + regular-size spinner + "Saving" caption — the
+            // earlier subtle (32%) dim with a tiny spinner read as a
+            // shadow, not as feedback. Users reported "I don't see the
+            // loading thing." Now it's unambiguous.
             ZStack {
-                Color.black.opacity(0.32)
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.white)
+                Color.black.opacity(0.55)
+                VStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.regular)
+                        .tint(.white)
+                    Text("Saving…")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
             }
             .clipShape(RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous))
         )
         .overlay(
             RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous)
-                .strokeBorder(DS.Color.accent.opacity(0.45), lineWidth: 1)
+                .strokeBorder(DS.Color.accent.opacity(0.55), lineWidth: 1)
         )
+        // Soft accent halo so the inflight cell pops out of a grid full
+        // of finished images — important when the panel opens straight
+        // to images and you need to find which cell is still saving.
+        .shadow(color: DS.Color.accent.opacity(0.35), radius: 5, y: 0)
         .allowsHitTesting(false)
     }
 }
