@@ -139,6 +139,12 @@ final class PanelWindowController {
                 )
                 presenter.activeTab = .images
             },
+            onFile: { [weak presenter, weak environment] urls in
+                guard let presenter, let environment else { return }
+                environment.fileStore.stage(urls: urls)
+                presenter.activeTab = .files
+                NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+            },
             onTargeted: { [weak presenter] flag in
                 presenter?.isDropTargeted = flag
             }

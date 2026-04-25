@@ -17,16 +17,19 @@ import SwiftUI
 final class PanelDropContainer: NSView {
     let onVideo: (VideoDropScanner.Candidate) -> Void
     let onImage: (Data, String) -> Void
+    let onFile: ([URL]) -> Void
     let onTargeted: (Bool) -> Void
 
     init(
         hosting: NSView,
         onVideo: @escaping (VideoDropScanner.Candidate) -> Void,
         onImage: @escaping (Data, String) -> Void,
+        onFile: @escaping ([URL]) -> Void,
         onTargeted: @escaping (Bool) -> Void
     ) {
         self.onVideo = onVideo
         self.onImage = onImage
+        self.onFile = onFile
         self.onTargeted = onTargeted
         super.init(frame: .zero)
         autoresizesSubviews = true
@@ -69,6 +72,17 @@ final class PanelDropContainer: NSView {
             NSLog("Notetaker: drop → image (\(mime), \(data.count) bytes)")
             DispatchQueue.main.async { [weak self] in self?.onImage(data, mime) }
             return true
+        }
+        // Generic file URLs — falls through to the Files tab as a
+        // pure staging operation (we never copy the file, just hold
+        // the URL). Anything that wasn't a video or image goes here.
+        if let urls = pb.readObjects(forClasses: [NSURL.self]) as? [URL] {
+            let fileUrls = urls.filter { $0.isFileURL }
+            if !fileUrls.isEmpty {
+                NSLog("Notetaker: drop → \(fileUrls.count) file(s)")
+                DispatchQueue.main.async { [weak self] in self?.onFile(fileUrls) }
+                return true
+            }
         }
         NSLog("Notetaker: drop → no candidate, rejecting; types=\(pb.types ?? [])")
         return false
