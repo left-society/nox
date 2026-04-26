@@ -167,6 +167,9 @@
   const hoverSection = document.querySelector('.hover-scroll');
   const hoverPath    = document.getElementById('hoverPath');
   const hoverCursor  = document.getElementById('hoverCursor');
+  // Two notch ids are supported: the new `.hmac-notch` inside the
+  // MacBook frame and the legacy floating notch. They share the id
+  // `hoverNotch` — whichever exists is what we drive.
   const hoverNotch   = document.getElementById('hoverNotch');
   const hoverCaption = document.getElementById('hoverCaption');
 

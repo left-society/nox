@@ -961,33 +961,163 @@ code {
   50%      { transform: translateX(-50%) translateY(4px); opacity: 1; }
 }
 
-.hover-scroll-stage {
+/* — focused hover MacBook (smaller sibling of the hero MacBook) — */
+.hmac {
   position: relative;
-  width: min(720px, 90vw);
-  height: min(82vh, 720px);
-  aspect-ratio: 1 / 1;
+  width: min(880px, 92vw);
   margin: 0 auto;
 }
-
-.hover-scroll-caption {
+.hmac-screen {
+  position: relative;
+  aspect-ratio: 16/10;
+  border-radius: 24px 24px 4px 4px;
+  background: #050505;
+  border: 1.5px solid #1a1a1a;
+  border-bottom: 1.5px solid #2a2a2a;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1.5px #0a0a0a inset,
+    0 24px 80px -20px rgba(0,0,0,0.8),
+    0 4px 24px -4px rgba(255,255,255,0.04);
+}
+.hmac-base {
+  width: 110%;
+  height: 14px;
+  margin: 0 auto;
+  margin-left: -5%;
+  background: linear-gradient(180deg, #161616 0%, #0a0a0a 60%, #050505 100%);
+  border-radius: 0 0 14px 14px;
+  position: relative;
+}
+.hmac-base::after {
+  content: "";
   position: absolute;
-  top: 22%;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 14%;
+  height: 4px;
+  background: #050505;
+  border-radius: 0 0 6px 6px;
+}
+.hmac-wp {
+  position: absolute;
+  inset: 0;
+  background-image: url('assets/wallpaper.jpg');
+  background-size: cover;
+  background-position: center;
+}
+.hmac-mb {
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 28px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 11.5px;
+  color: rgba(255,255,255,0.85);
+  background: rgba(0,0,0,0.4);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  z-index: 5;
+}
+.hmac-app   { font-weight: 600; }
+.hmac-grow  { flex: 1; }
+.hmac-time  { font-variant-numeric: tabular-nums; font-size: 11.5px; }
+
+/* notch in the hover MacBook — centered, responds to cursor proximity */
+.hmac-notch {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 259px;
+  height: 30px;
+  background: #000;
+  border: 1px solid rgba(255,255,255,0.05);
+  border-top: 0;
+  border-radius: 0 0 16px 16px;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  transition:
+    width 0.55s cubic-bezier(.32,.72,.32,1),
+    height 0.55s cubic-bezier(.32,.72,.32,1),
+    border-radius 0.45s ease;
+}
+.hmac-notch.is-tease {
+  width: 300px;
+  height: 38px;
+  border-radius: 0 0 18px 18px;
+}
+.hmac-notch.is-open {
+  width: 460px;
+  height: 180px;
+  border-radius: 0 0 24px 24px;
+}
+.hmac-notch .hover-scroll-notch-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  width: 100%;
+  height: 30px;
+  opacity: 0;
+  transition: opacity 0.4s ease 0.1s;
+}
+.hmac-notch.is-open .hover-scroll-notch-pill {
+  opacity: 1;
+  height: auto;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 14px;
+  gap: 8px;
+  justify-content: center;
+}
+.hmac-notch.is-open .hover-scroll-art { display: none; }
+.hmac-notch.is-open .hover-scroll-text {
+  font-size: 13px;
+  color: rgba(255,255,255,0.95);
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 7px;
+  padding: 9px 12px;
+  white-space: nowrap;
+}
+
+.hmac-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 8;
+  pointer-events: none;
+}
+
+.hmac-caption {
+  position: absolute;
+  top: 26%;
   left: 50%;
   transform: translateX(-50%) translateY(0);
   margin: 0;
   font-size: 13px;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   color: var(--warm);
   opacity: 0;
   pointer-events: none;
-  z-index: 4;
+  z-index: 9;
   transition: opacity 0.4s ease, transform 0.4s ease;
+  text-shadow: 0 1px 6px rgba(0,0,0,0.5);
 }
-.hover-scroll-caption.is-visible {
+.hmac-caption.is-visible {
   opacity: 1;
-  transform: translateX(-50%) translateY(8px);
+  transform: translateX(-50%) translateY(6px);
 }
+
+/* legacy hover-scroll-stage retained for the JS hooks but no longer used as a layout container */
+.hover-scroll-stage { display: none; }
 
 .hover-scroll-svg {
   position: absolute;

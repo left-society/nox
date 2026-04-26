@@ -309,44 +309,58 @@
      One idea per viewport. Big type. No grids.
      ========================================================= -->
 
-<!-- Visual-only: cursor traces up, notch opens. Almost no text. -->
+<!-- Visual-only: a MacBook with a real cursor traveling up to the notch. -->
 <section id="what" class="hover-scroll" aria-label="Reach for the notch">
   <div class="hover-scroll-inner">
 
     <p class="hover-scroll-hint" aria-hidden="true">scroll&nbsp;↓ &nbsp;reach&nbsp;for&nbsp;it</p>
 
-    <div class="hover-scroll-stage" aria-hidden="true">
-      <!-- the notch the cursor is reaching toward -->
-      <div class="hover-scroll-notch" id="hoverNotch">
-        <div class="hover-scroll-notch-pill">
-          <span class="hover-scroll-art"></span>
-          <span class="hover-scroll-text">Tomorrow&apos;s standup</span>
+    <!-- a focused MacBook frame; cursor travels up inside the screen toward the notch -->
+    <div class="hmac" aria-hidden="true">
+      <div class="hmac-screen">
+        <div class="hmac-wp"></div>
+        <div class="hmac-mb">
+          <span class="apple"></span>
+          <span class="hmac-app">Notetaker</span>
+          <span class="hmac-grow"></span>
+          <span class="hmac-time">Sun&nbsp;12:34</span>
         </div>
+
+        <!-- the notch reacting to the cursor -->
+        <div class="hmac-notch" id="hoverNotch">
+          <div class="hover-scroll-notch-pill">
+            <span class="hover-scroll-art"></span>
+            <span class="hover-scroll-text">Tomorrow&apos;s standup</span>
+          </div>
+        </div>
+
+        <!-- path + cursor inside the screen -->
+        <svg class="hmac-svg" viewBox="0 0 800 500" preserveAspectRatio="none">
+          <defs>
+            <filter id="cursorGlow" x="-100%" y="-100%" width="300%" height="300%">
+              <feGaussianBlur stdDeviation="3" result="b"/>
+              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+          <path id="hoverPath"
+                d="M 380 470 C 240 380, 560 240, 400 60"
+                fill="none"
+                stroke="rgba(244,243,238,0.30)"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"/>
+          <!-- macOS arrow cursor as an SVG path -->
+          <g id="hoverCursor" filter="url(#cursorGlow)">
+            <path d="M -1 -2 L -1 22 L 6 16 L 11 26 L 14 24 L 9 14 L 17 14 Z"
+                  fill="white" stroke="black" stroke-width="1"
+                  stroke-linejoin="round"/>
+          </g>
+        </svg>
+
+        <!-- caption that appears when the notch opens -->
+        <p class="hmac-caption" id="hoverCaption">that&apos;s&nbsp;it.</p>
       </div>
-
-      <!-- the path the cursor traces; SVG fills the stage -->
-      <svg class="hover-scroll-svg" viewBox="0 0 800 800" preserveAspectRatio="xMidYMid meet">
-        <defs>
-          <filter id="cursorGlow" x="-100%" y="-100%" width="300%" height="300%">
-            <feGaussianBlur stdDeviation="6" result="b"/>
-            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-          </filter>
-        </defs>
-        <path id="hoverPath"
-              d="M 400 760 C 260 580, 540 380, 400 120"
-              fill="none"
-              stroke="rgba(244,243,238,0.45)"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"/>
-        <g id="hoverCursor" filter="url(#cursorGlow)">
-          <circle r="7" fill="#f0c992"/>
-          <circle r="2.5" fill="#fff"/>
-        </g>
-      </svg>
-
-      <!-- a tiny caption that appears when the notch opens -->
-      <p class="hover-scroll-caption" id="hoverCaption">that&apos;s&nbsp;it.</p>
+      <div class="hmac-base"></div>
     </div>
 
   </div>
