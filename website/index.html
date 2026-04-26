@@ -555,30 +555,86 @@
     </p>
   </div>
 
-  <div class="shot-grid" aria-hidden="true">
-    <div class="shot-card kept">
-      <img src="assets/inbox/inbox-1.jpg" alt=""/>
-      <span class="shot-tag">kept</span>
+  <!-- Panel mock: matches the real Notetaker Images tab -->
+  <div class="ribbon-panel" aria-hidden="true">
+    <!-- title bar -->
+    <div class="rib-title">
+      <button class="rib-edit" aria-label="New">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 14h12M11 2l3 3-8 8H3v-3z"/></svg>
+      </button>
+      <span class="rib-name">Notetaker</span>
+      <span class="rib-grow"></span>
+      <span class="rib-kbd">⌥</span>
+      <span class="rib-kbd-text">Space</span>
+      <button class="rib-gear" aria-label="Settings">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.4"/><path d="M8 1.2v1.8M8 13v1.8M14.8 8H13M3 8H1.2M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3M12.6 12.6l-1.3-1.3M4.7 4.7L3.4 3.4"/></svg>
+      </button>
     </div>
-    <div class="shot-card kept">
-      <img src="assets/inbox/inbox-3.jpg" alt=""/>
-      <span class="shot-tag">kept</span>
+
+    <!-- tab row, Images active -->
+    <div class="rib-tabs">
+      <button class="rib-tab is-icon" aria-label="Music">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M13 2.5a.5.5 0 0 0-.59-.49l-7 1.5A.5.5 0 0 0 5 4v8.05a2.5 2.5 0 1 0 1 2v-7.6l6-1.29v5.94a2.5 2.5 0 1 0 1 2z"/></svg>
+      </button>
+      <button class="rib-tab">Notes</button>
+      <button class="rib-tab is-active">Images</button>
+      <button class="rib-tab">Videos</button>
+      <button class="rib-tab">Files</button>
     </div>
-    <div class="shot-card kept">
-      <img src="assets/inbox/inbox-5.jpg" alt=""/>
-      <span class="shot-tag">kept</span>
+
+    <!-- count strip -->
+    <div class="rib-count">
+      <span class="rib-count-n">6 images</span>
+      <span class="rib-grow"></span>
+      <button class="rib-clear">Clear</button>
     </div>
-    <div class="shot-card kept">
-      <img src="assets/inbox/inbox-6.jpg" alt=""/>
-      <span class="shot-tag">kept</span>
+
+    <!-- copy-or-drag stack widget -->
+    <div class="rib-stack">
+      <div class="rib-stack-imgs">
+        <div class="rib-stack-img"><img src="assets/inbox/inbox-3.jpg" alt=""/></div>
+        <div class="rib-stack-img"><img src="assets/inbox/inbox-1.jpg" alt=""/></div>
+        <div class="rib-stack-img"><img src="assets/inbox/inbox-6.jpg" alt=""/></div>
+      </div>
+      <div class="rib-stack-meta">
+        <div class="rib-stack-title">6 images</div>
+        <div class="rib-stack-sub">Copy or drag the stack</div>
+      </div>
+      <button class="rib-copy-all">Copy all</button>
     </div>
-    <div class="shot-card fade">
-      <img src="assets/inbox/inbox-4.jpg" alt=""/>
-      <span class="shot-tag dim">3h&nbsp;left</span>
-    </div>
-    <div class="shot-card fade">
-      <img src="assets/inbox/inbox-2.jpg" alt=""/>
-      <span class="shot-tag dim">1h&nbsp;left</span>
+
+    <!-- 2-col thumbnail grid -->
+    <div class="shot-grid">
+      <div class="shot-card kept">
+        <button class="shot-del" aria-label="Delete"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h10M6 5V3h4v2M5 5v9h6V5"/></svg></button>
+        <img src="assets/inbox/inbox-1.jpg" alt=""/>
+        <span class="shot-tag">kept</span>
+      </div>
+      <div class="shot-card kept">
+        <button class="shot-del" aria-label="Delete"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h10M6 5V3h4v2M5 5v9h6V5"/></svg></button>
+        <img src="assets/inbox/inbox-3.jpg" alt=""/>
+        <span class="shot-tag">kept</span>
+      </div>
+      <div class="shot-card kept">
+        <button class="shot-del" aria-label="Delete"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h10M6 5V3h4v2M5 5v9h6V5"/></svg></button>
+        <img src="assets/inbox/inbox-5.jpg" alt=""/>
+        <span class="shot-tag">kept</span>
+      </div>
+      <div class="shot-card kept">
+        <button class="shot-del" aria-label="Delete"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h10M6 5V3h4v2M5 5v9h6V5"/></svg></button>
+        <img src="assets/inbox/inbox-6.jpg" alt=""/>
+        <span class="shot-tag">kept</span>
+      </div>
+      <div class="shot-card fade">
+        <button class="shot-del" aria-label="Delete"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h10M6 5V3h4v2M5 5v9h6V5"/></svg></button>
+        <img src="assets/inbox/inbox-4.jpg" alt=""/>
+        <span class="shot-tag dim">3h&nbsp;left</span>
+      </div>
+      <div class="shot-card fade">
+        <button class="shot-del" aria-label="Delete"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h10M6 5V3h4v2M5 5v9h6V5"/></svg></button>
+        <img src="assets/inbox/inbox-2.jpg" alt=""/>
+        <span class="shot-tag dim">1h&nbsp;left</span>
+      </div>
     </div>
   </div>
 </section>

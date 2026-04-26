@@ -1841,23 +1841,173 @@ code {
   color: var(--fg-mute);
   line-height: 1.6;
 }
-/* Visual screenshot grid like the real app's Images tab */
-.shot-grid {
+/* Ribbon panel: full mock of Notetaker's Images tab */
+.ribbon-panel {
+  background: linear-gradient(180deg, #0d0d0d 0%, #050505 100%);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: 0 30px 80px -30px rgba(0,0,0,0.7);
+  display: flex;
+  flex-direction: column;
+}
+
+/* title bar */
+.rib-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px 6px;
+  font-size: 14px;
+  color: rgba(255,255,255,0.85);
+}
+.rib-title .rib-edit, .rib-title .rib-gear {
+  background: transparent;
+  border: 0;
+  padding: 4px;
+  cursor: pointer;
+  color: rgba(255,255,255,0.55);
+  display: inline-grid;
+  place-items: center;
+  border-radius: 5px;
+  transition: color 0.2s;
+}
+.rib-title .rib-edit:hover, .rib-title .rib-gear:hover { color: #fff; }
+.rib-title .rib-name { font-weight: 600; color: rgba(255,255,255,0.95); margin-left: 2px; }
+.rib-title .rib-grow { flex: 1; }
+.rib-title .rib-kbd, .rib-title .rib-kbd-text {
+  font: 500 12px ui-monospace, "SF Mono", Menlo, monospace;
+  color: rgba(255,255,255,0.5);
+  background: rgba(255,255,255,0.06);
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+/* tab row */
+.rib-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 14px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.rib-tab {
+  font: 500 13px inherit;
+  background: transparent;
+  border: 0;
+  color: rgba(255,255,255,0.50);
+  padding: 7px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.rib-tab.is-icon { padding: 7px 12px; }
+.rib-tab:hover { color: rgba(255,255,255,0.85); }
+.rib-tab.is-active { color: #fff; background: rgba(255,255,255,0.10); }
+
+/* count strip */
+.rib-count {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 22px 10px;
+  font-size: 13px;
+  color: var(--fg-mute);
+}
+.rib-count-n { color: rgba(255,255,255,0.85); font-weight: 500; }
+.rib-count .rib-grow { flex: 1; }
+.rib-clear {
+  background: transparent;
+  border: 0;
+  color: var(--fg-mute);
+  font: inherit;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: color 0.2s, background 0.2s;
+}
+.rib-clear:hover { color: #fff; background: rgba(255,255,255,0.04); }
+
+/* "Copy or drag the stack" widget */
+.rib-stack {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0 22px 16px;
+  padding: 14px;
+  background: rgba(255,255,255,0.025);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 14px;
+}
+.rib-stack-imgs {
+  position: relative;
+  width: 64px;
+  height: 50px;
+  flex-shrink: 0;
+}
+.rib-stack-img {
+  position: absolute;
+  width: 50px;
+  height: 38px;
+  border-radius: 5px;
+  overflow: hidden;
+  border: 1.5px solid rgba(20,20,20,1);
+  box-shadow: 0 4px 12px -2px rgba(0,0,0,0.5);
+}
+.rib-stack-img:nth-child(1) { top: 0;  left: 14px; transform: rotate(-4deg); }
+.rib-stack-img:nth-child(2) { top: 4px; left: 8px; transform: rotate(2deg); }
+.rib-stack-img:nth-child(3) { top: 8px; left: 0;   transform: rotate(-1deg); z-index: 2; }
+.rib-stack-img img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.rib-stack-meta { flex: 1; min-width: 0; line-height: 1.3; }
+.rib-stack-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.rib-stack-sub {
+  font-size: 12px;
+  color: var(--fg-mute);
+  margin-top: 2px;
+}
+.rib-copy-all {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.10);
+  color: #fff;
+  font: 500 12.5px inherit;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.rib-copy-all:hover { background: rgba(255,255,255,0.14); }
+
+/* 2-column thumbnail grid inside the panel */
+.ribbon-panel .shot-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  padding: 0 22px 22px;
 }
 .shot-card {
   position: relative;
   aspect-ratio: 16/10;
-  border-radius: 14px;
+  border-radius: 12px;
   overflow: hidden;
   background: var(--bg-soft);
-  border: 1px solid var(--line);
+  border: 1px solid rgba(255,255,255,0.06);
   transition: transform 0.25s ease;
-  box-shadow: 0 12px 40px -12px rgba(0,0,0,0.5);
+  box-shadow: 0 8px 24px -8px rgba(0,0,0,0.4);
 }
-.shot-card:hover { transform: translateY(-3px); }
+.shot-card:hover { transform: translateY(-2px); }
+.shot-card:hover .shot-del { opacity: 1; }
 .shot-card img {
   width: 100%;
   height: 100%;
@@ -1865,26 +2015,52 @@ code {
   display: block;
 }
 .shot-card.fade img { opacity: 0.55; filter: saturate(0.7); }
+
+/* delete button (visible on hover, like the real app) */
+.shot-del {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 0;
+  background: rgba(0,0,0,0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: rgba(255,255,255,0.85);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s, background 0.2s;
+  z-index: 2;
+}
+.shot-del:hover {
+  background: rgba(220, 60, 60, 0.85);
+  color: #fff;
+}
+
 .shot-tag {
   position: absolute;
-  bottom: 12px;
-  right: 12px;
-  font-size: 11px;
+  bottom: 10px;
+  right: 10px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  padding: 6px 12px;
+  padding: 5px 10px;
   border-radius: 999px;
-  background: rgba(0,0,0,0.75);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   color: var(--warm);
   border: 1px solid rgba(240, 201, 146, 0.3);
 }
 .shot-tag.dim {
   color: var(--fg-deep);
   border-color: rgba(255,255,255,0.08);
-  background: rgba(0,0,0,0.65);
+  background: rgba(0,0,0,0.6);
 }
 
 @media (max-width: 760px) {
