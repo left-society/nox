@@ -342,11 +342,31 @@
           <span class="hmac-time">Sun 26 Apr&nbsp;&nbsp;12:34</span>
         </div>
 
-        <!-- the notch reacting to the cursor -->
+        <!-- the notch reacting to the cursor — already playing music at rest -->
         <div class="hmac-notch" id="hoverNotch">
-          <div class="hover-scroll-notch-pill">
-            <span class="hover-scroll-art"></span>
-            <span class="hover-scroll-text">Tomorrow&apos;s standup</span>
+          <!-- resting/teasing pill content: album art + live waveform -->
+          <div class="hmac-pill">
+            <div class="hmac-pill-art"><img src="assets/inbox/inbox-6.jpg" alt=""/></div>
+            <canvas class="wave-canvas" data-tint="#ff6b8a" width="44" height="28"></canvas>
+          </div>
+          <!-- opened music card -->
+          <div class="hmac-card">
+            <div class="hmac-card-art"><img src="assets/inbox/inbox-6.jpg" alt=""/></div>
+            <div class="hmac-card-meta">
+              <div class="hmac-card-title">Closer</div>
+              <div class="hmac-card-artist">The Chainsmokers</div>
+            </div>
+            <div class="hmac-card-transport">
+              <button>
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M6 5v14M19 5v14L8 12z"/></svg>
+              </button>
+              <button class="play">
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M9 5v14l11-7z"/></svg>
+              </button>
+              <button>
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M18 5v14M5 5v14l11-7z"/></svg>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -365,11 +385,11 @@
                 stroke-width="1.5"
                 stroke-linecap="round"
                 stroke-linejoin="round"/>
-          <!-- macOS arrow cursor as an SVG path -->
+          <!-- macOS arrow cursor — chunky proportions, white fill, thick outline -->
           <g id="hoverCursor" filter="url(#cursorGlow)">
-            <path d="M -1 -2 L -1 22 L 6 16 L 11 26 L 14 24 L 9 14 L 17 14 Z"
-                  fill="white" stroke="black" stroke-width="1"
-                  stroke-linejoin="round"/>
+            <path d="M 2 1 L 2 25 L 8.5 19 L 12.5 27.5 L 16 26 L 12 17.5 L 19 17.5 Z"
+                  fill="white" stroke="#0a0a0a" stroke-width="1.6"
+                  stroke-linejoin="round" stroke-linecap="round"/>
           </g>
         </svg>
 
