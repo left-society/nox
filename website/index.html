@@ -448,15 +448,20 @@
         <svg class="hmac-svg" viewBox="0 0 800 500" preserveAspectRatio="none">
           <defs>
             <filter id="cursorGlow" x="-100%" y="-100%" width="300%" height="300%">
-              <feGaussianBlur stdDeviation="3" result="b"/>
-              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+              <feGaussianBlur stdDeviation="5" result="b"/>
+              <feFlood flood-color="#fff" flood-opacity="0.6"/>
+              <feComposite in2="b" operator="in" result="glow"/>
+              <feMerge>
+                <feMergeNode in="glow"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
             </filter>
           </defs>
           <path id="hoverPath"
-                d="M 380 470 C 240 380, 560 240, 400 60"
+                d="M 400 470 C 360 360, 440 200, 400 80"
                 fill="none"
-                stroke="rgba(244,243,238,0.30)"
-                stroke-width="1.5"
+                stroke="rgba(244,243,238,0.32)"
+                stroke-width="1.6"
                 stroke-linecap="round"
                 stroke-linejoin="round"/>
           <!-- macOS arrow cursor — chunky scale + thick effective outline -->
