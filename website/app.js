@@ -332,6 +332,126 @@
   });
 
 
+  // ============ Interactive: click the pill to open / close the panel ============
+  // The auto-cycle runs by default. Clicking the notch hands control to the
+  // user — pauses the cycle, toggles open/close, releases control after a beat.
+  let userOverride = false;
+  let releaseTimer = null;
+  function pauseCycle() {
+    if (timer) { clearTimeout(timer); timer = null; }
+    stopTabCycle();
+  }
+  function resumeCycle() {
+    userOverride = false;
+    if (!timer) step();
+  }
+  if (notch) {
+    notch.style.cursor = 'pointer';
+    notch.addEventListener('click', () => {
+      const isOpen = notch.getAttribute('data-state') === 'panel';
+      pauseCycle();
+      userOverride = true;
+      if (isOpen) {
+        notch.setAttribute('data-state', 'music');
+      } else {
+        notch.setAttribute('data-state', 'panel');
+        // open on the music tab so first impression on click is the centerpiece
+        startTabCycle(['music', 'notes', 'images', 'videos', 'files'], 3200);
+      }
+      // Hand control back after 16s of no further interaction
+      clearTimeout(releaseTimer);
+      releaseTimer = setTimeout(resumeCycle, 16000);
+    });
+
+    // Hover tease — pill briefly grows when hovered (when not already open/transitioning)
+    notch.addEventListener('mouseenter', () => {
+      if (notch.getAttribute('data-state') === 'music' && !userOverride) {
+        notch.style.transform = 'translateX(-50%) scaleY(1.15) scaleX(1.04)';
+      }
+    });
+    notch.addEventListener('mouseleave', () => {
+      notch.style.transform = '';
+    });
+  }
+
+
+  // ============ Interactive: click panel tabs to switch ============
+  if (panelTabs.length) {
+    panelTabs.forEach((btn) => {
+      btn.style.cursor = 'pointer';
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const target = btn.dataset.pt;
+        if (!target) return;
+        // If user clicks a tab while in pill state, open the panel first
+        if (notch.getAttribute('data-state') !== 'panel') {
+          pauseCycle();
+          userOverride = true;
+          notch.setAttribute('data-state', 'panel');
+        }
+        stopTabCycle();
+        setTab(target);
+        // resume auto-cycle after the user stops engaging
+        clearTimeout(releaseTimer);
+        releaseTimer = setTimeout(resumeCycle, 16000);
+      });
+    });
+  }
+
+
+  // ============ Interactive: play / pause toggle on the music pane ============
+  const playButtons = document.querySelectorAll('.m-pp, .hmac-card-transport .play');
+  const playIconSVG  = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M9 5v14l11-7z"/></svg>';
+  const pauseIconSVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
+  let isPlaying = true; // canvas wave already animates as if playing
+  playButtons.forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      isPlaying = !isPlaying;
+      playButtons.forEach((b) => { b.innerHTML = isPlaying ? pauseIconSVG : playIconSVG; });
+      // Reflect on the resting waveform too (canvas keeps rendering, just dims it)
+      document.querySelectorAll('.wave-canvas').forEach((c) => {
+        c.style.opacity = isPlaying ? '1' : '0.35';
+      });
+    });
+  });
+  // Initial state: pause icon (since music is "playing")
+  playButtons.forEach((b) => { b.innerHTML = pauseIconSVG; });
+
+
+  // ============ Interactive: subtle parallax on the hero MacBook ============
+  // Cursor moves over the page and the MacBook tilts a few degrees toward it.
+  // Stays well within the polite range — no nausea, just feels alive.
+  const mbp = document.querySelector('.mbp');
+  if (mbp && window.matchMedia('(hover: hover)').matches) {
+    mbp.style.transition = 'transform 0.6s cubic-bezier(.32,.72,.32,1)';
+    let mbpRaf = null;
+    let targetX = 0, targetY = 0, curX = 0, curY = 0;
+    function tick() {
+      curX += (targetX - curX) * 0.08;
+      curY += (targetY - curY) * 0.08;
+      mbp.style.transform = `perspective(1600px) rotateY(${curX.toFixed(2)}deg) rotateX(${(-curY).toFixed(2)}deg)`;
+      if (Math.abs(targetX - curX) > 0.02 || Math.abs(targetY - curY) > 0.02) {
+        mbpRaf = requestAnimationFrame(tick);
+      } else { mbpRaf = null; }
+    }
+    window.addEventListener('mousemove', (e) => {
+      const r = mbp.getBoundingClientRect();
+      // only react when cursor is near the MacBook
+      const inRange = e.clientY < r.bottom + 200 && e.clientY > r.top - 200;
+      if (!inRange) { targetX = 0; targetY = 0; }
+      else {
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        // Max ~3 degrees — felt presence without seasickness
+        targetX = ((e.clientX - cx) / r.width) * 3;
+        targetY = ((e.clientY - cy) / r.height) * 1.6;
+      }
+      if (!mbpRaf) mbpRaf = requestAnimationFrame(tick);
+    }, { passive: true });
+  }
+
+
   // ============ Hover-scroll: stroke draws + cursor rides + notch opens ============
   const hoverSection = document.querySelector('.hover-scroll');
   const hoverPath    = document.getElementById('hoverPath');
