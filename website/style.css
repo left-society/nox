@@ -1075,9 +1075,9 @@ code {
   border-radius: 0 0 18px 18px;
 }
 .hmac-notch.is-open {
-  width: 460px;
-  height: 200px;
-  border-radius: 0 0 26px 26px;
+  width: min(540px, 76%);
+  height: 260px;
+  border-radius: 0 0 28px 28px;
 }
 
 /* RESTING / TEASING: music pill content (art + wave) */
