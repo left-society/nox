@@ -1075,10 +1075,10 @@ code {
   50%      { transform: translateX(-50%) translateY(4px); opacity: 1; }
 }
 
-/* . focused hover MacBook (smaller sibling of the hero MacBook) . */
+/* focused hover MacBook (now nearly hero-sized so the cursor's journey reads big) */
 .hmac {
   position: relative;
-  width: min(880px, 92vw);
+  width: min(1100px, 94vw);
   margin: 0 auto;
 }
 .hmac-screen {
@@ -1517,7 +1517,7 @@ code {
   text-align: center;
   border: 1px solid rgba(255,255,255,0.04);
 }
-.cd-body { padding: 36px 36px 44px; position: relative; min-height: 220px; }
+.cd-body { padding: 44px 44px 56px; position: relative; min-height: 320px; }
 .cd-h {
   font-size: 22px;
   font-weight: 700;
@@ -1667,10 +1667,10 @@ code {
 
 /* ============ VIDEO DEMO ============ */
 .video-demo {
-  margin: 100px auto 0;
-  max-width: 1180px;
+  margin: 110px auto 0;
+  max-width: 1280px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 120px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.1fr) 140px minmax(0, 0.9fr);
   align-items: center;
   text-align: left;
 }
@@ -1977,29 +1977,30 @@ code {
 .mm-artist { font-size: 12.5px; color: var(--fg-mute); margin-top: 2px; }
 
 
-/* ============ MONTAGE . one card visible, auto-cycles, mostly visual ============ */
+/* ============ MONTAGE. one card visible, auto-cycles, mostly visual ============ */
 .montage {
-  max-width: 920px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: clamp(80px, 12vw, 160px) var(--pad);
   text-align: center;
 }
 .montage-h {
-  margin: 0 0 60px;
-  font-size: clamp(32px, 5vw, 56px);
+  margin: 0 0 80px;
+  font-size: clamp(36px, 5.5vw, 64px);
   font-weight: 600;
   letter-spacing: -0.03em;
   line-height: 1.05;
 }
 .montage-stage {
   position: relative;
-  height: 320px;
+  height: clamp(440px, 56vw, 560px);
   border: 1px solid var(--line);
-  border-radius: 22px;
+  border-radius: 28px;
   background:
-    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,255,255,0.04), transparent 60%),
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,255,255,0.05), transparent 60%),
     linear-gradient(180deg, #0c0c0c 0%, #060606 100%);
   overflow: hidden;
+  box-shadow: 0 30px 80px -30px rgba(0,0,0,0.7);
 }
 .mc {
   position: absolute;
@@ -2007,7 +2008,7 @@ code {
   display: grid;
   grid-template-rows: 1fr auto;
   align-items: center;
-  padding: 30px 30px 36px;
+  padding: 60px 50px 72px;
   opacity: 0;
   transform: translateY(8px);
   transition: opacity 0.5s ease, transform 0.5s ease;
@@ -2025,29 +2026,29 @@ code {
   min-height: 0;
 }
 .mc-label {
-  font-size: clamp(15px, 1.6vw, 18px);
+  font-size: clamp(18px, 2vw, 24px);
   font-weight: 500;
   color: rgba(255,255,255,0.95);
-  letter-spacing: -0.01em;
-  margin-top: 22px;
+  letter-spacing: -0.015em;
+  margin-top: 36px;
 }
 
 /* dots */
 .montage-dots {
-  margin-top: 22px;
+  margin-top: 32px;
   display: flex;
-  gap: 8px;
+  gap: 12px;
   justify-content: center;
 }
 .montage-dots span {
-  width: 5px; height: 5px;
+  width: 7px; height: 7px;
   border-radius: 50%;
   background: rgba(255,255,255,0.15);
   transition: background 0.3s, transform 0.3s;
 }
 .montage-dots span.is-active {
   background: var(--warm);
-  transform: scale(1.3);
+  transform: scale(1.4);
 }
 
 /* ───── per-card visuals ───── */
@@ -2059,8 +2060,8 @@ code {
   gap: 18px;
 }
 .mc-vis-drag .mc-img {
-  width: 80px; height: 60px;
-  border-radius: 6px;
+  width: 140px; height: 100px;
+  border-radius: 10px;
   background:
     linear-gradient(135deg, rgba(0,200,180,0.45), rgba(255,200,80,0.5)),
     linear-gradient(45deg, #1a1a1a, #2a2a2a);
@@ -2078,11 +2079,11 @@ code {
   100% { opacity: 1; transform: translate(0, 0) rotate(0deg); }
 }
 .mc-vis-drag .mc-tabs {
-  display: flex; gap: 6px;
-  font-size: 11px;
+  display: flex; gap: 10px;
+  font-size: 14px;
 }
 .mc-vis-drag .mc-tabs span {
-  padding: 4px 10px;
+  padding: 7px 16px;
   border-radius: 999px;
   background: rgba(255,255,255,0.04);
   color: rgba(255,255,255,0.45);
@@ -2106,12 +2107,12 @@ code {
   align-items: center;
 }
 .mc-note-long, .mc-note-short {
-  display: flex; flex-direction: column; gap: 5px; width: 280px;
+  display: flex; flex-direction: column; gap: 8px; width: 440px; max-width: 80vw;
 }
 .mc-note-long span {
-  height: 6px;
+  height: 9px;
   background: rgba(255,255,255,0.18);
-  border-radius: 3px;
+  border-radius: 4px;
 }
 .mc-note-long span:nth-child(1) { width: 100%; }
 .mc-note-long span:nth-child(2) { width: 96%; }
@@ -2119,16 +2120,16 @@ code {
 .mc-note-long span:nth-child(4) { width: 92%; }
 .mc-note-long span:nth-child(5) { width: 60%; }
 .mc-note-short span {
-  height: 6px;
+  height: 9px;
   background: rgba(244,243,238,0.7);
-  border-radius: 3px;
+  border-radius: 4px;
 }
 .mc-note-short span:nth-child(1) { width: 100%; }
 .mc-note-short span:nth-child(2) { width: 70%; }
 .mc-spark {
-  font-size: 18px;
+  font-size: 28px;
   color: var(--warm);
-  filter: drop-shadow(0 0 6px rgba(240, 201, 146, 0.6));
+  filter: drop-shadow(0 0 10px rgba(240, 201, 146, 0.7));
 }
 .mc[data-mc="ai"].is-active .mc-note-long {
   animation: aiCollapse 2.4s ease-in-out 0.3s 1 both;
@@ -2155,16 +2156,16 @@ code {
   100%      { opacity: 1; transform: translateY(0); height: auto; }
 }
 
-/* clean: 2d → 7d → ⊘ */
+/* clean: 2d > 7d > x */
 .mc-vis-clean {
-  display: flex; align-items: center; gap: 18px;
-  font: 500 14px ui-monospace, "SF Mono", Menlo, monospace;
+  display: flex; align-items: center; gap: 26px;
+  font: 500 22px ui-monospace, "SF Mono", Menlo, monospace;
 }
 .mc-stamp {
-  padding: 10px 16px;
+  padding: 16px 24px;
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--fg);
   opacity: 0;
 }
@@ -2172,9 +2173,9 @@ code {
   color: var(--warm);
   border-color: rgba(240, 201, 146, 0.3);
   background: rgba(240, 201, 146, 0.08);
-  font-size: 18px;
+  font-size: 28px;
 }
-.mc-arrow { color: var(--fg-deep); font-size: 14px; opacity: 0; }
+.mc-arrow { color: var(--fg-deep); font-size: 22px; opacity: 0; }
 .mc[data-mc="clean"].is-active .mc-stamp.s1 { animation: cleanStep 2.6s ease-out 0.2s 1 both; }
 .mc[data-mc="clean"].is-active .mc-arrow:nth-of-type(2) { animation: cleanStep 2.6s ease-out 0.6s 1 both; }
 .mc[data-mc="clean"].is-active .mc-stamp.s2 { animation: cleanStep 2.6s ease-out 0.9s 1 both; }
@@ -2191,42 +2192,45 @@ code {
   100% { opacity: 0.5; transform: scale(1); }
 }
 
-/* skip: Xcode + ⌘C → ignored */
+/* skip: Xcode + Cmd+C > ignored */
 .mc-vis-skip {
-  display: flex; align-items: center; gap: 14px;
+  display: flex; align-items: center; gap: 24px;
 }
 .mc-app {
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
 }
 .mc-app-icon {
-  width: 56px; height: 56px;
-  border-radius: 13px;
+  width: 88px; height: 88px;
+  border-radius: 20px;
   background: linear-gradient(135deg, #5067e8 0%, #2c3990 100%);
-  color: #fff; font-size: 22px; font-weight: 700;
+  color: #fff; font-size: 34px; font-weight: 700;
   display: grid; place-items: center;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  box-shadow: 0 12px 30px -10px rgba(80, 103, 232, 0.5);
 }
-.mc-app-name { font-size: 11px; color: var(--fg-mute); }
+.mc-app-name { font-size: 14px; color: var(--fg-mute); }
 .mc-vis-skip .mc-keys {
-  display: flex; gap: 4px;
+  display: flex; gap: 6px;
   opacity: 0;
 }
 .mc-vis-skip .mc-keys kbd {
-  min-width: 28px; height: 28px;
+  min-width: 44px; height: 44px;
   background: rgba(255,255,255,0.06);
   border: 1px solid rgba(255,255,255,0.12);
   color: #fff;
-  border-radius: 5px;
-  font: 500 12px ui-monospace, "SF Mono", Menlo, monospace;
+  border-radius: 8px;
+  font: 500 18px ui-monospace, "SF Mono", Menlo, monospace;
   display: grid; place-items: center;
-  padding: 0 8px;
+  padding: 0 12px;
+  box-shadow: inset 0 -2px 0 rgba(0,0,0,0.3);
 }
 .mc-skipped {
-  font-size: 12px;
+  font-size: 17px;
+  font-weight: 500;
   color: var(--warm);
   background: rgba(240, 201, 146, 0.1);
   border: 1px solid rgba(240, 201, 146, 0.25);
-  padding: 5px 12px;
+  padding: 9px 18px;
   border-radius: 999px;
   opacity: 0;
   transform: translateX(-8px);
@@ -2255,17 +2259,18 @@ code {
   display: grid; place-items: center;
 }
 .mc-pill {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 8px 16px;
+  display: inline-flex; align-items: center; gap: 14px;
+  padding: 16px 30px;
   background: #000;
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 999px;
-  font-size: 14px;
+  font-size: 24px;
   color: #fff;
   opacity: 0;
   transform: scale(0.8);
+  box-shadow: 0 12px 40px -10px rgba(240, 201, 146, 0.4);
 }
-.mc-bolt { color: var(--warm); font-size: 16px; filter: drop-shadow(0 0 6px rgba(240, 201, 146, 0.6)); }
+.mc-bolt { color: var(--warm); font-size: 28px; filter: drop-shadow(0 0 10px rgba(240, 201, 146, 0.7)); }
 .mc-pct { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-weight: 500; }
 .mc[data-mc="charge"].is-active .mc-pill {
   animation: chargeBloom 2.6s ease-out 0.3s 1 both;
@@ -2283,28 +2288,39 @@ code {
   display: flex; flex-direction: column; align-items: center; gap: 8px;
 }
 .mc-num {
-  font-size: 76px;
+  font-size: 124px;
   font-weight: 700;
   color: #fff;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.05em;
   line-height: 1;
 }
 .mc-num span {
-  font-size: 24px;
+  font-size: 36px;
   font-weight: 500;
   color: var(--warm);
-  margin-left: 6px;
+  margin-left: 10px;
   letter-spacing: 0.02em;
 }
 .mc-vs {
-  font-size: 12px;
+  font-size: 16px;
   color: var(--fg-mute);
+  margin-top: 6px;
 }
 .mc-vs b { color: var(--fg); font-weight: 600; }
 
 @media (max-width: 640px) {
-  .montage-stage { height: 280px; }
-  .mc-num { font-size: 56px; }
+  .montage-stage { height: 380px; }
+  .mc-num { font-size: 80px; }
+  .mc-num span { font-size: 22px; }
+  .mc { padding: 30px 24px 40px; }
+  .mc-vis-clean { gap: 14px; font-size: 16px; }
+  .mc-stamp { padding: 10px 14px; }
+  .mc-stamp.s3 { font-size: 20px; }
+  .mc-app-icon { width: 64px; height: 64px; font-size: 24px; border-radius: 14px; }
+  .mc-vis-skip .mc-keys kbd { min-width: 32px; height: 32px; font-size: 13px; }
+  .mc-skipped { font-size: 13px; padding: 6px 12px; }
+  .mc-pill { font-size: 16px; padding: 10px 18px; }
+  .mc-bolt { font-size: 18px; }
 }
 
 
