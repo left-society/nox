@@ -93,7 +93,7 @@
   // opens and walks through every tab.
   const cycle = [
     { state: 'music', hold: 7000 },
-    { state: 'panel', hold: 14000, tabs: ['notes', 'images', 'videos', 'music'], tabHold: 3200 },
+    { state: 'panel', hold: 16000, tabs: ['music', 'notes', 'images', 'videos', 'files'], tabHold: 3200 },
     { state: 'shot',  hold: 2600 },
     { state: 'video', hold: 3500 },
     { state: 'music', hold: 5500 },
@@ -214,6 +214,42 @@
     window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', onScroll, { passive: true });
     paint(); // initial frame
+  }
+
+
+  // ============ Montage carousel — auto-cycles feature cards ============
+  const montage = document.getElementById('montageStage');
+  const dotsBox = document.getElementById('montageDots');
+  if (montage && dotsBox) {
+    const cards = Array.from(montage.querySelectorAll('.mc'));
+    const dots  = Array.from(dotsBox.querySelectorAll('span'));
+    const HOLD  = 3400;
+    let idx = 0;
+    let mTimer = null;
+
+    function showCard(i) {
+      cards.forEach((c, k) => c.classList.toggle('is-active', k === i));
+      dots.forEach((d, k) => d.classList.toggle('is-active', k === i));
+    }
+
+    function tick() {
+      idx = (idx + 1) % cards.length;
+      showCard(idx);
+      mTimer = setTimeout(tick, HOLD);
+    }
+
+    // Only start cycling when the section is on screen — no offscreen CPU.
+    const startIO = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (e.isIntersecting && !mTimer) {
+          mTimer = setTimeout(tick, HOLD);
+        } else if (!e.isIntersecting && mTimer) {
+          clearTimeout(mTimer);
+          mTimer = null;
+        }
+      });
+    }, { threshold: 0.25 });
+    startIO.observe(montage);
   }
 
 

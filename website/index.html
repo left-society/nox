@@ -77,21 +77,121 @@
           </div>
         </div>
 
-        <!-- panel-open state — the full app UI as a slab under the notch -->
+        <!-- panel-open state — full app UI matching the real Notetaker -->
         <div class="n-state n-panel" data-state="panel" id="nPanel">
-          <div class="panel-head">
-            <div class="panel-tabs" id="panelTabs">
-              <button data-pt="notes"  class="is-active">Notes</button>
-              <button data-pt="images">Images</button>
-              <button data-pt="videos">Videos</button>
-              <button data-pt="music">Music</button>
-            </div>
-            <div class="panel-gear">⚙</div>
+          <!-- title bar -->
+          <div class="panel-titlebar">
+            <button class="panel-newnote" title="New note">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 14h12M11 2l3 3-8 8H3v-3z"/>
+              </svg>
+            </button>
+            <span class="panel-title">Notetaker</span>
+            <span class="panel-grow"></span>
+            <span class="panel-kbd">⌥</span>
+            <span class="panel-kbd-text">Space</span>
+            <button class="panel-gear" title="Settings">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4">
+                <circle cx="8" cy="8" r="2.4"/>
+                <path d="M8 1.2v1.8M8 13v1.8M14.8 8H13M3 8H1.2M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3M12.6 12.6l-1.3-1.3M4.7 4.7L3.4 3.4"/>
+              </svg>
+            </button>
+          </div>
+
+          <!-- tab bar — matches real app: music icon | Notes | Images | Videos | Files -->
+          <div class="panel-tabs" id="panelTabs">
+            <button data-pt="music" class="is-active is-icon" title="Music">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
+                <path d="M13 2.5a.5.5 0 0 0-.59-.49l-7 1.5A.5.5 0 0 0 5 4v8.05a2.5 2.5 0 1 0 1 2v-7.6l6-1.29v5.94a2.5 2.5 0 1 0 1 2z"/>
+              </svg>
+            </button>
+            <button data-pt="notes">Notes</button>
+            <button data-pt="images">Images</button>
+            <button data-pt="videos">Videos</button>
+            <button data-pt="files">Files</button>
           </div>
 
           <div class="panel-body" id="panelBody">
+            <!-- MUSIC PANE — matches real app: art + title/artist/album + dot viz + progress + transport + source pill -->
+            <div class="pane is-active" data-pp="music">
+              <div class="m-row">
+                <div class="m-art">
+                  <img src="assets/inbox/inbox-3.jpg" alt="" onerror="this.style.display='none'"/>
+                </div>
+                <div class="m-meta">
+                  <div class="m-title">Sweater Weather</div>
+                  <div class="m-artist">The Neighbourhood</div>
+                  <div class="m-album">I Love You.</div>
+                </div>
+                <div class="m-viz" aria-hidden="true">
+                  <!-- dot pattern in a roughly circular cluster -->
+                  <svg viewBox="0 0 80 80" width="80" height="80">
+                    <g fill="rgba(255,255,255,0.55)">
+                      <circle cx="40" cy="12" r="1"/>
+                      <circle cx="32" cy="16" r="0.9"/>
+                      <circle cx="48" cy="16" r="1"/>
+                      <circle cx="24" cy="22" r="0.9"/>
+                      <circle cx="36" cy="22" r="1.1"/>
+                      <circle cx="44" cy="22" r="1"/>
+                      <circle cx="56" cy="22" r="0.9"/>
+                      <circle cx="20" cy="30" r="1"/>
+                      <circle cx="28" cy="30" r="0.9"/>
+                      <circle cx="40" cy="30" r="1.4"/>
+                      <circle cx="52" cy="30" r="1"/>
+                      <circle cx="60" cy="30" r="0.9"/>
+                      <circle cx="16" cy="38" r="0.9"/>
+                      <circle cx="24" cy="38" r="1"/>
+                      <circle cx="32" cy="38" r="1.2"/>
+                      <circle cx="48" cy="38" r="1.2"/>
+                      <circle cx="56" cy="38" r="1"/>
+                      <circle cx="64" cy="38" r="0.9"/>
+                      <circle cx="20" cy="46" r="1"/>
+                      <circle cx="28" cy="46" r="0.9"/>
+                      <circle cx="40" cy="46" r="1.4"/>
+                      <circle cx="52" cy="46" r="0.9"/>
+                      <circle cx="60" cy="46" r="1"/>
+                      <circle cx="24" cy="54" r="0.9"/>
+                      <circle cx="36" cy="54" r="1"/>
+                      <circle cx="44" cy="54" r="1.1"/>
+                      <circle cx="56" cy="54" r="0.9"/>
+                      <circle cx="32" cy="62" r="0.9"/>
+                      <circle cx="48" cy="62" r="1"/>
+                      <circle cx="40" cy="68" r="1"/>
+                    </g>
+                  </svg>
+                </div>
+              </div>
+
+              <div class="m-progress">
+                <div class="m-progress-bar">
+                  <div class="m-progress-fill"></div>
+                </div>
+                <div class="m-times">
+                  <span>2:07</span>
+                  <span>−1:52</span>
+                </div>
+              </div>
+
+              <div class="m-transport">
+                <button class="m-prev">
+                  <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M4 3v10M14 3v10L5 8z"/></svg>
+                </button>
+                <button class="m-pp">
+                  <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M5 3h2v10H5zM9 3h2v10H9z"/></svg>
+                </button>
+                <button class="m-next">
+                  <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M12 3v10M2 3v10l9-5z"/></svg>
+                </button>
+              </div>
+
+              <div class="m-source">
+                <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor"><path d="M3 6v4h2l3 3V3L5 6H3zm9 0a2 2 0 0 1 0 4M11.5 4a4 4 0 0 1 0 8"/></svg>
+                Playing in Spotify
+              </div>
+            </div>
+
             <!-- NOTES PANE -->
-            <div class="pane is-active" data-pp="notes">
+            <div class="pane" data-pp="notes">
               <div class="note">
                 <div class="note-t">Tomorrow&apos;s standup</div>
                 <div class="note-b">Demo the new pill animation. Talk about Whisper bundling. Decide on launch tweet copy by Friday morning…</div>
@@ -106,7 +206,7 @@
               </div>
             </div>
 
-            <!-- IMAGES PANE — placeholder gradients until real images land -->
+            <!-- IMAGES PANE -->
             <div class="pane" data-pp="images">
               <div class="img-grid">
                 <div class="img" data-i="1"><img src="assets/inbox/inbox-1.jpg" alt="" onerror="this.style.display='none'"/></div>
@@ -125,7 +225,7 @@
                   <video src="assets/videos/video-1.mp4" muted autoplay loop playsinline preload="metadata" onerror="this.style.display='none'"></video>
                 </div>
                 <div class="vid-info">
-                  <div class="vid-name">Cinematic ocean — Pixabay</div>
+                  <div class="vid-name">Cinematic ocean</div>
                   <div class="vid-meta">12s · 2.4 MB · ready</div>
                 </div>
               </div>
@@ -139,21 +239,27 @@
               </div>
             </div>
 
-            <!-- MUSIC PANE -->
-            <div class="pane" data-pp="music">
-              <div class="music-now">
-                <div class="music-art"></div>
-                <div class="music-meta">
-                  <div class="music-title">Emagination (B-Side)</div>
-                  <div class="music-artist">Miami Horror &middot; Illumination</div>
-                  <div class="music-bar">
-                    <span class="music-time">1:24</span>
-                    <div class="music-track-bar"><div class="music-track-fill"></div></div>
-                    <span class="music-time">3:16</span>
-                  </div>
-                  <div class="music-controls">
-                    <span>⏮</span><span class="music-play">⏯</span><span>⏭</span>
-                  </div>
+            <!-- FILES PANE -->
+            <div class="pane" data-pp="files">
+              <div class="file-row">
+                <div class="file-icon">PDF</div>
+                <div class="file-info">
+                  <div class="file-name">Notetaker — design doc.pdf</div>
+                  <div class="file-meta">2.4 MB · added 3 min ago</div>
+                </div>
+              </div>
+              <div class="file-row">
+                <div class="file-icon zip">ZIP</div>
+                <div class="file-info">
+                  <div class="file-name">brand-assets-v3.zip</div>
+                  <div class="file-meta">18 MB · added today</div>
+                </div>
+              </div>
+              <div class="file-row">
+                <div class="file-icon doc">DOC</div>
+                <div class="file-info">
+                  <div class="file-name">launch-checklist.md</div>
+                  <div class="file-meta">12 KB · added today</div>
                 </div>
               </div>
             </div>
@@ -394,61 +500,96 @@
 </section>
 
 
-<!-- Comprehensive feature list — typeset rows, no cards -->
-<section class="more">
-  <h2>And the rest of it.</h2>
+<!-- Visual montage — auto-cycles through the rest of the features. Glance, get it, move on. -->
+<section class="montage" id="montage">
+  <h2 class="montage-h">And the small things you&apos;ll&nbsp;feel.</h2>
 
-  <dl class="more-list">
-    <div class="more-row">
-      <dt>Now Playing</dt>
-      <dd>The pill shows whatever&apos;s coming out of macOS — Spotify, Music, Safari, any source the system knows about. Hover for transport.</dd>
+  <div class="montage-stage" id="montageStage">
+
+    <!-- DRAG -->
+    <div class="mc is-active" data-mc="drag">
+      <div class="mc-vis mc-vis-drag">
+        <div class="mc-img"></div>
+        <div class="mc-tabs">
+          <span>Notes</span>
+          <span class="hot">Images</span>
+          <span>Videos</span>
+        </div>
+      </div>
+      <div class="mc-label">Drag an image. Panel opens to&nbsp;Images.</div>
     </div>
 
-    <div class="more-row">
-      <dt>AI summary</dt>
-      <dd>Drop your own Gemini key in Settings and any note collapses into a tight summary on&nbsp;demand. Your key, your model, your data.</dd>
+    <!-- AI SUMMARY -->
+    <div class="mc" data-mc="ai">
+      <div class="mc-vis mc-vis-ai">
+        <div class="mc-note-long">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <div class="mc-spark">✦</div>
+        <div class="mc-note-short">
+          <span></span><span></span>
+        </div>
+      </div>
+      <div class="mc-label">Long note → tight summary. Your Gemini&nbsp;key.</div>
     </div>
 
-    <div class="more-row">
-      <dt>Drag &amp; drop</dt>
-      <dd>Start dragging an image and the panel pops to&nbsp;Images. A video file lands in&nbsp;Videos. The panel meets you halfway, on whatever surface you&apos;re&nbsp;on.</dd>
+    <!-- SELF-CLEANING -->
+    <div class="mc" data-mc="clean">
+      <div class="mc-vis mc-vis-clean">
+        <div class="mc-stamp s1">2d</div>
+        <div class="mc-arrow">→</div>
+        <div class="mc-stamp s2">7d</div>
+        <div class="mc-arrow">→</div>
+        <div class="mc-stamp s3">⊘</div>
+      </div>
+      <div class="mc-label">Auto-trash in 2&nbsp;days. Auto-delete in a&nbsp;week.</div>
     </div>
 
-    <div class="more-row">
-      <dt>Charging pill</dt>
-      <dd>Plug in and a small pill blooms briefly to&nbsp;confirm. Same on unplug. It never asks for attention; it just lets you know.</dd>
+    <!-- SKIPS EDITOR -->
+    <div class="mc" data-mc="skip">
+      <div class="mc-vis mc-vis-skip">
+        <div class="mc-app">
+          <div class="mc-app-icon">⌘</div>
+          <div class="mc-app-name">Xcode</div>
+        </div>
+        <div class="mc-keys">
+          <kbd>⌘</kbd><kbd>C</kbd>
+        </div>
+        <div class="mc-skipped">— ignored</div>
+      </div>
+      <div class="mc-label">⌘C in Xcode, VS&nbsp;Code, Terminal — skipped.</div>
     </div>
 
-    <div class="more-row">
-      <dt>Self-cleaning</dt>
-      <dd>Anything you don&apos;t engage with rolls into trash after two&nbsp;days, deletes after a&nbsp;week. Tunable in Settings if you&apos;re a&nbsp;hoarder.</dd>
+    <!-- CHARGING -->
+    <div class="mc" data-mc="charge">
+      <div class="mc-vis mc-vis-charge">
+        <div class="mc-pill">
+          <span class="mc-bolt">⚡</span>
+          <span class="mc-pct">100%</span>
+        </div>
+      </div>
+      <div class="mc-label">Plug in. The notch confirms, then&nbsp;leaves.</div>
     </div>
 
-    <div class="more-row">
-      <dt>Skips your editor</dt>
-      <dd>⌘C inside Xcode, VS&nbsp;Code, Terminal, iTerm, Notion, Obsidian, your password manager — Notetaker recognises the context and stays out of the way.</dd>
+    <!-- NATIVE -->
+    <div class="mc" data-mc="native">
+      <div class="mc-vis mc-vis-native">
+        <div class="mc-num">4.5<span>MB</span></div>
+        <div class="mc-vs">vs Electron apps starting at <b>200&nbsp;MB</b></div>
+      </div>
+      <div class="mc-label">Pure Swift. Launches instantly. Behaves like a Mac&nbsp;app.</div>
     </div>
 
-    <div class="more-row">
-      <dt>Burst detection</dt>
-      <dd>Take one screenshot and it expires in a few&nbsp;hours. Take two within three&nbsp;seconds and Notetaker decides you meant it &mdash; both stay.</dd>
-    </div>
+  </div>
 
-    <div class="more-row">
-      <dt>Quiet by default</dt>
-      <dd>No Dock icon. No badge. No notification permission popup on first&nbsp;launch. The menubar only carries the icon if you ask it&nbsp;to.</dd>
-    </div>
-
-    <div class="more-row">
-      <dt>Launch at login</dt>
-      <dd>One toggle in Settings. Uses the modern <code>SMAppService</code> API, not a hidden launch&nbsp;agent.</dd>
-    </div>
-
-    <div class="more-row">
-      <dt>Native and light</dt>
-      <dd>Pure Swift and SwiftUI. The whole bundle is 4.5&nbsp;MB. Launches instantly. Sits in roughly 12&nbsp;MB of&nbsp;RAM. Behaves like a Mac app because it&nbsp;is&nbsp;one.</dd>
-    </div>
-  </dl>
+  <div class="montage-dots" id="montageDots" aria-hidden="true">
+    <span class="is-active"></span>
+    <span></span>
+    <span></span>
+    <span></span>
+    <span></span>
+    <span></span>
+  </div>
 </section>
 
 
