@@ -168,6 +168,7 @@
   const hoverPath    = document.getElementById('hoverPath');
   const hoverCursor  = document.getElementById('hoverCursor');
   const hoverNotch   = document.getElementById('hoverNotch');
+  const hoverCaption = document.getElementById('hoverCaption');
 
   if (hoverSection && hoverPath && hoverCursor && hoverNotch) {
     const length = hoverPath.getTotalLength();
@@ -204,6 +205,8 @@
         hoverNotch.classList.remove('is-tease', 'is-open');
         if (next) hoverNotch.classList.add(next);
         lastNotchState = next;
+        // tiny caption fades in when the notch opens
+        if (hoverCaption) hoverCaption.classList.toggle('is-visible', next === 'is-open');
       }
     }
 

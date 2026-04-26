@@ -309,22 +309,14 @@
      One idea per viewport. Big type. No grids.
      ========================================================= -->
 
-<!-- Scroll-driven stroke: cursor traces a path up to the notch as you scroll.
-     When the cursor reaches the top, the notch opens. -->
-<section id="what" class="hover-scroll" aria-label="The notch opens when you reach for it">
+<!-- Visual-only: cursor traces up, notch opens. Almost no text. -->
+<section id="what" class="hover-scroll" aria-label="Reach for the notch">
   <div class="hover-scroll-inner">
-    <div class="hover-scroll-words">
-      <h2>The notch opens<br/>when you reach for&nbsp;it.</h2>
-      <p class="body">
-        Drift your cursor toward the camera and the panel teases open.
-        Stay there a fraction of a second longer and it blooms into a full slab.
-        Move away and it&apos;s gone again. No hotkey to remember, no menubar icon to hunt&nbsp;for.
-      </p>
-      <p class="hover-scroll-hint">scroll &nbsp;↓</p>
-    </div>
+
+    <p class="hover-scroll-hint" aria-hidden="true">scroll&nbsp;↓ &nbsp;reach&nbsp;for&nbsp;it</p>
 
     <div class="hover-scroll-stage" aria-hidden="true">
-      <!-- the mock notch the cursor is reaching toward -->
+      <!-- the notch the cursor is reaching toward -->
       <div class="hover-scroll-notch" id="hoverNotch">
         <div class="hover-scroll-notch-pill">
           <span class="hover-scroll-art"></span>
@@ -341,18 +333,22 @@
           </filter>
         </defs>
         <path id="hoverPath"
-              d="M 60 740 C 200 580, 320 660, 380 480 S 600 320, 560 80"
+              d="M 400 760 C 260 580, 540 380, 400 120"
               fill="none"
               stroke="rgba(244,243,238,0.45)"
               stroke-width="2"
               stroke-linecap="round"
               stroke-linejoin="round"/>
         <g id="hoverCursor" filter="url(#cursorGlow)">
-          <circle r="6" fill="#f0c992"/>
-          <circle r="2" fill="#fff"/>
+          <circle r="7" fill="#f0c992"/>
+          <circle r="2.5" fill="#fff"/>
         </g>
       </svg>
+
+      <!-- a tiny caption that appears when the notch opens -->
+      <p class="hover-scroll-caption" id="hoverCaption">that&apos;s&nbsp;it.</p>
     </div>
+
   </div>
 </section>
 

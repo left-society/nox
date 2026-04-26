@@ -935,50 +935,58 @@ code {
   max-width: var(--max);
   margin: 0 auto;
   padding: 0 var(--pad);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
-  gap: clamp(32px, 5vw, 80px);
+  display: flex;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
 }
 
-.hover-scroll-words {
-  max-width: 480px;
-}
-.hover-scroll-words h2 {
-  margin: 0 0 24px;
-  font-size: clamp(34px, 5vw, 60px);
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  line-height: 1.05;
-  color: var(--fg);
-}
-.hover-scroll-words .body {
-  margin: 0;
-  font-size: 16.5px;
-  color: var(--fg-mute);
-  line-height: 1.6;
-  max-width: 52ch;
-}
 .hover-scroll-hint {
-  margin: 36px 0 0;
+  position: absolute;
+  top: 8%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 11px;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--fg-deep);
   animation: hoverScrollHint 2.4s ease-in-out infinite;
+  white-space: nowrap;
+  z-index: 3;
 }
 @keyframes hoverScrollHint {
-  0%, 100% { transform: translateY(0); opacity: 0.6; }
-  50%      { transform: translateY(4px); opacity: 1; }
+  0%, 100% { transform: translateX(-50%) translateY(0); opacity: 0.5; }
+  50%      { transform: translateX(-50%) translateY(4px); opacity: 1; }
 }
 
 .hover-scroll-stage {
   position: relative;
-  width: 100%;
-  height: min(80vh, 720px);
+  width: min(720px, 90vw);
+  height: min(82vh, 720px);
   aspect-ratio: 1 / 1;
   margin: 0 auto;
+}
+
+.hover-scroll-caption {
+  position: absolute;
+  top: 22%;
+  left: 50%;
+  transform: translateX(-50%) translateY(0);
+  margin: 0;
+  font-size: 13px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 0.06em;
+  color: var(--warm);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 4;
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+.hover-scroll-caption.is-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(8px);
 }
 
 .hover-scroll-svg {
@@ -988,11 +996,13 @@ code {
   height: 100%;
 }
 
-/* the notch the cursor is reaching for */
+/* the notch the cursor is reaching for — centered at top of stage */
 .hover-scroll-notch {
   position: absolute;
   top: 4%;
-  right: 12%;
+  left: 50%;
+  transform: translateX(-50%);
+  right: auto;
   width: 200px;
   height: 26px;
   background: #000;
@@ -1010,14 +1020,14 @@ code {
   z-index: 2;
 }
 .hover-scroll-notch.is-tease {
-  width: 240px;
-  height: 32px;
-  border-radius: 0 0 16px 16px;
+  width: 280px;
+  height: 36px;
+  border-radius: 0 0 18px 18px;
 }
 .hover-scroll-notch.is-open {
-  width: 320px;
-  height: 110px;
-  border-radius: 0 0 22px 22px;
+  width: 420px;
+  height: 160px;
+  border-radius: 0 0 24px 24px;
 }
 .hover-scroll-notch-pill {
   display: flex;
