@@ -4,6 +4,74 @@
 (function () {
   'use strict';
 
+  // ============ Audio waveform — Canvas, 4-sinusoid sum, never repeats ============
+  // Mirrors Notetaker/NotchPill/WaveformView.swift exactly: four sin
+  // components at incommensurate spatial AND temporal frequencies, so
+  // the silhouette never falls into a recognisable period. Reads as
+  // "alive audio" at every instant, not as a marching ASCII pattern.
+  (function initWaveforms() {
+    const canvases = document.querySelectorAll('.wave-canvas');
+    if (!canvases.length) return;
+
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    canvases.forEach((c) => {
+      // Physical size for crispness; logical size set by CSS
+      const cw = c.clientWidth || 22;
+      const ch = c.clientHeight || 14;
+      c.width  = Math.round(cw * dpr);
+      c.height = Math.round(ch * dpr);
+    });
+
+    function draw(canvas, time) {
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      ctx.beginPath();
+      const steps = 32;
+      const amp = 0.55;          // matches WaveformView.swift `amplitudeMul` while playing
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const x = t * w;
+        // four phase-incoherent sinusoids — straight port from Swift
+        const p1 = t * 3.4 * Math.PI - time * 4.7;
+        const p2 = t * 5.9 * Math.PI - time * 3.1;
+        const p3 = t * 9.1 * Math.PI - time * 6.3;
+        const p4 = t * 13.7 * Math.PI - time * 2.4;
+        const sig = Math.sin(p1) * 0.45 + Math.sin(p2) * 0.28 +
+                    Math.sin(p3) * 0.18 + Math.sin(p4) * 0.09;
+        const y = h / 2 + sig * amp * h;
+        if (i === 0) ctx.moveTo(x, y);
+        else         ctx.lineTo(x, y);
+      }
+      const tint = canvas.dataset.tint || '#ffffff';
+      ctx.strokeStyle = tint;
+      ctx.lineWidth   = 1.4 * dpr;     // 1.4pt stroke at @1x, scaled for retina
+      ctx.lineCap     = 'round';
+      ctx.lineJoin    = 'round';
+      ctx.stroke();
+    }
+
+    const start = performance.now();
+    function tick(now) {
+      // Fold time into a small repeating window like the Swift code
+      // does, to keep sin() in its precise regime.
+      const raw = (now - start) / 1000;
+      const time = raw % (2 * Math.PI * 1000);
+      canvases.forEach((c) => draw(c, time));
+      requestAnimationFrame(tick);
+    }
+
+    // Pause when tab is hidden — no point burning CPU off-screen.
+    let paused = false;
+    document.addEventListener('visibilitychange', () => {
+      paused = document.hidden;
+      if (!paused) requestAnimationFrame(tick);
+    });
+
+    requestAnimationFrame(tick);
+  })();
+
+
   // ============ macOS Dock — cosine-based magnification ============
   const dock = document.getElementById('mbpDock');
   if (dock) {
