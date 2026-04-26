@@ -173,51 +173,112 @@
               </div>
             </div>
 
-            <!-- NOTES PANE -->
+            <!-- NOTES PANE — matches real app: + New note, search, list with timestamps -->
             <div class="pane" data-pp="notes">
-              <div class="note">
-                <div class="note-t">Tomorrow&apos;s standup</div>
-                <div class="note-b">Demo the new pill animation. Talk about Whisper bundling. Decide on launch tweet copy by Friday morning…</div>
+              <button class="notes-new">
+                <span class="plus">+</span>
+                <span class="notes-new-label">New note</span>
+                <span class="notes-new-kbd">⌥&nbsp;N</span>
+              </button>
+              <div class="notes-search">
+                <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                  <circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5"/>
+                </svg>
+                <span class="notes-search-ph">Search notes</span>
+                <button class="notes-clear-btn" type="button">
+                  <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 5h10M5.5 5V3.5h5V5M6 5v8M10 5v8M4 5l1 9h6l1-9"/></svg>
+                  Clear
+                </button>
               </div>
-              <div class="note">
-                <div class="note-t">Idea — hover-to-tease</div>
-                <div class="note-b">Pre-bloom on cursor entry, full open after 200&nbsp;ms dwell. Keeps the panel cheap when the user is just brushing past.</div>
-              </div>
-              <div class="note">
-                <div class="note-t">Quote</div>
-                <div class="note-b">&ldquo;The best interface is no interface &mdash; until you need one.&rdquo;</div>
+              <div class="notes-list">
+                <div class="note-row">
+                  <div class="note-t">Tomorrow&apos;s standup — demo the pill, agree on launch tweet copy</div>
+                  <div class="note-time">3 min ago</div>
+                </div>
+                <div class="note-row">
+                  <div class="note-t">"The best interface is no interface — until you need one."</div>
+                  <div class="note-time">20 min ago</div>
+                </div>
+                <div class="note-row">
+                  <div class="note-t">https://news.ycombinator.com/item?id=42…</div>
+                  <div class="note-time">36 min ago</div>
+                </div>
+                <div class="note-row">
+                  <div class="note-t">Closer — The Chainsmokers (Spotify link)</div>
+                  <div class="note-time">45 min ago</div>
+                </div>
+                <div class="note-row">
+                  <div class="note-t">Idea: pre-bloom the panel on cursor entry, dwell 200&nbsp;ms for full open</div>
+                  <div class="note-time">1 hr ago</div>
+                </div>
               </div>
             </div>
 
-            <!-- IMAGES PANE -->
+            <!-- IMAGES PANE — count, "20 images / Copy all" stack card, 2-col grid with trash -->
             <div class="pane" data-pp="images">
-              <div class="img-grid">
-                <div class="img" data-i="1"><img src="assets/inbox/inbox-1.jpg" alt="" onerror="this.style.display='none'"/></div>
-                <div class="img" data-i="2"><img src="assets/inbox/inbox-2.jpg" alt="" onerror="this.style.display='none'"/></div>
-                <div class="img" data-i="3"><img src="assets/inbox/inbox-3.jpg" alt="" onerror="this.style.display='none'"/></div>
-                <div class="img" data-i="4"><img src="assets/inbox/inbox-4.jpg" alt="" onerror="this.style.display='none'"/></div>
-                <div class="img" data-i="5"><img src="assets/inbox/inbox-5.jpg" alt="" onerror="this.style.display='none'"/></div>
-                <div class="img" data-i="6"><img src="assets/inbox/inbox-6.jpg" alt="" onerror="this.style.display='none'"/></div>
+              <div class="img-toolbar">
+                <span class="img-count">6 images</span>
+                <button class="img-clear-btn" type="button">
+                  <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 5h10M5.5 5V3.5h5V5M6 5v8M10 5v8M4 5l1 9h6l1-9"/></svg>
+                  Clear
+                </button>
+              </div>
+              <div class="img-stack">
+                <div class="img-stack-thumbs">
+                  <img src="assets/inbox/inbox-1.jpg" alt="" onerror="this.style.display='none'"/>
+                  <img src="assets/inbox/inbox-2.jpg" alt="" onerror="this.style.display='none'"/>
+                  <img src="assets/inbox/inbox-3.jpg" alt="" onerror="this.style.display='none'"/>
+                </div>
+                <div class="img-stack-meta">
+                  <div class="img-stack-t">6 images</div>
+                  <div class="img-stack-b">Copy or drag the stack</div>
+                </div>
+                <button class="img-stack-copy" type="button">
+                  <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4" y="4" width="9" height="9" rx="1.5"/><path d="M3 11V3h8"/></svg>
+                  Copy all
+                </button>
+              </div>
+              <div class="img-grid-2">
+                <div class="img-tile"><button class="tile-trash" aria-label="Delete"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M6 5V3.5h4V5M5.5 5l.5 8h4l.5-8"/></svg></button><img src="assets/inbox/inbox-4.jpg" alt="" onerror="this.style.display='none'"/></div>
+                <div class="img-tile"><button class="tile-trash" aria-label="Delete"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M6 5V3.5h4V5M5.5 5l.5 8h4l.5-8"/></svg></button><img src="assets/inbox/inbox-5.jpg" alt="" onerror="this.style.display='none'"/></div>
+                <div class="img-tile"><button class="tile-trash" aria-label="Delete"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M6 5V3.5h4V5M5.5 5l.5 8h4l.5-8"/></svg></button><img src="assets/inbox/inbox-6.jpg" alt="" onerror="this.style.display='none'"/></div>
+                <div class="img-tile"><button class="tile-trash" aria-label="Delete"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M6 5V3.5h4V5M5.5 5l.5 8h4l.5-8"/></svg></button><img src="assets/inbox/inbox-1.jpg" alt="" onerror="this.style.display='none'"/></div>
               </div>
             </div>
 
-            <!-- VIDEOS PANE -->
+            <!-- VIDEOS PANE — count, 2-col thumbnail grid with trash + play overlay + duration -->
             <div class="pane" data-pp="videos">
-              <div class="vid">
-                <div class="vid-thumb">
-                  <video src="assets/videos/video-1.mp4" muted autoplay loop playsinline preload="metadata" onerror="this.style.display='none'"></video>
-                </div>
-                <div class="vid-info">
-                  <div class="vid-name">Cinematic ocean</div>
-                  <div class="vid-meta">12s · 2.4 MB · ready</div>
-                </div>
+              <div class="vid-toolbar">
+                <span class="vid-count">4 videos</span>
+                <button class="vid-clear-btn" type="button">
+                  <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 5h10M5.5 5V3.5h5V5M6 5v8M10 5v8M4 5l1 9h6l1-9"/></svg>
+                  Clear
+                </button>
               </div>
-              <div class="vid">
-                <div class="vid-thumb dl"></div>
-                <div class="vid-info">
-                  <div class="vid-name">How the Mac notch became useful</div>
-                  <div class="vid-meta">YouTube · 12:04 · downloading</div>
-                  <div class="vid-prog"><div class="vid-prog-fill"></div></div>
+              <div class="vid-grid">
+                <div class="vid-tile">
+                  <button class="tile-trash"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M6 5V3.5h4V5M5.5 5l.5 8h4l.5-8"/></svg></button>
+                  <video src="assets/videos/video-1.mp4" muted autoplay loop playsinline preload="metadata"></video>
+                  <div class="vid-play"><svg viewBox="0 0 24 24" width="14" height="14" fill="#fff"><path d="M9 5v14l11-7z"/></svg></div>
+                  <div class="vid-dur">0:41</div>
+                </div>
+                <div class="vid-tile">
+                  <button class="tile-trash"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M6 5V3.5h4V5M5.5 5l.5 8h4l.5-8"/></svg></button>
+                  <video src="assets/videos/video-2.mp4" muted autoplay loop playsinline preload="metadata"></video>
+                  <div class="vid-play"><svg viewBox="0 0 24 24" width="14" height="14" fill="#fff"><path d="M9 5v14l11-7z"/></svg></div>
+                  <div class="vid-dur">0:43</div>
+                </div>
+                <div class="vid-tile">
+                  <button class="tile-trash"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M6 5V3.5h4V5M5.5 5l.5 8h4l.5-8"/></svg></button>
+                  <div class="vid-fake-thumb" style="background:linear-gradient(135deg,#3a2030 0%,#80c060 100%);"></div>
+                  <div class="vid-play"><svg viewBox="0 0 24 24" width="14" height="14" fill="#fff"><path d="M9 5v14l11-7z"/></svg></div>
+                  <div class="vid-dur">20:20</div>
+                </div>
+                <div class="vid-tile">
+                  <button class="tile-trash"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M6 5V3.5h4V5M5.5 5l.5 8h4l.5-8"/></svg></button>
+                  <div class="vid-fake-thumb" style="background:linear-gradient(135deg,#c52050 0%,#f08020 100%);"></div>
+                  <div class="vid-play"><svg viewBox="0 0 24 24" width="14" height="14" fill="#fff"><path d="M9 5v14l11-7z"/></svg></div>
+                  <div class="vid-dur">1:55</div>
                 </div>
               </div>
             </div>
