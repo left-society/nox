@@ -421,12 +421,17 @@
                 stroke-width="1.5"
                 stroke-linecap="round"
                 stroke-linejoin="round"/>
-          <!-- macOS arrow cursor — wider head, shorter tail, scaled for chunkier read -->
-          <g id="hoverCursor" filter="url(#cursorGlow)">
-            <g transform="scale(1.4)">
-              <path d="M 0 0 L 0 18 L 4.5 14.2 L 7.6 21 L 11 19.5 L 7.8 12.8 L 13.5 12.4 Z"
-                    fill="#ffffff" stroke="#000000" stroke-width="1.4"
-                    stroke-linejoin="round" stroke-linecap="round"
+          <!-- macOS arrow cursor — chunky scale + thick effective outline -->
+          <g id="hoverCursor">
+            <g transform="scale(2.2)">
+              <!-- soft drop shadow for lift -->
+              <path d="M 0 0 L 0 16 L 4.5 12.5 L 7 18 L 9.5 17 L 7 11.5 L 12 11.5 Z"
+                    fill="rgba(0,0,0,0.4)"
+                    transform="translate(0.4, 0.8)"/>
+              <!-- main: thick black outline, white fill -->
+              <path d="M 0 0 L 0 16 L 4.5 12.5 L 7 18 L 9.5 17 L 7 11.5 L 12 11.5 Z"
+                    fill="#ffffff" stroke="#000000" stroke-width="1.6"
+                    stroke-linejoin="round"
                     paint-order="stroke fill"/>
             </g>
           </g>

@@ -666,15 +666,16 @@ code {
   display: block;
 }
 .m-transport .m-pp {
-  width: 50px; height: 50px;
-  background: rgba(255,255,255,0.92);
+  width: 60px; height: 60px;
+  background: rgba(255,255,255,0.95);
   color: #0a0a0a;
   padding-left: 2px;
   box-shadow:
-    0 6px 20px -6px rgba(0,0,0,0.6),
-    0 0 0 1px rgba(255,255,255,0.04);
+    0 8px 24px -6px rgba(0,0,0,0.7),
+    0 0 0 1px rgba(255,255,255,0.05);
   transition: transform 0.15s ease, background 0.15s ease;
 }
+.m-transport .m-pp svg { width: 18px; height: 18px; }
 .m-transport .m-pp:hover { background: #fff; transform: scale(1.04); }
 .m-transport .m-pp:active { transform: scale(0.96); }
 
@@ -1217,14 +1218,15 @@ code {
   border-radius: 999px;
 }
 .hmac-card-transport .play {
-  width: 44px; height: 44px;
+  width: 56px; height: 56px;
   background: rgba(255,255,255,0.95);
   color: #0a0a0a;
   padding-left: 2px;
-  box-shadow: 0 6px 18px -6px rgba(0,0,0,0.6);
+  box-shadow: 0 6px 22px -6px rgba(0,0,0,0.7);
   transition: transform 0.15s ease, background 0.15s ease;
 }
 .hmac-card-transport .play:hover { background: #fff; transform: scale(1.04); }
+.hmac-card-transport .play svg { width: 16px; height: 16px; }
 
 .hmac-card-source {
   align-self: center;
