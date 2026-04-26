@@ -169,11 +169,17 @@ code {
 .mbp-wallpaper {
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(ellipse 80% 60% at 30% 20%, rgba(220,140,200,0.35), transparent 60%),
-    radial-gradient(ellipse 60% 50% at 80% 80%, rgba(255,170,100,0.30), transparent 55%),
-    radial-gradient(ellipse 70% 70% at 50% 50%, rgba(120,90,160,0.25), transparent 60%),
-    linear-gradient(135deg, #1a0e2e 0%, #2a1530 50%, #3a2030 100%);
+  background-image: url('assets/wallpaper.jpg');
+  background-size: cover;
+  background-position: center;
+}
+.mbp-wallpaper::after {
+  /* a touch of vignette so the menubar reads cleanly */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 100% 60% at 50% 0%, rgba(0,0,0,0.18), transparent 50%);
+  pointer-events: none;
 }
 
 .mbp-menubar {
@@ -355,6 +361,71 @@ code {
 }
 
 
+/* — macOS Dock at the bottom of the screen — */
+.mbp-dock {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 5px 10px;
+  background: rgba(40, 40, 45, 0.55);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 14px;
+  z-index: 8;
+  box-shadow:
+    0 8px 24px rgba(0,0,0,0.5),
+    0 2px 6px rgba(0,0,0,0.3),
+    inset 0 1px 0 rgba(255,255,255,0.18),
+    inset 0 -1px 0 rgba(0,0,0,0.25);
+  user-select: none;
+}
+.dock-icon {
+  width: 36px;
+  height: 36px;
+  position: relative;
+  display: grid;
+  place-items: end center;
+  cursor: pointer;
+  transform-origin: bottom center;
+  will-change: transform;
+}
+.dock-icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+}
+.dock-icon.active::after {
+  content: "";
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.85);
+}
+.dock-divider {
+  width: 1px;
+  height: 30px;
+  background: rgba(255,255,255,0.15);
+  margin: 0 4px;
+  align-self: center;
+}
+
+@media (max-width: 640px) {
+  .mbp-dock { gap: 2px; padding: 4px 7px; }
+  .dock-icon { width: 26px; height: 26px; }
+  .dock-divider { height: 22px; margin: 0 3px; }
+}
+
 /* — words below the macbook — */
 .hero-words {
   max-width: 720px;
@@ -517,27 +588,155 @@ code {
 }
 
 
-/* ============ DECLARE — type-only, left-anchored statement ============ */
-.declare {
-  max-width: 920px;
-  margin: 0 auto;
-  padding: clamp(100px, 16vw, 200px) var(--pad);
+/* ============ HOVER-SCROLL — scroll-driven stroke + cursor + notch ============ */
+.hover-scroll {
+  position: relative;
+  height: 220vh;
 }
-.declare h2 {
-  margin: 0 0 28px;
+.hover-scroll-inner {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 0 var(--pad);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  gap: clamp(32px, 5vw, 80px);
+  align-items: center;
+}
+
+.hover-scroll-words {
+  max-width: 480px;
+}
+.hover-scroll-words h2 {
+  margin: 0 0 24px;
   font-size: clamp(34px, 5vw, 60px);
   font-weight: 600;
   letter-spacing: -0.03em;
   line-height: 1.05;
   color: var(--fg);
-  max-width: 18ch;
 }
-.declare .body {
+.hover-scroll-words .body {
   margin: 0;
-  font-size: 17px;
+  font-size: 16.5px;
   color: var(--fg-mute);
-  max-width: 56ch;
   line-height: 1.6;
+  max-width: 52ch;
+}
+.hover-scroll-hint {
+  margin: 36px 0 0;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--fg-deep);
+  animation: hoverScrollHint 2.4s ease-in-out infinite;
+}
+@keyframes hoverScrollHint {
+  0%, 100% { transform: translateY(0); opacity: 0.6; }
+  50%      { transform: translateY(4px); opacity: 1; }
+}
+
+.hover-scroll-stage {
+  position: relative;
+  width: 100%;
+  height: min(80vh, 720px);
+  aspect-ratio: 1 / 1;
+  margin: 0 auto;
+}
+
+.hover-scroll-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* the notch the cursor is reaching for */
+.hover-scroll-notch {
+  position: absolute;
+  top: 4%;
+  right: 12%;
+  width: 200px;
+  height: 26px;
+  background: #000;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.5);
+  transition:
+    width 0.55s cubic-bezier(.32,.72,.32,1),
+    height 0.55s cubic-bezier(.32,.72,.32,1),
+    border-radius 0.45s ease;
+  z-index: 2;
+}
+.hover-scroll-notch.is-tease {
+  width: 240px;
+  height: 32px;
+  border-radius: 0 0 16px 16px;
+}
+.hover-scroll-notch.is-open {
+  width: 320px;
+  height: 110px;
+  border-radius: 0 0 22px 22px;
+}
+.hover-scroll-notch-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  width: 100%;
+  height: 26px;
+  opacity: 0;
+  transition: opacity 0.4s ease 0.1s;
+}
+.hover-scroll-notch.is-open .hover-scroll-notch-pill {
+  opacity: 1;
+  height: auto;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 12px;
+  gap: 6px;
+}
+.hover-scroll-art {
+  width: 18px; height: 18px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, #f4f3ee 0%, #c8c5bd 100%);
+  flex-shrink: 0;
+}
+.hover-scroll-text {
+  font-size: 11.5px;
+  color: rgba(255,255,255,0.85);
+  white-space: nowrap;
+}
+.hover-scroll-notch.is-open .hover-scroll-art { display: none; }
+.hover-scroll-notch.is-open .hover-scroll-text {
+  font-size: 12.5px;
+  color: rgba(255,255,255,0.95);
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+@media (max-width: 760px) {
+  .hover-scroll {
+    height: auto;
+  }
+  .hover-scroll-inner {
+    position: static;
+    height: auto;
+    grid-template-columns: 1fr;
+    gap: 36px;
+    padding: 80px var(--pad);
+  }
+  .hover-scroll-stage {
+    height: 60vh;
+  }
 }
 
 
@@ -731,6 +930,51 @@ code {
 .music-meta { text-align: center; }
 .mm-title { font-size: 14px; color: var(--fg); }
 .mm-artist { font-size: 12.5px; color: var(--fg-mute); margin-top: 2px; }
+
+
+/* ============ MORE — comprehensive feature list, definition-list style ============ */
+.more {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: clamp(80px, 12vw, 160px) var(--pad);
+}
+.more h2 {
+  margin: 0 0 56px;
+  font-size: clamp(32px, 5vw, 56px);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+}
+.more-list {
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+.more-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) 1fr;
+  gap: clamp(24px, 5vw, 60px);
+  padding: 28px 0;
+  border-bottom: 1px solid var(--line);
+}
+.more-row dt {
+  font-weight: 500;
+  color: var(--fg);
+  font-size: 16px;
+  letter-spacing: -0.005em;
+}
+.more-row dd {
+  margin: 0;
+  color: var(--fg-mute);
+  font-size: 16px;
+  line-height: 1.6;
+  max-width: 62ch;
+}
+
+@media (max-width: 640px) {
+  .more-row { grid-template-columns: 1fr; gap: 6px; padding: 22px 0; }
+  .more-row dt { font-size: 15px; }
+}
 
 
 /* ============ KEYS ============ */

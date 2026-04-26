@@ -90,6 +90,21 @@
         </div>
       </div>
 
+      <!-- macOS Dock — real magnification on cursor proximity -->
+      <div class="mbp-dock" id="mbpDock">
+        <div class="dock-icon" data-app="finder"   title="Finder"   ><img src="assets/dock/finder.png"   alt=""/></div>
+        <div class="dock-icon" data-app="safari"   title="Safari"   ><img src="assets/dock/safari.png"   alt=""/></div>
+        <div class="dock-icon" data-app="mail"     title="Mail"     ><img src="assets/dock/mail.png"     alt=""/></div>
+        <div class="dock-icon" data-app="messages" title="Messages" ><img src="assets/dock/messages.png" alt=""/></div>
+        <div class="dock-icon" data-app="music"    title="Music"    ><img src="assets/dock/music.png"    alt=""/></div>
+        <div class="dock-icon" data-app="photos"   title="Photos"   ><img src="assets/dock/photos.png"   alt=""/></div>
+        <div class="dock-icon" data-app="notes"    title="Notes"    ><img src="assets/dock/notes.png"    alt=""/></div>
+        <div class="dock-icon" data-app="calendar" title="Calendar" ><img src="assets/dock/calendar.png" alt=""/></div>
+        <div class="dock-icon" data-app="appstore" title="App Store"><img src="assets/dock/appstore.png" alt=""/></div>
+        <div class="dock-divider" aria-hidden="true"></div>
+        <div class="dock-icon active" data-app="notetaker" title="Notetaker"><img src="assets/app-icon-256.png" alt=""/></div>
+      </div>
+
     </div>
     <div class="mbp-base"></div>
   </div>
@@ -117,14 +132,51 @@
      One idea per viewport. Big type. No grids.
      ========================================================= -->
 
-<!-- Type-only declarative — no figure, no eyebrow -->
-<section id="what" class="declare">
-  <h2>The notch opens when you reach for&nbsp;it.</h2>
-  <p class="body">
-    Drift your cursor toward the camera and the panel teases open.
-    Stay there a fraction of a second longer and it blooms into a full slab.
-    Move away and it&apos;s gone again. No hotkey to remember, no menubar icon to hunt&nbsp;for.
-  </p>
+<!-- Scroll-driven stroke: cursor traces a path up to the notch as you scroll.
+     When the cursor reaches the top, the notch opens. -->
+<section id="what" class="hover-scroll" aria-label="The notch opens when you reach for it">
+  <div class="hover-scroll-inner">
+    <div class="hover-scroll-words">
+      <h2>The notch opens<br/>when you reach for&nbsp;it.</h2>
+      <p class="body">
+        Drift your cursor toward the camera and the panel teases open.
+        Stay there a fraction of a second longer and it blooms into a full slab.
+        Move away and it&apos;s gone again. No hotkey to remember, no menubar icon to hunt&nbsp;for.
+      </p>
+      <p class="hover-scroll-hint">scroll &nbsp;↓</p>
+    </div>
+
+    <div class="hover-scroll-stage" aria-hidden="true">
+      <!-- the mock notch the cursor is reaching toward -->
+      <div class="hover-scroll-notch" id="hoverNotch">
+        <div class="hover-scroll-notch-pill">
+          <span class="hover-scroll-art"></span>
+          <span class="hover-scroll-text">Tomorrow&apos;s standup</span>
+        </div>
+      </div>
+
+      <!-- the path the cursor traces; SVG fills the stage -->
+      <svg class="hover-scroll-svg" viewBox="0 0 800 800" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <filter id="cursorGlow" x="-100%" y="-100%" width="300%" height="300%">
+            <feGaussianBlur stdDeviation="6" result="b"/>
+            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        <path id="hoverPath"
+              d="M 60 740 C 200 580, 320 660, 380 480 S 600 320, 560 80"
+              fill="none"
+              stroke="rgba(244,243,238,0.45)"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"/>
+        <g id="hoverCursor" filter="url(#cursorGlow)">
+          <circle r="6" fill="#f0c992"/>
+          <circle r="2" fill="#fff"/>
+        </g>
+      </svg>
+    </div>
+  </div>
 </section>
 
 
@@ -185,6 +237,64 @@
   <p class="keystroke-line">
     on any video page, and the file is in&nbsp;Videos.
   </p>
+</section>
+
+
+<!-- Comprehensive feature list — typeset rows, no cards -->
+<section class="more">
+  <h2>And the rest of it.</h2>
+
+  <dl class="more-list">
+    <div class="more-row">
+      <dt>Now Playing</dt>
+      <dd>The pill shows whatever&apos;s coming out of macOS — Spotify, Music, Safari, any source the system knows about. Hover for transport.</dd>
+    </div>
+
+    <div class="more-row">
+      <dt>AI summary</dt>
+      <dd>Drop your own Gemini key in Settings and any note collapses into a tight summary on&nbsp;demand. Your key, your model, your data.</dd>
+    </div>
+
+    <div class="more-row">
+      <dt>Drag &amp; drop</dt>
+      <dd>Start dragging an image and the panel pops to&nbsp;Images. A video file lands in&nbsp;Videos. The panel meets you halfway, on whatever surface you&apos;re&nbsp;on.</dd>
+    </div>
+
+    <div class="more-row">
+      <dt>Charging pill</dt>
+      <dd>Plug in and a small pill blooms briefly to&nbsp;confirm. Same on unplug. It never asks for attention; it just lets you know.</dd>
+    </div>
+
+    <div class="more-row">
+      <dt>Self-cleaning</dt>
+      <dd>Anything you don&apos;t engage with rolls into trash after two&nbsp;days, deletes after a&nbsp;week. Tunable in Settings if you&apos;re a&nbsp;hoarder.</dd>
+    </div>
+
+    <div class="more-row">
+      <dt>Skips your editor</dt>
+      <dd>⌘C inside Xcode, VS&nbsp;Code, Terminal, iTerm, Notion, Obsidian, your password manager — Notetaker recognises the context and stays out of the way.</dd>
+    </div>
+
+    <div class="more-row">
+      <dt>Burst detection</dt>
+      <dd>Take one screenshot and it expires in a few&nbsp;hours. Take two within three&nbsp;seconds and Notetaker decides you meant it &mdash; both stay.</dd>
+    </div>
+
+    <div class="more-row">
+      <dt>Quiet by default</dt>
+      <dd>No Dock icon. No badge. No notification permission popup on first&nbsp;launch. The menubar only carries the icon if you ask it&nbsp;to.</dd>
+    </div>
+
+    <div class="more-row">
+      <dt>Launch at login</dt>
+      <dd>One toggle in Settings. Uses the modern <code>SMAppService</code> API, not a hidden launch&nbsp;agent.</dd>
+    </div>
+
+    <div class="more-row">
+      <dt>Native and light</dt>
+      <dd>Pure Swift and SwiftUI. The whole bundle is 4.5&nbsp;MB. Launches instantly. Sits in roughly 12&nbsp;MB of&nbsp;RAM. Behaves like a Mac app because it&nbsp;is&nbsp;one.</dd>
+    </div>
+  </dl>
 </section>
 
 
