@@ -178,29 +178,26 @@
     hoverPath.style.strokeDasharray  = String(length);
     hoverPath.style.strokeDashoffset = String(length);
 
-    let scrollRaf = null;
+    // Two progress values: `target` jumps with scroll, `smooth` lerps
+    // toward it every frame. The cursor reads `smooth`, so it glides
+    // into position even when the user flicks the trackpad fast.
+    let targetProgress = 0;
+    let smoothProgress = 0;
+    let raf = null;
     let lastNotchState = '';
 
-    function paint() {
-      scrollRaf = null;
-
-      const rect    = hoverSection.getBoundingClientRect();
-      const total   = hoverSection.offsetHeight - window.innerHeight;
-      const scrolled = Math.max(0, -rect.top);
-      const progress = Math.max(0, Math.min(1, total > 0 ? scrolled / total : 0));
-
-      // Path draws from 0 → length as scroll goes 0 → 1.
+    function paint(progress) {
+      // Path draws 0 → length as progress goes 0 → 1.
       hoverPath.style.strokeDashoffset = String(length * (1 - progress));
 
-      // Cursor rides the drawn end of the path. SVG coordinates,
-      // so we sit it inside the SVG and use a transform attribute.
+      // Cursor rides the drawn end of the path.
       const point = hoverPath.getPointAtLength(length * progress);
       hoverCursor.setAttribute('transform', `translate(${point.x}, ${point.y})`);
 
-      // Cursor fades out as it merges with the notch.
+      // Cursor fades as it merges into the notch.
       hoverCursor.style.opacity = String(progress > 0.94 ? 0 : 1);
 
-      // Notch transitions: tease at 0.55, open at 0.85.
+      // Notch state — tease at 0.55, open at 0.85.
       let next = '';
       if (progress > 0.85) next = 'is-open';
       else if (progress > 0.55) next = 'is-tease';
@@ -208,18 +205,36 @@
         hoverNotch.classList.remove('is-tease', 'is-open');
         if (next) hoverNotch.classList.add(next);
         lastNotchState = next;
-        // tiny caption fades in when the notch opens
         if (hoverCaption) hoverCaption.classList.toggle('is-visible', next === 'is-open');
       }
     }
 
-    function onScroll() {
-      if (scrollRaf == null) scrollRaf = requestAnimationFrame(paint);
+    function loop() {
+      raf = null;
+      const diff = targetProgress - smoothProgress;
+      // 18% per frame ≈ ~5-6 frames to settle, feels weighty but responsive
+      smoothProgress += diff * 0.18;
+      paint(smoothProgress);
+      // Keep going until we're within ~half a path-pixel of target
+      if (Math.abs(diff) > 0.0008) raf = requestAnimationFrame(loop);
+      else smoothProgress = targetProgress; // snap final drift
     }
 
-    window.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('resize', onScroll, { passive: true });
-    paint(); // initial frame
+    function recalcTarget() {
+      const rect = hoverSection.getBoundingClientRect();
+      const total = hoverSection.offsetHeight - window.innerHeight;
+      const scrolled = Math.max(0, -rect.top);
+      targetProgress = Math.max(0, Math.min(1, total > 0 ? scrolled / total : 0));
+      if (!raf) raf = requestAnimationFrame(loop);
+    }
+
+    window.addEventListener('scroll', recalcTarget, { passive: true });
+    window.addEventListener('resize', recalcTarget, { passive: true });
+    // Snap to current scroll position on first paint so we don't see
+    // the cursor swing in from 0% on a deep-link refresh.
+    recalcTarget();
+    smoothProgress = targetProgress;
+    paint(smoothProgress);
   }
 
 

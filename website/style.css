@@ -205,6 +205,7 @@ code {
 .mb-app   { font-weight: 600; }
 .mb-menu  { color: rgba(255,255,255,0.62); }
 .spacer   { flex: 1; }
+.mb-glyph { color: rgba(255,255,255,0.78); display: inline-block; flex-shrink: 0; }
 .mb-time  { font-variant-numeric: tabular-nums; font-size: 11.5px; }
 
 
@@ -262,15 +263,35 @@ code {
 
 /* music state */
 .n-music {
-  padding: 0 14px;
-  justify-content: center;
-  gap: 14px;
+  padding: 0 6px 0 8px;
+  justify-content: space-between;
+  gap: 0;
 }
 .n-music .art {
-  width: 18px; height: 18px;
-  border-radius: 4px;
-  background: linear-gradient(135deg, #f4f3ee 0%, #c8c5bd 100%);
+  width: 22px; height: 22px;
+  border-radius: 5px;
+  background: #1a1a1a;
   flex-shrink: 0;
+  overflow: hidden;
+  border: 0.5px solid rgba(255,255,255,0.06);
+}
+.n-music .art img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.n-music .wave-line {
+  width: 32px;
+  height: 14px;
+  display: block;
+  flex-shrink: 0;
+  overflow: visible;
+  animation: waveFlow 1.2s linear infinite;
+  filter: drop-shadow(0 0 2px rgba(255, 107, 138, 0.4));
+}
+@keyframes waveFlow {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-20px); }
 }
 .n-music .wave {
   display: inline-flex; align-items: center; gap: 2px; height: 12px;
@@ -571,7 +592,6 @@ code {
   width: 100%; height: 100%;
   object-fit: cover;
   display: block;
-  filter: grayscale(100%) brightness(0.85) contrast(1.1);
 }
 .m-meta {
   flex: 1;
@@ -633,7 +653,7 @@ code {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 24px;
+  gap: 28px;
   margin-top: 0;
 }
 .m-transport button {
@@ -643,15 +663,24 @@ code {
   cursor: pointer;
   display: inline-grid;
   place-items: center;
-  padding: 6px;
+  padding: 4px;
   border-radius: 999px;
 }
-.m-transport .m-pp {
-  width: 38px; height: 38px;
-  background: rgba(255,255,255,0.1);
-  color: #fff;
+.m-transport button svg {
+  display: block;
 }
-.m-transport .m-pp:hover { background: rgba(255,255,255,0.16); }
+.m-transport .m-pp {
+  width: 50px; height: 50px;
+  background: rgba(255,255,255,0.92);
+  color: #0a0a0a;
+  padding-left: 2px;
+  box-shadow:
+    0 6px 20px -6px rgba(0,0,0,0.6),
+    0 0 0 1px rgba(255,255,255,0.04);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.m-transport .m-pp:hover { background: #fff; transform: scale(1.04); }
+.m-transport .m-pp:active { transform: scale(0.96); }
 
 .m-source {
   align-self: center;
