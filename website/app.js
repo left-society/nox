@@ -87,24 +87,57 @@
   const notch = document.getElementById('notch');
   if (!notch) return;
 
-  // The notch cycles through these states on a loop, demonstrating
-  // every kind of moment the real app handles.
+  // The notch cycles through these states on a loop. Music is the
+  // dominant resting state — long hold up front so visitors immediately
+  // associate the pill with the now-playing surface. Then the panel
+  // opens and walks through every tab.
   const cycle = [
-    { state: 'music', hold: 3200 },
-    { state: 'shot',  hold: 2400 },
-    { state: 'video', hold: 3000 },
-    { state: 'panel', hold: 4200 },
+    { state: 'music', hold: 7000 },
+    { state: 'panel', hold: 14000, tabs: ['notes', 'images', 'videos', 'music'], tabHold: 3200 },
+    { state: 'shot',  hold: 2600 },
+    { state: 'video', hold: 3500 },
+    { state: 'music', hold: 5500 },
   ];
+
+  // Tab pane cycler — runs while the panel is open.
+  const panelTabs = document.querySelectorAll('#panelTabs button');
+  const panes     = document.querySelectorAll('#panelBody .pane');
+  let tabTimer = null;
+  function setTab(name) {
+    panelTabs.forEach((b) => b.classList.toggle('is-active', b.dataset.pt === name));
+    panes.forEach((p) => p.classList.toggle('is-active', p.dataset.pp === name));
+  }
+  function startTabCycle(tabs, hold) {
+    let ti = 0;
+    setTab(tabs[0]);
+    clearInterval(tabTimer);
+    tabTimer = setInterval(() => {
+      ti = (ti + 1) % tabs.length;
+      setTab(tabs[ti]);
+    }, hold);
+  }
+  function stopTabCycle() {
+    clearInterval(tabTimer);
+    tabTimer = null;
+  }
 
   let i = 0;
   let timer = null;
 
   function step() {
-    notch.setAttribute('data-state', cycle[i].state);
+    const cur = cycle[i];
+    notch.setAttribute('data-state', cur.state);
+
+    if (cur.state === 'panel' && cur.tabs) {
+      startTabCycle(cur.tabs, cur.tabHold || 3000);
+    } else {
+      stopTabCycle();
+    }
+
     timer = setTimeout(() => {
       i = (i + 1) % cycle.length;
       step();
-    }, cycle[i].hold);
+    }, cur.hold);
   }
 
   // Wait until the hero is on screen before starting — saves the
@@ -181,5 +214,34 @@
     window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', onScroll, { passive: true });
     paint(); // initial frame
+  }
+
+
+  // ============ Section animations (scroll into view) ============
+  const animSections = document.querySelectorAll('[data-anim]');
+  if (animSections.length && 'IntersectionObserver' in window) {
+    const animIO = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (e.isIntersecting) {
+          e.target.classList.add('is-visible');
+          // Run the video-demo percent counter manually since CSS content can't tween
+          if (e.target.dataset.anim === 'video') {
+            const pct = e.target.querySelector('.vd-pct');
+            if (pct) {
+              setTimeout(() => {
+                let v = 0;
+                const id = setInterval(() => {
+                  v += 2;
+                  if (v >= 78) { v = 78; clearInterval(id); }
+                  pct.textContent = v + '%';
+                }, 100);
+              }, 2100);
+            }
+          }
+          animIO.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.35, rootMargin: '0px 0px -10% 0px' });
+    animSections.forEach((s) => animIO.observe(s));
   }
 })();

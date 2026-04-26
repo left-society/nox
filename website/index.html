@@ -11,7 +11,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800;900&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
 
 <link rel="stylesheet" href="style.css" />
 </head>
@@ -51,7 +51,7 @@
       </div>
 
       <div class="notch" id="notch" data-state="music">
-        <!-- music state -->
+        <!-- music state — the dominant resting pill -->
         <div class="n-state n-music" data-state="music">
           <div class="art"></div>
           <div class="wave">
@@ -64,7 +64,7 @@
           <div class="shot-thumb"></div>
           <div class="shot-text">
             <div class="shot-line">Screenshot saved</div>
-            <div class="shot-sub">to Notetaker · Images</div>
+            <div class="shot-sub">Notetaker · Images</div>
           </div>
         </div>
 
@@ -77,15 +77,86 @@
           </div>
         </div>
 
-        <!-- panel-open state -->
-        <div class="n-state n-panel" data-state="panel">
-          <div class="panel-tabs">
-            <span>Notes</span><span>Images</span><span>Videos</span><span>Music</span>
+        <!-- panel-open state — the full app UI as a slab under the notch -->
+        <div class="n-state n-panel" data-state="panel" id="nPanel">
+          <div class="panel-head">
+            <div class="panel-tabs" id="panelTabs">
+              <button data-pt="notes"  class="is-active">Notes</button>
+              <button data-pt="images">Images</button>
+              <button data-pt="videos">Videos</button>
+              <button data-pt="music">Music</button>
+            </div>
+            <div class="panel-gear">⚙</div>
           </div>
-          <div class="panel-list">
-            <div class="panel-row">Tomorrow's standup</div>
-            <div class="panel-row">"Best interface is no interface"</div>
-            <div class="panel-row">api key sk-…</div>
+
+          <div class="panel-body" id="panelBody">
+            <!-- NOTES PANE -->
+            <div class="pane is-active" data-pp="notes">
+              <div class="note">
+                <div class="note-t">Tomorrow&apos;s standup</div>
+                <div class="note-b">Demo the new pill animation. Talk about Whisper bundling. Decide on launch tweet copy by Friday morning…</div>
+              </div>
+              <div class="note">
+                <div class="note-t">Idea — hover-to-tease</div>
+                <div class="note-b">Pre-bloom on cursor entry, full open after 200&nbsp;ms dwell. Keeps the panel cheap when the user is just brushing past.</div>
+              </div>
+              <div class="note">
+                <div class="note-t">Quote</div>
+                <div class="note-b">&ldquo;The best interface is no interface &mdash; until you need one.&rdquo;</div>
+              </div>
+            </div>
+
+            <!-- IMAGES PANE — placeholder gradients until real images land -->
+            <div class="pane" data-pp="images">
+              <div class="img-grid">
+                <div class="img" data-i="1"><img src="assets/inbox/inbox-1.jpg" alt="" onerror="this.style.display='none'"/></div>
+                <div class="img" data-i="2"><img src="assets/inbox/inbox-2.jpg" alt="" onerror="this.style.display='none'"/></div>
+                <div class="img" data-i="3"><img src="assets/inbox/inbox-3.jpg" alt="" onerror="this.style.display='none'"/></div>
+                <div class="img" data-i="4"><img src="assets/inbox/inbox-4.jpg" alt="" onerror="this.style.display='none'"/></div>
+                <div class="img" data-i="5"><img src="assets/inbox/inbox-5.jpg" alt="" onerror="this.style.display='none'"/></div>
+                <div class="img" data-i="6"><img src="assets/inbox/inbox-6.jpg" alt="" onerror="this.style.display='none'"/></div>
+              </div>
+            </div>
+
+            <!-- VIDEOS PANE -->
+            <div class="pane" data-pp="videos">
+              <div class="vid">
+                <div class="vid-thumb">
+                  <video src="assets/videos/video-1.mp4" muted autoplay loop playsinline preload="metadata" onerror="this.style.display='none'"></video>
+                </div>
+                <div class="vid-info">
+                  <div class="vid-name">Cinematic ocean — Pixabay</div>
+                  <div class="vid-meta">12s · 2.4 MB · ready</div>
+                </div>
+              </div>
+              <div class="vid">
+                <div class="vid-thumb dl"></div>
+                <div class="vid-info">
+                  <div class="vid-name">How the Mac notch became useful</div>
+                  <div class="vid-meta">YouTube · 12:04 · downloading</div>
+                  <div class="vid-prog"><div class="vid-prog-fill"></div></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- MUSIC PANE -->
+            <div class="pane" data-pp="music">
+              <div class="music-now">
+                <div class="music-art"></div>
+                <div class="music-meta">
+                  <div class="music-title">Emagination (B-Side)</div>
+                  <div class="music-artist">Miami Horror &middot; Illumination</div>
+                  <div class="music-bar">
+                    <span class="music-time">1:24</span>
+                    <div class="music-track-bar"><div class="music-track-fill"></div></div>
+                    <span class="music-time">3:16</span>
+                  </div>
+                  <div class="music-controls">
+                    <span>⏮</span><span class="music-play">⏯</span><span>⏭</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -180,13 +251,59 @@
 </section>
 
 
-<!-- Pull-quote on capture. No eyebrow, no aside. -->
-<section class="pull">
+<!-- Pull + animated capture demo. -->
+<section class="pull" data-anim="capture">
   <p class="pull-line">
     Anything you copy from a&nbsp;browser, a&nbsp;PDF, a&nbsp;chat&nbsp;—
     <span class="dim">it&apos;s a row in Notes the moment you let&nbsp;go of&nbsp;⌘C.<br/>
     From an editor, terminal, or password manager, it&nbsp;isn&apos;t.</span>
   </p>
+
+  <div class="capture-demo" aria-hidden="true">
+    <!-- LEFT: source — a fake browser article — -->
+    <div class="cd-source">
+      <div class="cd-chrome">
+        <span class="cd-dot"></span><span class="cd-dot"></span><span class="cd-dot"></span>
+        <div class="cd-url">news.ycombinator.com</div>
+      </div>
+      <div class="cd-body">
+        <div class="cd-h">Show HN: a notch app</div>
+        <div class="cd-p">
+          <span class="cd-sel">I built a notch app for my Mac so I'd stop reaching for Notes, Photos, and yt-dlp separately.</span>
+        </div>
+        <div class="cd-keys">
+          <kbd>⌘</kbd><kbd>C</kbd>
+        </div>
+      </div>
+    </div>
+
+    <!-- middle: a path the copy travels along -->
+    <svg class="cd-path" viewBox="0 0 200 60" preserveAspectRatio="none">
+      <path d="M 4 30 C 60 30, 80 30, 196 30" fill="none" stroke="rgba(244,243,238,0.35)" stroke-width="1.5" stroke-dasharray="4 4"/>
+      <circle class="cd-bead" cx="0" cy="0" r="3" fill="var(--warm)"/>
+    </svg>
+
+    <!-- RIGHT: target — Notetaker Notes with a new row appearing -->
+    <div class="cd-target">
+      <div class="cd-target-head">
+        <div class="cd-tab is-active">Notes</div>
+        <div class="cd-tab">Images</div>
+        <div class="cd-tab">Videos</div>
+      </div>
+      <div class="cd-row cd-row-new">
+        <div class="cd-row-t">Show HN — a notch app</div>
+        <div class="cd-row-b">I built a notch app for my Mac so I'd stop reaching for Notes, Photos, and yt-dlp…</div>
+      </div>
+      <div class="cd-row">
+        <div class="cd-row-t">Tomorrow&apos;s standup</div>
+        <div class="cd-row-b">Demo the new pill animation. Talk about Whisper bundling…</div>
+      </div>
+      <div class="cd-row">
+        <div class="cd-row-t">Quote</div>
+        <div class="cd-row-b">&ldquo;The best interface is no interface — until you need&nbsp;one.&rdquo;</div>
+      </div>
+    </div>
+  </div>
 </section>
 
 
@@ -229,14 +346,51 @@
 </section>
 
 
-<!-- Big keystroke section. Just the keys + one line. -->
-<section class="keystroke">
+<!-- Big keystroke + animated video demo. -->
+<section class="keystroke" data-anim="video">
   <div class="keystroke-keys">
     <kbd>⌥</kbd><kbd>⌘</kbd><kbd>V</kbd>
   </div>
   <p class="keystroke-line">
     on any video page, and the file is in&nbsp;Videos.
   </p>
+
+  <div class="video-demo" aria-hidden="true">
+    <!-- a tiny faux browser frame with the video playing -->
+    <div class="vd-browser">
+      <div class="vd-bar">
+        <span class="vd-dot"></span><span class="vd-dot"></span><span class="vd-dot"></span>
+        <div class="vd-url">youtube.com/watch?v=…</div>
+      </div>
+      <div class="vd-page">
+        <video src="assets/videos/video-2.mp4" muted autoplay loop playsinline preload="metadata"></video>
+      </div>
+    </div>
+
+    <!-- arrow path the URL travels along -->
+    <svg class="vd-path" viewBox="0 0 200 60" preserveAspectRatio="none">
+      <path d="M 4 30 C 60 30, 80 30, 196 30" fill="none" stroke="rgba(244,243,238,0.35)" stroke-width="1.5" stroke-dasharray="4 4"/>
+      <circle class="vd-bead" cx="0" cy="0" r="3" fill="var(--warm)"/>
+    </svg>
+
+    <!-- the result inside Notetaker -->
+    <div class="vd-result">
+      <div class="vd-result-tab">Videos</div>
+      <div class="vd-card">
+        <div class="vd-card-thumb">
+          <video src="assets/videos/video-2.mp4" muted autoplay loop playsinline preload="metadata"></video>
+        </div>
+        <div class="vd-card-meta">
+          <div class="vd-card-name">A short demo clip</div>
+          <div class="vd-card-prog"><div class="vd-card-prog-fill"></div></div>
+          <div class="vd-card-status">
+            <span class="vd-pct">0%</span>
+            <span>14.2 MB</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </section>
 
 
