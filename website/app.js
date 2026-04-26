@@ -4,6 +4,107 @@
 (function () {
   'use strict';
 
+  // ============ Sphere visualizer — direct port of SphereVisualizer.swift ============
+  // 140 particles on a Fibonacci lattice, rotating in yaw + pitch,
+  // with synthetic-amplitude breath. Depth-shaded so the sphere reads
+  // as a real 3D point cloud, not a flat dot pattern.
+  (function initSpheres() {
+    const canvases = document.querySelectorAll('.sphere-viz');
+    if (!canvases.length) return;
+
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    canvases.forEach((c) => {
+      const cw = c.clientWidth || 60;
+      const ch = c.clientHeight || 60;
+      c.width  = Math.round(cw * dpr);
+      c.height = Math.round(ch * dpr);
+    });
+
+    // Fibonacci-lattice unit-sphere positions, computed once and shared.
+    const COUNT = 140;
+    const PHI = Math.PI * (3 - Math.sqrt(5));
+    const PARTICLES = [];
+    for (let i = 0; i < COUNT; i++) {
+      const y = 1 - (i / (COUNT - 1)) * 2;
+      const r = Math.sqrt(Math.max(0, 1 - y * y));
+      const theta = PHI * i;
+      PARTICLES.push({ x: Math.cos(theta) * r, y: y, z: Math.sin(theta) * r });
+    }
+
+    // Per-canvas state (each canvas has its own amplitude smoothing).
+    const states = new Map();
+    canvases.forEach((c) => states.set(c, { amplitude: 0, rgb: (c.dataset.tint || '255,255,255').split(',').map(Number) }));
+
+    let last = 0;
+    let time = 0;
+
+    function frame(now) {
+      const dt = last === 0 ? 1 / 60 : Math.min(0.1, (now - last) / 1000);
+      last = now;
+      time += dt;
+
+      // Synthetic amplitude — straight port from Swift.
+      const t = time;
+      const bass = (Math.sin(t * 2.83) + 1) * 0.5;
+      const mid  = (Math.sin(t * 5.34 + 0.9) + 1) * 0.5;
+      const beatRaw = Math.sin(t * 3.7);
+      const beat = beatRaw > 0.78 ? (beatRaw - 0.78) / 0.22 : 0;
+      const target = Math.min(1, bass * 0.35 + mid * 0.25 + beat * 0.65);
+
+      // Rotation
+      const yaw = t * 0.95;
+      const pitch = Math.sin(t * 0.4) * 0.25;
+      const cy_ = Math.cos(yaw),   sy_ = Math.sin(yaw);
+      const cp_ = Math.cos(pitch), sp_ = Math.sin(pitch);
+
+      canvases.forEach((c) => {
+        const st = states.get(c);
+        st.amplitude += (target - st.amplitude) * 0.28;
+        const A = st.amplitude;
+        const breath = 0.95 + A * 0.13;
+
+        const ctx = c.getContext('2d');
+        const W = c.width, H = c.height;
+        ctx.clearRect(0, 0, W, H);
+        const cx = W / 2;
+        const cy = H / 2;
+        const radius = (Math.min(W, H) * 0.5 - dpr) * breath;
+
+        const [rr, gg, bb] = st.rgb;
+
+        for (const p of PARTICLES) {
+          // Yaw around Y, pitch around X.
+          const x1 = p.x * cy_ + p.z * sy_;
+          const z1 = -p.x * sy_ + p.z * cy_;
+          const y1 = p.y * cp_ - z1 * sp_;
+          const z2 = p.y * sp_ + z1 * cp_;
+
+          const px = x1 * radius + cx;
+          const py = y1 * radius + cy;
+
+          const depth = (z2 + 1) * 0.5;                       // 0 back, 1 front
+          const alpha = (0.16 + depth * 0.84) * (0.85 + A * 0.4);
+          const dotSize = (0.7 + depth * 1.0) * (1 + A * 0.6) * dpr;
+
+          ctx.fillStyle = `rgba(${rr},${gg},${bb},${Math.min(1, alpha).toFixed(3)})`;
+          ctx.beginPath();
+          ctx.arc(px, py, dotSize / 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+
+      requestAnimationFrame(frame);
+    }
+
+    requestAnimationFrame(frame);
+
+    // Pause on hidden tab
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) { last = 0; requestAnimationFrame(frame); }
+    });
+  })();
+
+
   // ============ Audio waveform — Canvas, 4-sinusoid sum, never repeats ============
   // Mirrors Notetaker/NotchPill/WaveformView.swift exactly: four sin
   // components at incommensurate spatial AND temporal frequencies, so

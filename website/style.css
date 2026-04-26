@@ -613,12 +613,12 @@ code {
   margin-top: 1px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.m-viz {
+.m-viz, .sphere-viz {
   flex-shrink: 0;
+  display: block;
+}
+.m-row .sphere-viz {
   width: 80px; height: 80px;
-  display: grid;
-  place-items: center;
-  opacity: 0.7;
 }
 
 .m-progress { width: 100%; }
@@ -1171,12 +1171,10 @@ code {
   margin-top: 1px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.hmac-card-viz {
+.hmac-card-viz, .hmac-card-top .sphere-viz {
   flex-shrink: 0;
   width: 60px; height: 60px;
-  display: grid;
-  place-items: center;
-  opacity: 0.7;
+  display: block;
 }
 
 .hmac-card-progress { width: 100%; }
