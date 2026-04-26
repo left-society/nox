@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Notetaker — for the space around your notch.</title>
+<meta name="description" content="A small Mac app that lives in the dead space around your MacBook's notch. Notes, screenshots, music, and video downloads — without leaving what you're doing." />
+<link rel="icon" type="image/png" href="assets/app-icon-128.png" />
+<link rel="apple-touch-icon" href="assets/app-icon-256.png" />
+<meta name="theme-color" content="#000000" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800;900&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="site-nav">
+  <a href="#" class="brand">
+    <img src="assets/app-icon-128.png" alt="" />
+    <span>Notetaker</span>
+  </a>
+  <nav>
+    <a href="#what">What it does</a>
+    <a href="#keys">Keys</a>
+    <a href="#download" class="dl">Download</a>
+  </nav>
+</header>
+
+
+<!-- =========================================================
+     HERO — one big interactive notch demo, that's the whole hero
+     ========================================================= -->
+<main>
+
+<section class="hero">
+
+  <div class="mbp" aria-label="MacBook with active notch">
+    <div class="mbp-screen">
+      <div class="mbp-wallpaper"></div>
+      <div class="mbp-menubar">
+        <span class="apple"></span>
+        <span class="mb-app">Notetaker</span>
+        <span class="mb-menu">File</span>
+        <span class="mb-menu">Edit</span>
+        <span class="mb-menu">View</span>
+        <span class="spacer"></span>
+        <span class="mb-time">Sun  12:34</span>
+      </div>
+
+      <div class="notch" id="notch" data-state="music">
+        <!-- music state -->
+        <div class="n-state n-music" data-state="music">
+          <div class="art"></div>
+          <div class="wave">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+        </div>
+
+        <!-- shot state -->
+        <div class="n-state n-shot" data-state="shot">
+          <div class="shot-thumb"></div>
+          <div class="shot-text">
+            <div class="shot-line">Screenshot saved</div>
+            <div class="shot-sub">to Notetaker · Images</div>
+          </div>
+        </div>
+
+        <!-- video download state -->
+        <div class="n-state n-video" data-state="video">
+          <div class="vid-icon">↓</div>
+          <div class="vid-text">
+            <div class="vid-line">Downloading…</div>
+            <div class="vid-bar"><div class="vid-bar-fill"></div></div>
+          </div>
+        </div>
+
+        <!-- panel-open state -->
+        <div class="n-state n-panel" data-state="panel">
+          <div class="panel-tabs">
+            <span>Notes</span><span>Images</span><span>Videos</span><span>Music</span>
+          </div>
+          <div class="panel-list">
+            <div class="panel-row">Tomorrow's standup</div>
+            <div class="panel-row">"Best interface is no interface"</div>
+            <div class="panel-row">api key sk-…</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <div class="mbp-base"></div>
+  </div>
+
+  <div class="hero-words">
+    <h1>Reclaim your notch.</h1>
+    <p>
+      Notetaker is a small Mac app that quietly lives around your MacBook's notch.
+      Notes, screenshots, music, and video downloads &mdash; without leaving what you're doing.
+    </p>
+
+    <div class="hero-cta">
+      <a href="#download" class="btn-primary">
+        Download for Mac
+      </a>
+      <a href="#what" class="btn-link">how it works ↓</a>
+    </div>
+    <p class="hero-foot">Free during beta. macOS&nbsp;13 or later.</p>
+  </div>
+</section>
+
+
+<!-- =========================================================
+     A series of single-thought sections.
+     One idea per viewport. Big type. No grids.
+     ========================================================= -->
+
+<!-- Type-only declarative — no figure, no eyebrow -->
+<section id="what" class="declare">
+  <h2>The notch opens when you reach for&nbsp;it.</h2>
+  <p class="body">
+    Drift your cursor toward the camera and the panel teases open.
+    Stay there a fraction of a second longer and it blooms into a full slab.
+    Move away and it&apos;s gone again. No hotkey to remember, no menubar icon to hunt&nbsp;for.
+  </p>
+</section>
+
+
+<!-- Pull-quote on capture. No eyebrow, no aside. -->
+<section class="pull">
+  <p class="pull-line">
+    Anything you copy from a&nbsp;browser, a&nbsp;PDF, a&nbsp;chat&nbsp;—
+    <span class="dim">it&apos;s a row in Notes the moment you let&nbsp;go of&nbsp;⌘C.<br/>
+    From an editor, terminal, or password manager, it&nbsp;isn&apos;t.</span>
+  </p>
+</section>
+
+
+<!-- The one real visual: an honest screenshot inbox -->
+<section class="ribbon">
+  <div class="ribbon-words">
+    <h2>Shift-Cmd-4 has a home now.</h2>
+    <p class="body">
+      Every screenshot lands in Notetaker. Take just one and it disappears
+      in a few hours. Take two within three seconds and Notetaker decides
+      you meant it, and keeps them.
+    </p>
+  </div>
+
+  <div class="ribbon-strip" aria-hidden="true">
+    <div class="rs">
+      <span class="rs-stamp">12:34</span>
+      <span class="rs-name">Screenshot 2026-04-26 at 12.34.png</span>
+    </div>
+    <div class="rs">
+      <span class="rs-stamp">12:34</span>
+      <span class="rs-name">Screenshot 2026-04-26 at 12.34 (2).png</span>
+    </div>
+    <div class="rs kept">
+      <span class="rs-stamp">12:35</span>
+      <span class="rs-name">Screenshot 2026-04-26 at 12.35.png</span>
+      <span class="rs-tag">kept</span>
+    </div>
+    <div class="rs kept">
+      <span class="rs-stamp">12:35</span>
+      <span class="rs-name">Screenshot 2026-04-26 at 12.35 (2).png</span>
+      <span class="rs-tag">kept</span>
+    </div>
+    <div class="rs">
+      <span class="rs-stamp">14:02</span>
+      <span class="rs-name">Screenshot 2026-04-26 at 14.02.png</span>
+      <span class="rs-tag dim">expires&nbsp;in&nbsp;3h</span>
+    </div>
+  </div>
+</section>
+
+
+<!-- Big keystroke section. Just the keys + one line. -->
+<section class="keystroke">
+  <div class="keystroke-keys">
+    <kbd>⌥</kbd><kbd>⌘</kbd><kbd>V</kbd>
+  </div>
+  <p class="keystroke-line">
+    on any video page, and the file is in&nbsp;Videos.
+  </p>
+</section>
+
+
+<!-- =========================================================
+     KEYS — minimal table of hotkeys
+     ========================================================= -->
+<section id="keys" class="keys">
+  <h2>Two hotkeys.<br/>Everything else routes itself.</h2>
+  <div class="keys-table">
+    <div class="key-row">
+      <div class="key-do">Open the panel</div>
+      <div class="key-press">
+        <kbd>⌥</kbd><kbd>Space</kbd>
+      </div>
+    </div>
+    <div class="key-row">
+      <div class="key-do">Grab the front tab as a video</div>
+      <div class="key-press">
+        <kbd>⌥</kbd><kbd>⌘</kbd><kbd>V</kbd>
+      </div>
+    </div>
+    <div class="key-row">
+      <div class="key-do">Take a screenshot (system)</div>
+      <div class="key-press">
+        <kbd>⇧</kbd><kbd>⌘</kbd><kbd>4</kbd>
+      </div>
+    </div>
+    <div class="key-row">
+      <div class="key-do">Copy a note back to clipboard</div>
+      <div class="key-press">
+        <kbd>⌘</kbd><kbd>C</kbd>
+      </div>
+    </div>
+    <div class="key-row">
+      <div class="key-do">Dismiss</div>
+      <div class="key-press"><kbd>esc</kbd></div>
+    </div>
+  </div>
+</section>
+
+
+<!-- =========================================================
+     PRIVACY — single sentence, no card grid
+     ========================================================= -->
+<section class="quiet">
+  <h2>
+    No cloud. No accounts. No telemetry.<br/>
+    <span class="muted">Your notes live in
+      <code>~/Library/Application&nbsp;Support/Notetaker</code>.
+    </span>
+  </h2>
+  <p class="body">
+    Notetaker doesn&apos;t ship a backend. There is no analytics, no sign&#8209;in,
+    no &laquo;allow notifications&raquo; popup.
+    Uninstalling is dragging a single <code>.app</code> to the Trash.
+  </p>
+</section>
+
+
+<!-- =========================================================
+     DOWNLOAD
+     ========================================================= -->
+<section id="download" class="end">
+  <img src="assets/app-icon-256.png" alt="Notetaker" class="end-icon" />
+  <h2>Notetaker 1.0</h2>
+  <p>For macOS 13 and later. 4.5&nbsp;MB. No sign-up.</p>
+  <a href="#" class="btn-primary big">
+    Download for Mac
+  </a>
+  <p class="end-foot">
+    Universal binary · ad-hoc signed ·
+    <a href="#">checksums</a> · <a href="#">source on GitHub</a>
+  </p>
+</section>
+
+</main>
+
+
+<footer>
+  <div class="foot-line">
+    <span>© 2026 Aritra Debnath</span>
+    <a href="https://github.com" rel="noopener">Source</a>
+    <a href="mailto:aritra13.debnath@gmail.com">Mail</a>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
