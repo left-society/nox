@@ -205,8 +205,21 @@ code {
 .mb-app   { font-weight: 600; }
 .mb-menu  { color: rgba(255,255,255,0.62); }
 .spacer   { flex: 1; }
-.mb-glyph { color: rgba(255,255,255,0.78); display: inline-block; flex-shrink: 0; }
-.mb-time  { font-variant-numeric: tabular-nums; font-size: 11.5px; }
+.mb-glyph {
+  color: rgba(255,255,255,0.92);
+  display: inline-block;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+.mb-glyph-battery { margin-left: 7px; }
+.mb-glyph-cc { margin-left: 7px; margin-right: 3px; }
+.mb-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.1px;
+  margin-left: 4px;
+}
 
 
 /* — the actual notch + animated states — */
