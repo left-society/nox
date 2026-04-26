@@ -1,10 +1,10 @@
-// Notetaker site — drives the hero notch through its states + the macOS dock.
+// Notetaker site . drives the hero notch through its states + the macOS dock.
 // One file. No framework.
 
 (function () {
   'use strict';
 
-  // ============ Sphere visualizer — direct port of SphereVisualizer.swift ============
+  // ============ Sphere visualizer . direct port of SphereVisualizer.swift ============
   // 140 particles on a Fibonacci lattice, rotating in yaw + pitch,
   // with synthetic-amplitude breath. Depth-shaded so the sphere reads
   // as a real 3D point cloud, not a flat dot pattern.
@@ -43,7 +43,7 @@
       last = now;
       time += dt;
 
-      // Synthetic amplitude — straight port from Swift.
+      // Synthetic amplitude . straight port from Swift.
       const t = time;
       const bass = (Math.sin(t * 2.83) + 1) * 0.5;
       const mid  = (Math.sin(t * 5.34 + 0.9) + 1) * 0.5;
@@ -105,7 +105,7 @@
   })();
 
 
-  // ============ Audio waveform — Canvas, 4-sinusoid sum, never repeats ============
+  // ============ Audio waveform . Canvas, 4-sinusoid sum, never repeats ============
   // Mirrors Notetaker/NotchPill/WaveformView.swift exactly: four sin
   // components at incommensurate spatial AND temporal frequencies, so
   // the silhouette never falls into a recognisable period. Reads as
@@ -133,7 +133,7 @@
       for (let i = 0; i <= steps; i++) {
         const t = i / steps;
         const x = t * w;
-        // four phase-incoherent sinusoids — straight port from Swift
+        // four phase-incoherent sinusoids . straight port from Swift
         const p1 = t * 3.4 * Math.PI - time * 4.7;
         const p2 = t * 5.9 * Math.PI - time * 3.1;
         const p3 = t * 9.1 * Math.PI - time * 6.3;
@@ -162,7 +162,7 @@
       requestAnimationFrame(tick);
     }
 
-    // Pause when tab is hidden — no point burning CPU off-screen.
+    // Pause when tab is hidden . no point burning CPU off-screen.
     let paused = false;
     document.addEventListener('visibilitychange', () => {
       paused = document.hidden;
@@ -173,7 +173,7 @@
   })();
 
 
-  // ============ macOS Dock — cosine-based magnification ============
+  // ============ macOS Dock . cosine-based magnification ============
   const dock = document.getElementById('mbpDock');
   if (dock) {
     const icons = Array.from(dock.querySelectorAll('.dock-icon'));
@@ -257,7 +257,7 @@
   if (!notch) return;
 
   // The notch cycles through these states on a loop. Music is the
-  // dominant resting state — long hold up front so visitors immediately
+  // dominant resting state . long hold up front so visitors immediately
   // associate the pill with the now-playing surface. Then the panel
   // opens and walks through every tab.
   const cycle = [
@@ -268,7 +268,7 @@
     { state: 'music', hold: 5500 },
   ];
 
-  // Tab pane cycler — runs while the panel is open.
+  // Tab pane cycler . runs while the panel is open.
   const panelTabs = document.querySelectorAll('#panelTabs button');
   const panes     = document.querySelectorAll('#panelBody .pane');
   let tabTimer = null;
@@ -309,7 +309,7 @@
     }, cur.hold);
   }
 
-  // Wait until the hero is on screen before starting — saves the
+  // Wait until the hero is on screen before starting . saves the
   // animation for someone who's actually looking, not someone who
   // landed mid-page from a deep link.
   const io = new IntersectionObserver((entries) => {
@@ -338,7 +338,7 @@
   const hoverCursor  = document.getElementById('hoverCursor');
   // Two notch ids are supported: the new `.hmac-notch` inside the
   // MacBook frame and the legacy floating notch. They share the id
-  // `hoverNotch` — whichever exists is what we drive.
+  // `hoverNotch` . whichever exists is what we drive.
   const hoverNotch   = document.getElementById('hoverNotch');
   const hoverCaption = document.getElementById('hoverCaption');
 
@@ -366,7 +366,7 @@
       // Cursor fades as it merges into the notch.
       hoverCursor.style.opacity = String(progress > 0.94 ? 0 : 1);
 
-      // Notch state — tease at 0.55, open at 0.85.
+      // Notch state . tease at 0.55, open at 0.85.
       let next = '';
       if (progress > 0.85) next = 'is-open';
       else if (progress > 0.55) next = 'is-tease';
@@ -407,7 +407,7 @@
   }
 
 
-  // ============ Montage carousel — auto-cycles feature cards ============
+  // ============ Montage carousel . auto-cycles feature cards ============
   const montage = document.getElementById('montageStage');
   const dotsBox = document.getElementById('montageDots');
   if (montage && dotsBox) {
@@ -428,7 +428,7 @@
       mTimer = setTimeout(tick, HOLD);
     }
 
-    // Only start cycling when the section is on screen — no offscreen CPU.
+    // Only start cycling when the section is on screen . no offscreen CPU.
     const startIO = new IntersectionObserver((entries) => {
       entries.forEach((e) => {
         if (e.isIntersecting && !mTimer) {
