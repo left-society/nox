@@ -1456,9 +1456,9 @@ code {
 }
 
 
-/* ============ PULL . big quiet pull-quote, centered ============ */
+/* ============ PULL. big quiet pull-quote, centered ============ */
 .pull {
-  max-width: 980px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: clamp(100px, 16vw, 200px) var(--pad);
   text-align: left;
@@ -1601,44 +1601,47 @@ code {
   100% { opacity: 0; cx: 196; cy: 30; }
 }
 
-/* . target Notetaker mini-panel . */
+/* target Notetaker mini-panel */
 .cd-target {
   background: #0c0c0c;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 10px;
+  border-radius: 16px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
+  box-shadow: 0 20px 60px -20px rgba(0,0,0,0.6);
 }
-.cd-target-head { display: flex; gap: 4px; padding: 2px 4px 6px; }
+.cd-target-head { display: flex; gap: 6px; padding: 4px 6px 10px; }
 .cd-tab {
-  font-size: 10.5px;
+  font-size: 13px;
   color: rgba(255,255,255,0.45);
-  padding: 3px 8px;
+  padding: 5px 12px;
   border-radius: 999px;
   font-weight: 500;
 }
 .cd-tab.is-active {
   color: #fff;
-  background: rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.10);
 }
 .cd-row {
   background: rgba(255,255,255,0.03);
   border: 1px solid rgba(255,255,255,0.05);
-  border-radius: 8px;
-  padding: 9px 11px;
+  border-radius: 10px;
+  padding: 14px 16px;
   transition: background 0.3s ease;
 }
 .cd-row-t {
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
   color: var(--fg);
+  letter-spacing: -0.005em;
 }
 .cd-row-b {
-  font-size: 11px;
+  font-size: 13.5px;
   color: var(--fg-mute);
-  margin-top: 2px;
+  margin-top: 4px;
+  line-height: 1.4;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .cd-row-new {
@@ -1799,14 +1802,14 @@ code {
 }
 
 
-/* ============ RIBBON . screenshots-as-list, content-led ============ */
+/* ============ RIBBON. screenshots grid, content-led ============ */
 .ribbon {
-  max-width: var(--max);
+  max-width: 1280px;
   margin: 0 auto;
   padding: clamp(80px, 12vw, 160px) var(--pad);
   display: grid;
-  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.5fr);
-  gap: clamp(40px, 7vw, 100px);
+  grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.7fr);
+  gap: clamp(50px, 8vw, 120px);
   align-items: center;
 }
 .ribbon-words { max-width: 380px; }
