@@ -1816,49 +1816,50 @@ code {
   color: var(--fg-mute);
   line-height: 1.6;
 }
-.ribbon-strip {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  background: var(--line);
-  border: 1px solid var(--line);
+/* Visual screenshot grid like the real app's Images tab */
+.shot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.shot-card {
+  position: relative;
+  aspect-ratio: 16/10;
   border-radius: 10px;
   overflow: hidden;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  transition: transform 0.25s ease;
 }
-.ribbon-strip .rs {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  padding: 18px 22px;
-  background: var(--bg);
-  font-size: 13.5px;
+.shot-card:hover { transform: translateY(-2px); }
+.shot-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
-.ribbon-strip .rs .rs-stamp {
-  color: var(--fg-deep);
-  width: 44px;
-  flex-shrink: 0;
-}
-.ribbon-strip .rs .rs-name {
-  color: var(--fg-mute);
-  flex: 1;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.ribbon-strip .rs .rs-tag {
-  font-family: 'Inter', -apple-system, sans-serif;
-  font-size: 10.5px;
+.shot-card.fade img { opacity: 0.55; filter: saturate(0.7); }
+.shot-tag {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--fg-deep);
-}
-.ribbon-strip .rs.kept {
-  background: rgba(255,255,255,0.02);
-}
-.ribbon-strip .rs.kept .rs-name { color: var(--fg); }
-.ribbon-strip .rs.kept .rs-tag {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   color: var(--warm);
+  border: 1px solid rgba(240, 201, 146, 0.3);
 }
-.ribbon-strip .rs .rs-tag.dim { color: var(--fg-deep); }
+.shot-tag.dim {
+  color: var(--fg-deep);
+  border-color: rgba(255,255,255,0.08);
+  background: rgba(0,0,0,0.6);
+}
 
 @media (max-width: 760px) {
   .ribbon { grid-template-columns: 1fr; gap: 36px; }
