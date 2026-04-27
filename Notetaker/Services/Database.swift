@@ -150,6 +150,21 @@ final class Database {
             )
         }
 
+        m.registerMigration("v5_note_summary") { db in
+            // Gemini-generated one-line summary of the note body. Shown
+            // in the list row instead of the raw first-line title, so
+            // notes are easier to scan at a glance ("what was this
+            // about?" instead of "what were the first 5 words?").
+            // Nullable: legacy rows have no summary until they're
+            // re-saved or backfilled, and the row falls back to
+            // showing the derived title in that case. Backfill is
+            // best-effort lazy — `NoteStore.summarize(id:)` fires
+            // when a note is opened or saved.
+            try db.alter(table: "notes") { t in
+                t.add(column: "summary", .text)
+            }
+        }
+
         return m
     }
 }

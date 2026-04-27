@@ -20,6 +20,22 @@ final class NotchOrchestrator {
     private let hudController: NotchHUDWindowController
     private let powerWatcher: PowerSourceWatcher
     private let mediaService: MediaRemoteService
+    /// Fallback browser-tab probe — used when MediaRemote is
+    /// restricted (macOS 15.4+ revokes private framework access)
+    /// and we need SOMETHING to publish for YouTube/SoundCloud/etc.
+    private let browserProbe: BrowserMediaProbe
+    /// Universal "what app is producing audio" detector via
+    /// CoreAudio. Catches everything (YouTube, WhatsApp, Discord,
+    /// VLC, etc.) that the browser probe misses. Publishes the
+    /// app name + bundle ID; the pill's existing icon-fallback
+    /// fills in the artwork from the app bundle.
+    private let audioWatcher: SystemAudioWatcher
+    private let lockScreenWatcher: LockScreenWatcher
+    /// Wall-clock time of the last MediaRemote publish — drives
+    /// the browserProbe's `isMediaRemoteSilent` gate so we don't
+    /// clobber real MediaRemote data when it eventually arrives.
+    private var lastMediaRemoteAt: Date = .distantPast
+    private var quietWatchdog: Timer?
 
     /// External now-playing observer. AppDelegate installs this to
     /// forward MediaRemote snapshots into PanelPresenter so the
@@ -31,15 +47,78 @@ final class NotchOrchestrator {
     /// transition arriving promptly.
     var onNowPlayingChange: ((NowPlayingInfo?) -> Void)?
 
+    /// Charging plug-in / unplug events. Routed to AppDelegate
+    /// which sets `presenter.pendingSystemEvent`, causing the
+    /// resting pill to morph into a transient charging indicator
+    /// for a few seconds, then revert to music. Replaces the
+    /// previous separate-HUD pill that floated below the notch.
+    var onChargingChange: ((Int, Bool) -> Void)?
+
+    /// Edges from LockScreenWatcher. AppDelegate routes this into
+    /// `presenter.isLocked` so the lock-screen music card window
+    /// can show/hide based on session state.
+    var onLockStateChange: ((Bool) -> Void)?
+
     /// Send a media command (play/pause/skip) into whichever app owns
     /// the now-playing slot. Exposed publicly so MusicPanelView's
     /// transport buttons (routed via `PanelPresenter.onMediaCommand`)
     /// can drive playback the same way the notch HUD's transport
-    /// buttons already do. Both paths terminate at the same
-    /// `MediaRemoteService.send` call.
+    /// buttons already do.
+    ///
+    /// Dispatch:
+    ///   - Browser sources (the bundle ID matches a tab the
+    ///     BrowserMediaProbe is currently tracking) → run an
+    ///     AppleScript that activates the audible tab and
+    ///     synthesizes the page's keystroke (k for YouTube
+    ///     play/pause, etc.). MRMediaRemoteSendCommand is restricted
+    ///     on macOS 15.4+ and won't reach Chrome anyway, so this is
+    ///     the only path that actually controls a YouTube tab.
+    ///   - Everything else → MediaRemoteService.send, which
+    ///     dispatches to AppleScript for Spotify/Music and
+    ///     MRMediaRemoteSendCommand for the rest.
     func sendMediaCommand(_ command: MediaRemoteService.Command) {
+        if let ref = browserProbe.lastAudibleTab,
+           ref.bundleID == lastForwardedBundleID {
+            if browserProbe.sendCommandToAudibleTab(command) {
+                return
+            }
+        }
         mediaService.send(command)
     }
+
+    /// Bring the source app for the currently-displayed track to the
+    /// front. For browser audio, jumps to the specific tab playing
+    /// (via BrowserMediaProbe's cached AudibleTabRef). For everything
+    /// else, just opens the app by bundle ID.
+    ///
+    /// PanelPresenter.onOpenSourceApp is wired here from AppDelegate
+    /// so MusicPanelView's artwork tap travels through this single
+    /// dispatch instead of doing NSWorkspace.openApplication itself
+    /// (which would always open the app to its default window — not
+    /// the YouTube tab the user actually wants to look at).
+    func openSourceApp() {
+        if let ref = browserProbe.lastAudibleTab,
+           ref.bundleID == lastForwardedBundleID {
+            if browserProbe.openAudibleTab() {
+                return
+            }
+        }
+        guard let bundleID = lastForwardedBundleID else { return }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return }
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { _, error in
+            if let error {
+                NSLog("Notetaker: failed to open \(bundleID): \(error)")
+            }
+        }
+    }
+
+    /// Mirrors the most recently forwarded NowPlayingInfo's source
+    /// bundle so transport / open-source dispatch can decide whether
+    /// the displayed pill came from a browser tab. Updated inside
+    /// `handleNowPlayingChange`.
+    private var lastForwardedBundleID: String?
 
     /// Tracked separately from PowerSourceWatcher's internal dedup so
     /// we can apply orchestrator-level rules (only show on transition,
@@ -60,22 +139,76 @@ final class NotchOrchestrator {
     init() {
         self.hudController = NotchHUDWindowController()
         self.mediaService = MediaRemoteService()
-        // Trampoline through a weak box: the watchers capture closures
-        // for their lifetime, and we don't want them to keep the
-        // orchestrator alive past explicit stop()/dealloc. Each closure
-        // routes back to a handler via [weak target].
+        self.browserProbe = BrowserMediaProbe()
+        self.audioWatcher = SystemAudioWatcher()
+        self.lockScreenWatcher = LockScreenWatcher()
         let box = WeakBox()
         self.powerWatcher = PowerSourceWatcher { state in
             box.target?.handlePowerState(state)
         }
         self.mediaService.onChange = { [weak box] info in
-            box?.target?.handleNowPlayingChange(info)
+            box?.target?.handleMediaRemoteChange(info)
         }
-        // Forward HUD button taps into the media service.
+        self.browserProbe.onChange = { [weak box] info in
+            box?.target?.handleBrowserProbeChange(info)
+        }
+        self.audioWatcher.onChange = { [weak box] info in
+            box?.target?.handleAudioWatcherChange(info)
+        }
+        self.lockScreenWatcher.onChange = { [weak box] locked in
+            box?.target?.onLockStateChange?(locked)
+        }
         self.hudController.onMediaCommand = { [weak box] command in
             box?.target?.mediaService.send(command)
         }
         box.target = self
+    }
+
+    /// MediaRemote-source publish path. Only marks "real" data as
+    /// active when the source is actively PLAYING — paused-but-loaded
+    /// tracks (Spotify keeping metadata after the user pauses it)
+    /// shouldn't lock out the browser probe. Otherwise a paused
+    /// Spotify session perpetually wins over a YouTube tab the user
+    /// is actively watching, which is exactly the bug the user
+    /// reported: "when I'm playing a YouTube video, it has the
+    /// overlay of Spotify."
+    private func handleMediaRemoteChange(_ info: NowPlayingInfo?) {
+        if let info, info.isPlaying {
+            lastMediaRemoteAt = Date()
+            browserProbe.isMediaRemoteSilent = false
+        } else if info == nil {
+            // Explicit clear from MediaRemote — let the probe step in
+            // immediately, no need to wait for the watchdog.
+            browserProbe.isMediaRemoteSilent = true
+        }
+        // For paused-but-loaded info: forward it (so the pill still
+        // shows the track data and pause-state correctly) BUT don't
+        // refresh `lastMediaRemoteAt`. After 5s of paused state,
+        // the watchdog will mark MediaRemote silent and the browser
+        // probe will start publishing — taking precedence over the
+        // stale paused metadata.
+        handleNowPlayingChange(info)
+    }
+
+    /// Browser-probe fallback publish path. Only used when MediaRemote
+    /// has been silent for a while (the gate is enforced by the probe
+    /// itself). Routes through the same handler so downstream
+    /// (PanelPresenter) doesn't need to distinguish sources.
+    private func handleBrowserProbeChange(_ info: NowPlayingInfo?) {
+        handleNowPlayingChange(info)
+    }
+
+    /// Audio-watcher fallback publish path. Wins when MediaRemote
+    /// has nothing AND the browser probe has nothing (or yields
+    /// the same data). Provides app-name + bundle ID for any
+    /// process producing audio system-wide.
+    private func handleAudioWatcherChange(_ info: NowPlayingInfo?) {
+        // Only publish if MediaRemote isn't currently active. If
+        // the user is playing Spotify, we don't want to overwrite
+        // its rich metadata with the watcher's app-name fallback.
+        let mediaRemoteSilent = Date().timeIntervalSince(lastMediaRemoteAt) > 5.0
+        guard mediaRemoteSilent else { return }
+        handleNowPlayingChange(info)
     }
 
     /// Tiny weak holder so the watcher's closure can resolve back to
@@ -93,6 +226,21 @@ final class NotchOrchestrator {
     func start() {
         powerWatcher.start()
         mediaService.start()
+        browserProbe.start()
+        audioWatcher.start()
+        lockScreenWatcher.start()
+        // Quiet-window watchdog: flip the probe's gate to "silent"
+        // when MediaRemote hasn't published in 5s. This is what
+        // lets the browser probe step in for YouTube/SoundCloud
+        // when MediaRemote is restricted on macOS 15.4+.
+        quietWatchdog?.invalidate()
+        quietWatchdog = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                let silent = Date().timeIntervalSince(self.lastMediaRemoteAt) > 5.0
+                self.browserProbe.isMediaRemoteSilent = silent
+            }
+        }
     }
 
     /// Tear down all watchers and dismiss any visible HUD. Useful at
@@ -103,6 +251,11 @@ final class NotchOrchestrator {
     func stop() {
         powerWatcher.stop()
         mediaService.stop()
+        browserProbe.stop()
+        audioWatcher.stop()
+        lockScreenWatcher.stop()
+        quietWatchdog?.invalidate()
+        quietWatchdog = nil
         hudController.hide()
         lastPowerState = nil
         didReceiveInitialPowerState = false
@@ -138,12 +291,14 @@ final class NotchOrchestrator {
             return
         }
 
-        hudController.show(
-            presentation: .charging(
-                percent: state.percent,
-                isCharging: state.isCharging
-            )
-        )
+        // Route the event into the unified pill (via AppDelegate →
+        // presenter.pendingSystemEvent) instead of opening a
+        // separate floating HUD pill. The pill morphs in place
+        // from music → charging indicator → music. User: "the pill
+        // should have animations for different kinds of actions
+        // ... should transform the music into that charging
+        // animation, into the same size."
+        onChargingChange?(state.percent, state.isCharging)
     }
 
     // MARK: - Now-playing events
@@ -163,7 +318,46 @@ final class NotchOrchestrator {
     /// Alcove's "ambient indicator" behavior); it collapses the
     /// instant the source app stops publishing.
     private func handleNowPlayingChange(_ info: NowPlayingInfo?) {
+        lastForwardedBundleID = info?.sourceBundleID
         NSLog("Notetaker: orchestrator forwarding nowPlaying title=\(info?.title ?? "nil") isPlaying=\(info?.isPlaying ?? false)")
         onNowPlayingChange?(info)
+        // When the source is a known browser, kick off a title-based
+        // tab scan so `openSourceApp` / `sendMediaCommand` know which
+        // tab to act on. MediaRemote tells us "Chrome is playing
+        // 'Cruel Summer'" — but not WHICH Chrome tab. AppleScript
+        // closes the loop. See BrowserMediaProbe.refreshAudibleTab
+        // for the full rationale (this is the Alcove-decoded pattern).
+        refreshBrowserTabIfNeeded(for: info)
+    }
+
+    /// Last (bundle, title) we already kicked off a title-scan for.
+    /// Prevents firing a fresh AppleScript for every artwork-only
+    /// update — MediaRemote sends ~1/s while a track plays, but the
+    /// tab doesn't change between artwork ticks.
+    private var lastBrowserScanKey: String?
+
+    private func refreshBrowserTabIfNeeded(for info: NowPlayingInfo?) {
+        guard let info,
+              let bundleID = info.sourceBundleID,
+              !info.title.isEmpty,
+              BrowserMediaProbe.isKnownBrowser(bundleID: bundleID) else {
+            // Not a browser source (or no title) — clear the scan
+            // dedup so the next browser publish triggers a fresh scan
+            // instead of being suppressed.
+            lastBrowserScanKey = nil
+            return
+        }
+        let key = "\(bundleID)|\(info.title)"
+        if key == lastBrowserScanKey { return }
+        lastBrowserScanKey = key
+        browserProbe.refreshAudibleTab(forBundleID: bundleID, titleHint: info.title) { found in
+            if !found {
+                // Title scan didn't land — most likely TCC denied or
+                // the song name doesn't appear verbatim in the tab
+                // title. Clear dedup so a follow-up publish (with a
+                // possibly different title) gets retried.
+                self.lastBrowserScanKey = nil
+            }
+        }
     }
 }

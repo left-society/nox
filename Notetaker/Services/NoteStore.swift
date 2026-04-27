@@ -33,6 +33,7 @@ final class NoteStore: ObservableObject {
             id: UUID().uuidString,
             title: nil,
             body: "",
+            summary: nil,
             createdAt: now,
             updatedAt: now,
             status: "active",
@@ -48,10 +49,29 @@ final class NoteStore: ObservableObject {
         var note = notes[idx]
         note.body = body
         note.title = Self.deriveTitle(from: body)
+        // Stale the summary on body change — it'll be regenerated
+        // by `summarize(id:)` after the editor commits.
+        note.summary = nil
         note.updatedAt = Date().timeIntervalSince1970
         try db.dbQueue.write { try note.update($0) }
         notes.remove(at: idx)
         notes.insert(note, at: 0)
+    }
+
+    /// Persist a Gemini-generated summary for the given note. Called
+    /// asynchronously after `updateBody` so the user's save is never
+    /// blocked on the network round-trip — the row updates whenever
+    /// the summary lands.
+    func updateSummary(id: String, summary: String) throws {
+        guard let idx = notes.firstIndex(where: { $0.id == id }) else { return }
+        var note = notes[idx]
+        // Don't bump `updatedAt` for a summary update — the user
+        // didn't edit anything; we just enriched the row. Bumping
+        // would re-sort the list and cause notes to jump around as
+        // background summarization completes.
+        note.summary = summary
+        try db.dbQueue.write { try note.update($0) }
+        notes[idx] = note
     }
 
     func trash(id: String) throws {
@@ -61,6 +81,25 @@ final class NoteStore: ObservableObject {
         note.trashedAt = Date().timeIntervalSince1970
         try db.dbQueue.write { try note.update($0) }
         notes.remove(at: idx)
+    }
+
+    /// Soft-trash every active note in one shot. Mirrors
+    /// `ImageStore.trashAll` and `FileStore.clear` so the Notes
+    /// tab gets the same "Clear everything" affordance the
+    /// other content tabs already have. Notes are flagged
+    /// `status = "trashed"` rather than hard-deleted so they
+    /// remain recoverable from the trashed pool if we ever expose
+    /// undo / restore in the UI.
+    func trashAll() throws {
+        let trashedAt = Date().timeIntervalSince1970
+        try db.dbQueue.write { db in
+            for var note in notes {
+                note.status = "trashed"
+                note.trashedAt = trashedAt
+                try note.update(db)
+            }
+        }
+        notes.removeAll()
     }
 
     static func deriveTitle(from body: String) -> String? {

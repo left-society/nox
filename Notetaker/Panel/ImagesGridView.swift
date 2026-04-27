@@ -8,6 +8,20 @@ struct ImagesGridView: View {
     // unrelated `videoStore.jobs[i].progress` tick doesn't trigger
     // this view's body to re-evaluate.
     @EnvironmentObject var imageStore: ImageStore
+    @EnvironmentObject var presenter: PanelPresenter
+
+    /// Dynamic accent that follows the current track's artwork
+    /// (see FilesGridView for the same pattern). Empty-state
+    /// glow inherits the music's chromatic identity instead of
+    /// the static system-accent green.
+    private var dynamicAccent: Color {
+        if let data = presenter.nowPlaying?.artworkData,
+           let color = ArtworkColor.dominant(from: data) {
+            return color
+        }
+        return .white
+    }
+
     @State private var selected: Set<String> = []
     @State private var showClearConfirm = false
 
@@ -296,8 +310,8 @@ struct ImagesGridView: View {
                     .fill(
                         RadialGradient(
                             colors: [
-                                DS.Color.accent.opacity(0.32),
-                                DS.Color.accent.opacity(0.08),
+                                dynamicAccent.opacity(0.32),
+                                dynamicAccent.opacity(0.08),
                                 Color.clear
                             ],
                             center: .center,
@@ -642,7 +656,7 @@ struct ImageCell: View {
             if let text = await ImageOCRService.extractText(from: url) {
                 await MainActor.run {
                     ClipboardService.copy(text: text)
-                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+                    HapticFeedback.alignment()
                 }
             } else {
                 // Quiet failure — Vision found no text, or the image
@@ -650,7 +664,7 @@ struct ImageCell: View {
                 // for "tried but nothing happened" without yelling at
                 // the user.
                 await MainActor.run {
-                    NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+                    HapticFeedback.levelChange()
                 }
             }
         }
@@ -678,15 +692,15 @@ struct ImageCell: View {
                 switch result {
                 case .success(let text) where !text.isEmpty:
                     ClipboardService.copy(text: text)
-                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+                    HapticFeedback.alignment()
                 case .success:
                     NSLog("Notetaker: Gemini extract returned no messages for \(record.id)")
-                    NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+                    HapticFeedback.levelChange()
                 case .missingAPIKey:
                     promptForGeminiKey()
                 case .failure(let message):
                     NSLog("Notetaker: Gemini extract failed: \(message)")
-                    NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+                    HapticFeedback.levelChange()
                 }
             }
         }
@@ -864,13 +878,13 @@ struct ImageCell: View {
                 if let text = extracted, !text.isEmpty {
                     ClipboardService.copy(text: text)
                     justExtractedText = true
-                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+                    HapticFeedback.alignment()
                     Task { @MainActor in
                         try? await Task.sleep(nanoseconds: 1_200_000_000)
                         justExtractedText = false
                     }
                 } else {
-                    NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+                    HapticFeedback.levelChange()
                 }
             }
         }

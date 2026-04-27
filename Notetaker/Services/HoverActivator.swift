@@ -36,25 +36,43 @@ final class HoverActivator {
     // MARK: - Tunables
 
     /// How long the cursor must remain inside the hot zone before we
-    /// fire `onActivate`. Bumped from 0.12s → 0.20s so the tease has a
-    /// perceivable lifetime of its own — at 120ms the user couldn't
-    /// distinguish the tease from a hair-trigger full open. The user
-    /// described 0.2s as the right reference behavior ("when I'm
-    /// placing the cursor for like 0.2 seconds or a little bit longer,
-    /// it opens").
-    private let dwellSeconds: TimeInterval = 0.20
+    /// fire `onActivate`. Tuning history:
+    ///   • 0.12s/0.14s: hair-trigger — every cursor swing past the
+    ///     notch popped the panel open.
+    ///   • 0.40s: too slow.
+    ///   • 0.27s: the working middle ground.
+    /// Now reads from `@AppStorage("hoverDwellSeconds")` so users
+    /// can dial it from Settings → General → Open delay. Default
+    /// stays at 0.27s — the explored sweet spot.
+    private var dwellSeconds: TimeInterval {
+        let stored = UserDefaults.standard.double(forKey: "hoverDwellSeconds")
+        return stored > 0 ? stored : 0.27
+    }
 
     /// Lockout window after a fire. Without this, a user who just
     /// dismissed the panel while their cursor still sat in the notch
     /// would see it pop right back open — punishing the very gesture
-    /// that hides it.
-    private let cooldownSeconds: TimeInterval = 0.6
+    /// that hides it. 0.35s is short enough that a deliberate
+    /// move-out-then-back-in re-engages quickly (the previous 0.6s
+    /// felt like the panel was sulking), long enough that an
+    /// auto-fire-after-dismiss with a stationary cursor doesn't
+    /// happen.
+    private let cooldownSeconds: TimeInterval = 0.35
 
     /// Hot-zone width centered on the screen's horizontal midpoint.
-    /// 220pt comfortably covers the physical notch on every notched
-    /// Mac without sprawling far enough that a cursor heading for the
-    /// menu's app-name area triggers us.
-    private let hotZoneWidth: CGFloat = 220
+    /// **300pt** — sized to fully cover the resting pill silhouette
+    /// (currently 278pt wide) plus a small buffer so the cursor
+    /// triggers the tease even at the visible pill edges. User
+    /// reported: "even though my cursor is right at the edge it
+    /// should respond." Earlier 220pt left ~29pt of pill on each
+    /// side outside the hot zone, so cursor at the rounded pill
+    /// shoulders silently failed to trigger.
+    /// Reads from `@AppStorage("hoverHotZoneWidth")`. Default 300pt
+    /// (covers the 278pt resting pill + small buffer).
+    private var hotZoneWidth: CGFloat {
+        let stored = UserDefaults.standard.double(forKey: "hoverHotZoneWidth")
+        return stored > 0 ? CGFloat(stored) : 300
+    }
 
     // MARK: - State
 
@@ -62,6 +80,7 @@ final class HoverActivator {
     private let onTeaseEnd: () -> Void
     private let onActivate: () -> Void
     private var monitor: Any?
+    private var pollTimer: Timer?
     private var dwellWorkItem: DispatchWorkItem?
     private var cachedHotZone: CGRect?
     private var cooldownUntil: Date = .distantPast
@@ -73,6 +92,17 @@ final class HoverActivator {
     /// this, a fast wiggle near the zone boundary could fire onTeaseEnd
     /// without a matching onTeaseStart.
     private var teaseFired: Bool = false
+
+    /// Pre-tease entry debounce. Cursor has to dwell at least this
+    /// long inside the hot zone before we even FIRE the tease
+    /// (which itself is the "small bloom"). Fast cursor sweeps
+    /// across the notch — entering and leaving within ~30ms — used
+    /// to fire tease+untease in rapid succession, visible as
+    /// jittery flicker. 50ms is well below human-perceived "did
+    /// I just see something flash?" threshold for deliberate dwells
+    /// but well above typical pass-through sweep time.
+    private let teaseEntryDebounce: TimeInterval = 0.05
+    private var teaseEntryWorkItem: DispatchWorkItem?
     private var screenChangeObserver: NSObjectProtocol?
 
     // MARK: - Lifecycle
@@ -132,6 +162,24 @@ final class HoverActivator {
             }
         }
 
+        // Periodic safety poll. Global mouse monitors only fire when
+        // the cursor MOVES — if the user dismisses the panel and
+        // their cursor is already inside the hot zone, no further
+        // event arrives until they wiggle, and the activator never
+        // detects "the cursor is sitting inside, fire the tease."
+        // User reported: "cursor stay there for a good amount of
+        // time isn't registering and the thing is not opening." A
+        // 0.15s tick polls `NSEvent.mouseLocation` directly, catching
+        // the stationary-cursor case. Cost is trivially small —
+        // mouseLocation is a syscall that returns immediately, and
+        // handleMouseMoved is idempotent.
+        pollTimer?.invalidate()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleMouseMoved()
+            }
+        }
+
         NSLog("Notetaker: HoverActivator started zone=\(cachedHotZone.map { "\($0)" } ?? "nil")")
     }
 
@@ -143,6 +191,9 @@ final class HoverActivator {
             NSEvent.removeMonitor(monitor)
         }
         monitor = nil
+
+        pollTimer?.invalidate()
+        pollTimer = nil
 
         if let screenChangeObserver {
             NotificationCenter.default.removeObserver(screenChangeObserver)
@@ -173,18 +224,32 @@ final class HoverActivator {
         if inside && !isInsideZone {
             isInsideZone = true
             // Cooldown blocks BOTH the tease bloom and the activate.
-            // A user who just dismissed wants the panel to stay quiet
-            // for the cooldown window — even a pre-bloom would
-            // visually punish the dismiss gesture they just made.
             if Date() < cooldownUntil {
                 return
             }
-            teaseFired = true
-            NSLog("Notetaker: HoverActivator → tease")
-            onTeaseStart()
-            armDwellTimer()
+            // Schedule the tease via a small entry-debounce. A
+            // fast cursor sweep that enters the zone and leaves
+            // within `teaseEntryDebounce` (50ms) gets cancelled
+            // before any visible tease ever fires — eliminates
+            // the in/out flicker that fast cursor passes used to
+            // produce. Deliberate dwells trip the timer cleanly
+            // and proceed exactly like before from that point on.
+            teaseEntryWorkItem?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, self.isInsideZone, !self.teaseFired else { return }
+                self.teaseFired = true
+                NSLog("Notetaker: HoverActivator → tease")
+                self.onTeaseStart()
+                self.armDwellTimer()
+            }
+            teaseEntryWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + teaseEntryDebounce, execute: work)
         } else if !inside && isInsideZone {
             isInsideZone = false
+            // Cancel the pending tease entry (if any) — fast cursor
+            // pass doesn't even register as a tease event.
+            teaseEntryWorkItem?.cancel()
+            teaseEntryWorkItem = nil
             cancelTease()
         }
         // If still-inside or still-outside, let the existing timer (if any)
@@ -214,10 +279,20 @@ final class HoverActivator {
             // diagonal flick can fire .mouseMoved events with the
             // cursor briefly inside, then leave before the next event
             // comes through. mouseLocation gives us ground truth.
-            // If the cursor left, fall through to cancelTease so the
-            // tease bloom collapses cleanly.
-            guard let zone = self.currentHotZone(),
-                  zone.contains(NSEvent.mouseLocation) else {
+            //
+            // Use a 6pt tolerance — if the cursor is ALMOST inside
+            // (within 6pt of the zone), still trigger. Without
+            // tolerance, sub-pixel cursor jitter near the boundary
+            // can cause tease-then-immediately-cancel cycles where
+            // the user perceives "hover never opened the panel."
+            guard let zone = self.currentHotZone() else {
+                self.isInsideZone = false
+                self.cancelTease()
+                return
+            }
+            let loc = NSEvent.mouseLocation
+            let tolerantZone = zone.insetBy(dx: -6, dy: -6)
+            guard tolerantZone.contains(loc) else {
                 self.isInsideZone = false
                 self.cancelTease()
                 return
@@ -263,8 +338,18 @@ final class HoverActivator {
         // frame.maxY. NSEvent.mouseLocation is in the same screen
         // coordinate space (origin bottom-left), so this rect can be
         // hit-tested against it directly.
-        let stripBottom = visible.maxY
-        let stripTop = frame.maxY
+        //
+        // Extend the rect 8pt DOWN past visibleFrame.maxY so cursor
+        // flicks that land just below the menu bar still trigger —
+        // people aren't pixel-precise when throwing the cursor at
+        // the notch. Plus 4pt UP past frame.maxY (technically off
+        // screen, but `NSEvent.mouseLocation` can return values at
+        // the screen edge that CGRect.contains excludes due to
+        // half-open interval). User reported: "mouse is not
+        // registering sometimes when i go with my mouse inside of
+        // the pill fast." This was the boundary-precision case.
+        let stripBottom = visible.maxY - 8
+        let stripTop = frame.maxY + 4
         guard stripTop > stripBottom else {
             cachedHotZone = nil
             return

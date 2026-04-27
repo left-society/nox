@@ -109,6 +109,7 @@ final class MediaRemoteService {
         case stop = 3
         case next = 4
         case previous = 5
+        case toggleShuffle = 6
     }
 
     /// Fired when the currently-playing info changes (track changed,
@@ -121,11 +122,33 @@ final class MediaRemoteService {
     private var getIsPlaying: (@convention(c) (DispatchQueue, @escaping (Bool) -> Void) -> Void)?
     private var sendCommand: (@convention(c) (UInt32, [AnyHashable: Any]?) -> Bool)?
     private var registerForNotifications: (@convention(c) (DispatchQueue) -> Void)?
+    /// `MRMediaRemoteGetNowPlayingApplicationDisplayID` — returns the
+    /// bundle ID (e.g. "com.google.Chrome", "com.spotify.client") of
+    /// whichever app is the current MediaRemote source. Resolves the
+    /// "click on title → open source app" gesture for browsers and
+    /// other non-builtin apps where MediaRemote previously published
+    /// `sourceBundleID = nil`.
+    private var getNowPlayingApplicationDisplayID: (@convention(c) (DispatchQueue, @escaping (String?) -> Void) -> Void)?
 
     /// Most recent snapshot, used for diffing across notifications and
     /// for command callbacks that want to read state synchronously.
     private var lastInfo: NowPlayingInfo?
     private var observers: [NSObjectProtocol] = []
+
+    /// Periodic timer that re-fetches `duration` + `player position`
+    /// for Spotify / Apple Music via AppleScript. Required because:
+    ///   • DistributedNotifications don't carry timing.
+    ///   • MediaRemote is restricted on macOS 15.4+ for unsigned
+    ///     third-party apps, so its timing path is dead too.
+    /// Without this refresher the progress bar is stuck at 0 and the
+    /// scrub gesture is gated off (see MusicPanelView.progressBar's
+    /// `hasTiming` check).
+    private var appScriptTimingTimer: Timer?
+    /// Bundle ID currently being polled. Compared against `lastInfo`
+    /// each tick so we stop polling the moment the source changes
+    /// away from Spotify/Music (no point asking Spotify for timing
+    /// while YouTube is playing).
+    private var appScriptTimingFor: String?
 
     /// In-memory cache of artwork bytes keyed by `title|artist` (lower-
     /// cased, trimmed). Avoids re-querying iTunes Search every time the
@@ -187,7 +210,14 @@ final class MediaRemoteService {
         if let ptr = CFBundleGetFunctionPointerForName(cfBundle, "MRMediaRemoteRegisterForNowPlayingNotifications" as CFString) {
             registerForNotifications = unsafeBitCast(ptr, to: (@convention(c) (DispatchQueue) -> Void).self)
         }
-        NSLog("Notetaker: MediaRemote symbols — getInfo=\(getNowPlayingInfo != nil) getIsPlaying=\(getIsPlaying != nil) sendCommand=\(sendCommand != nil) registerNotifs=\(registerForNotifications != nil)")
+        // Resolve the source-bundleID symbol. Same restriction risk
+        // as the other private symbols on macOS 15.4+ — we log
+        // success/failure so it's visible in Console when debugging
+        // "click on title doesn't open Chrome" reports.
+        if let ptr = CFBundleGetFunctionPointerForName(cfBundle, "MRMediaRemoteGetNowPlayingApplicationDisplayID" as CFString) {
+            getNowPlayingApplicationDisplayID = unsafeBitCast(ptr, to: (@convention(c) (DispatchQueue, @escaping (String?) -> Void) -> Void).self)
+        }
+        NSLog("Notetaker: MediaRemote symbols — getInfo=\(getNowPlayingInfo != nil) getIsPlaying=\(getIsPlaying != nil) sendCommand=\(sendCommand != nil) registerNotifs=\(registerForNotifications != nil) getDisplayID=\(getNowPlayingApplicationDisplayID != nil)")
 
         // Subscribe to the three notifications we care about. Names are
         // stable since macOS 10.13. We listen on DistributedNotificationCenter
@@ -424,17 +454,160 @@ final class MediaRemoteService {
             artworkData: nil,
             isPlaying: isPlaying,
             sourceBundleID: sourceBundleID,
-            // App-specific notifications don't carry timing data — the
-            // distributed-notification size budget can't fit a duration
-            // + position payload reliably across the system. The view
-            // falls back to "no progress bar" when these are nil. The
-            // MediaRemote pipeline (when available) publishes timing
-            // separately, so the bar reappears as soon as the next
-            // NowPlayingInfoDidChange notification fires.
+            // App-specific notifications don't carry timing — the
+            // distributed-notification payload size limit can't fit
+            // duration + position reliably. We publish nil here and
+            // immediately kick off an AppleScript fetch (below) that
+            // re-publishes the same track WITH timing populated.
             duration: nil,
             elapsedTime: nil,
             infoTimestamp: nil
         ))
+
+        // Spotify and Apple Music expose `duration of current track`
+        // and `player position` via AppleScript — the only reliable
+        // source on macOS 15.4+ where MediaRemote is restricted.
+        // Fetch once now (so the bar appears with the right starting
+        // position) and (re)start the periodic refresher so it stays
+        // accurate during playback and after external seeks.
+        let appName: String?
+        switch sourceBundleID {
+        case "com.spotify.client": appName = "Spotify"
+        case "com.apple.Music": appName = "Music"
+        default: appName = nil
+        }
+        if let appName, isPlaying {
+            startAppScriptTimingTimer(forApp: appName, bundleID: sourceBundleID)
+            refreshAppScriptTiming(forApp: appName, bundleID: sourceBundleID)
+        } else {
+            stopAppScriptTimingTimer()
+        }
+    }
+
+    // MARK: - AppleScript timing (Spotify / Apple Music)
+
+    private func startAppScriptTimingTimer(forApp appName: String, bundleID: String) {
+        if appScriptTimingFor == bundleID, appScriptTimingTimer != nil { return }
+        stopAppScriptTimingTimer()
+        appScriptTimingFor = bundleID
+        let t = Timer(timeInterval: 2.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self,
+                      self.appScriptTimingFor == bundleID,
+                      let last = self.lastInfo,
+                      last.sourceBundleID == bundleID,
+                      last.isPlaying
+                else {
+                    self?.stopAppScriptTimingTimer()
+                    return
+                }
+                self.refreshAppScriptTiming(forApp: appName, bundleID: bundleID)
+            }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        appScriptTimingTimer = t
+    }
+
+    private func stopAppScriptTimingTimer() {
+        appScriptTimingTimer?.invalidate()
+        appScriptTimingTimer = nil
+        appScriptTimingFor = nil
+    }
+
+    /// One-shot fetch on a background queue. On success, hops back
+    /// to the main actor and re-publishes `lastInfo` augmented with
+    /// the freshly-read duration + position. The infoTimestamp is
+    /// the moment the read landed — which is what the view's
+    /// `currentPosition(at:)` extrapolation expects.
+    private func refreshAppScriptTiming(forApp appName: String, bundleID: String) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let script = """
+            tell application "\(appName)"
+                if it is running then
+                    try
+                        set d to (duration of current track) as real
+                        set p to (player position) as real
+                        return (d as text) & "|" & (p as text)
+                    end try
+                end if
+            end tell
+            return ""
+            """
+            var error: NSDictionary?
+            guard let osa = NSAppleScript(source: script) else { return }
+            let result = osa.executeAndReturnError(&error)
+            guard error == nil,
+                  let str = result.stringValue,
+                  !str.isEmpty
+            else { return }
+            let parts = str.split(separator: "|")
+            guard parts.count == 2,
+                  var duration = Double(parts[0]),
+                  let position = Double(parts[1])
+            else { return }
+            // Spotify's dictionary documents seconds but its actual
+            // return values are milliseconds in current builds (a 3-min
+            // track returns 184384, not 184). Normalize anything > 1h
+            // to seconds so we don't render a 51-hour track. Apple
+            // Music returns true seconds and is unaffected by this
+            // (real songs are < 3600).
+            if duration > 3600 { duration = duration / 1000.0 }
+            let fetchedAt = Date()
+            DispatchQueue.main.async {
+                guard let self,
+                      let last = self.lastInfo,
+                      last.sourceBundleID == bundleID
+                else { return }
+
+                // THROTTLE: skip the publish if the freshly-fetched
+                // position matches what we'd have extrapolated from
+                // last.elapsedTime + (now - last.infoTimestamp). The
+                // 2.5s timer firing during a panel morph used to
+                // trigger a full SwiftUI re-render of MusicPanelView
+                // mid-animation — visible as jitter. Spotify and
+                // Apple Music have very accurate clocks; over a few
+                // seconds the projected position is within ~0.3s of
+                // the real one. Anything beyond 0.5s drift means
+                // the user (or the app) seeked, which IS worth
+                // re-publishing.
+                if last.duration == duration,
+                   let lastElapsed = last.elapsedTime,
+                   let lastTimestamp = last.infoTimestamp {
+                    let projected = lastElapsed + fetchedAt.timeIntervalSince(lastTimestamp) * (last.isPlaying ? 1 : 0)
+                    if abs(position - projected) < 0.5 {
+                        // Update the timestamp+elapsed silently so
+                        // future projections stay accurate, but
+                        // don't fire onChange (no SwiftUI re-render).
+                        self.lastInfo = NowPlayingInfo(
+                            title: last.title,
+                            artist: last.artist,
+                            album: last.album,
+                            artworkData: last.artworkData,
+                            isPlaying: last.isPlaying,
+                            sourceBundleID: last.sourceBundleID,
+                            duration: duration,
+                            elapsedTime: position,
+                            infoTimestamp: fetchedAt
+                        )
+                        return
+                    }
+                }
+
+                let updated = NowPlayingInfo(
+                    title: last.title,
+                    artist: last.artist,
+                    album: last.album,
+                    artworkData: last.artworkData,
+                    isPlaying: last.isPlaying,
+                    sourceBundleID: last.sourceBundleID,
+                    duration: duration,
+                    elapsedTime: position,
+                    infoTimestamp: fetchedAt
+                )
+                self.lastInfo = updated
+                self.onChange?(updated)
+            }
+        }
     }
 
     func stop() {
@@ -445,6 +618,7 @@ final class MediaRemoteService {
             lnc.removeObserver(token)
         }
         observers.removeAll()
+        stopAppScriptTimingTimer()
         // Don't unload the framework — other parts of the system may
         // be using it, and CFBundleUnloadExecutable on a private
         // framework is undefined behavior on Apple silicon.
@@ -518,6 +692,13 @@ final class MediaRemoteService {
         case .stop: verb = "pause"            // both apps lack stop; pause is the closest behavior
         case .next: verb = "next track"
         case .previous: verb = "previous track"
+        case .toggleShuffle:
+            // Spotify and Apple Music both expose `set shuffling
+            // to (not shuffling)` — toggle property, not a verb.
+            // Skip the verb-style script; route through
+            // MediaRemote's MRToggleShuffle command code below.
+            _ = sendCommand?(command.rawValue, nil)
+            return
         }
         let source = "tell application \"\(app)\" to \(verb)"
         guard let script = NSAppleScript(source: source) else {
@@ -615,38 +796,65 @@ final class MediaRemoteService {
         // pill than lose music HUDs entirely. The system will correct
         // us via the next NowPlayingApplicationIsPlayingDidChange
         // notification if that's wrong.
-        if let getPlaying = getIsPlaying {
-            getPlaying(.main) { [weak self] playing in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
+        // Resolve the source bundle ID via the private API. This is
+        // the only path that gives us "what app is currently the
+        // now-playing source" for browser tabs (Chrome / Safari /
+        // Brave etc.) and other apps that don't go through the
+        // app-specific notification fallback. Without this the
+        // sourceBundleID stays nil for YouTube/Chrome tracks and
+        // the "click to open source" gesture doesn't work.
+        resolveSourceBundleID { [weak self] sourceID in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let getPlaying = self.getIsPlaying {
+                    getPlaying(.main) { [weak self] playing in
+                        MainActor.assumeIsolated {
+                            guard let self else { return }
+                            self.publish(NowPlayingInfo(
+                                title: title,
+                                artist: artist,
+                                album: album,
+                                artworkData: artworkData,
+                                isPlaying: playing,
+                                sourceBundleID: sourceID,
+                                duration: duration,
+                                elapsedTime: elapsedTime,
+                                infoTimestamp: infoTimestamp
+                            ))
+                        }
+                    }
+                } else {
+                    let assumed = !title.isEmpty || !artist.isEmpty
                     self.publish(NowPlayingInfo(
                         title: title,
                         artist: artist,
                         album: album,
                         artworkData: artworkData,
-                        isPlaying: playing,
-                        sourceBundleID: nil, // Resolved at view layer if needed
+                        isPlaying: assumed,
+                        sourceBundleID: sourceID,
                         duration: duration,
                         elapsedTime: elapsedTime,
                         infoTimestamp: infoTimestamp
                     ))
                 }
             }
-        } else {
-            // Symbol restricted — assume playing if we have a title.
-            // Publish synchronously so we don't strand the dict.
-            let assumed = !title.isEmpty || !artist.isEmpty
-            publish(NowPlayingInfo(
-                title: title,
-                artist: artist,
-                album: album,
-                artworkData: artworkData,
-                isPlaying: assumed,
-                sourceBundleID: nil,
-                duration: duration,
-                elapsedTime: elapsedTime,
-                infoTimestamp: infoTimestamp
-            ))
+        }
+    }
+
+    /// Resolve the active MediaRemote source's bundle ID via the
+    /// private symbol if available. Falls back to nil (the existing
+    /// publish() inheritance from the previous track will then keep
+    /// any previously-known source ID for the same title/artist).
+    private func resolveSourceBundleID(_ completion: @escaping (String?) -> Void) {
+        guard let getDisplayID = getNowPlayingApplicationDisplayID else {
+            completion(nil)
+            return
+        }
+        getDisplayID(.main) { id in
+            // Some macOS versions return empty string instead of nil
+            // when no source is registered. Normalize to nil.
+            let normalized = (id?.isEmpty == false) ? id : nil
+            completion(normalized)
         }
     }
 
@@ -665,9 +873,23 @@ final class MediaRemoteService {
         // (clears) skip this — they take the "nothing playing" branch
         // below.
         var info = info
-        if info.sourceBundleID == nil,
-           let last = lastInfo,
-           last.sourceBundleID != nil,
+        // Same-track inheritance — when title+artist match the last
+        // publish, fields the new info doesn't carry are filled in
+        // from lastInfo. Three inheritances matter:
+        //   • sourceBundleID — keeps `send()` routing pointed at the
+        //     right app when a follow-up publish arrives without a
+        //     bundle ID (the original "pause hits a different app"
+        //     bug).
+        //   • duration / elapsedTime / infoTimestamp — keeps the
+        //     progress bar's `hasTiming` true across play/pause
+        //     toggles. Otherwise: notification fires (no timing) →
+        //     bar's gesture early-returns on `hasTiming` → user's
+        //     click is silently ignored. AppleScript refresher will
+        //     repopulate timing within 2.5s but during that window
+        //     the bar is unresponsive. Inheriting preserves it.
+        // Track CHANGE (different title/artist) skips inheritance
+        // entirely so a new song starts fresh.
+        if let last = lastInfo,
            !info.title.isEmpty,
            info.title == last.title,
            info.artist == last.artist {
@@ -677,10 +899,10 @@ final class MediaRemoteService {
                 album: info.album,
                 artworkData: info.artworkData,
                 isPlaying: info.isPlaying,
-                sourceBundleID: last.sourceBundleID,
-                duration: info.duration,
-                elapsedTime: info.elapsedTime,
-                infoTimestamp: info.infoTimestamp
+                sourceBundleID: info.sourceBundleID ?? last.sourceBundleID,
+                duration: info.duration ?? last.duration,
+                elapsedTime: info.elapsedTime ?? last.elapsedTime,
+                infoTimestamp: info.infoTimestamp ?? last.infoTimestamp
             )
         }
 

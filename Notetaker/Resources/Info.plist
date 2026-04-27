@@ -25,10 +25,16 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Notetaker reads the current tab URL from your browser when you press ⌥⌘V to download videos, and controls Spotify or Apple Music when you press play/pause/skip in the notch HUD.</string>
+	<string>Notetaker reads the current tab URL from your browser when you press ⌥⌘V so it can download the video you're watching.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Aritra Debnath.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Notetaker transcribes your voice offline to create notes. Audio never leaves your Mac.</string>
+	<key>NSFocusStatusUsageDescription</key>
+	<string>Notetaker hides transient pills (charging, screenshots, Bluetooth) while you're in a Focus or Do Not Disturb mode.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Notetaker shows your next meeting in the notch pill so you can see it without opening Calendar.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Notetaker reads your upcoming events to show a "next meeting" pill in the notch and surface the join link.</string>
 </dict>
 </plist>

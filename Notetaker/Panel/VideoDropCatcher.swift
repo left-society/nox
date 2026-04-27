@@ -41,6 +41,15 @@ final class PanelDropContainer: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// Accept clicks/drags BEFORE the panel becomes key. The panel is
+    /// `.nonactivatingPanel` so it never auto-activates on click; without
+    /// this override, the FIRST mousedown gets eaten as an "activate
+    /// the window" event and never reaches the SwiftUI gesture
+    /// recognizers below. User reported: "And i can't move that progress
+    /// bar" — exactly this. Returning true delivers every click/drag
+    /// straight through to SwiftUI gestures, no activation step.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         DispatchQueue.main.async { [weak self] in self?.onTargeted(true) }
         return .copy

@@ -3,6 +3,22 @@ import AppKit
 
 struct FilesGridView: View {
     @EnvironmentObject var fileStore: FileStore
+    @EnvironmentObject var presenter: PanelPresenter
+
+    /// Dynamic accent for the empty-state glow. Pulls the dominant
+    /// color from the current track's artwork so the panel's
+    /// chromatic identity stays unified with whatever's playing —
+    /// the user reported the static system-accent green felt
+    /// disconnected from the rest of the UI ("multiple things"
+    /// using it). When no music is playing, falls back to white
+    /// for a neutral soft glow.
+    private var dynamicAccent: Color {
+        if let data = presenter.nowPlaying?.artworkData,
+           let color = ArtworkColor.dominant(from: data) {
+            return color
+        }
+        return .white
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -15,7 +31,7 @@ struct FilesGridView: View {
                         ForEach(fileStore.files) { file in
                             FileRow(file: file) {
                                 fileStore.remove(id: file.id)
-                                NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+                                HapticFeedback.levelChange()
                             }
                             .transition(.asymmetric(
                                 insertion: .scale(scale: 0.92).combined(with: .opacity),
@@ -37,8 +53,8 @@ struct FilesGridView: View {
             ZStack {
                 RadialGradient(
                     colors: [
-                        DS.Color.accent.opacity(0.18),
-                        DS.Color.accent.opacity(0.02),
+                        dynamicAccent.opacity(0.18),
+                        dynamicAccent.opacity(0.02),
                         Color.clear
                     ],
                     center: .center,
@@ -68,9 +84,23 @@ struct FilesGridView: View {
                 .font(.nkMeta)
                 .foregroundStyle(DS.Color.textTertiary)
             Spacer()
+            // AirDrop — closes the gap with NotchNook ("AirDrop on
+            // drop" was their headline feature). NSSharingServicePicker
+            // shows the standard AirDrop picker popover anchored to
+            // this button.
+            Button {
+                shareViaAirDrop()
+                HapticFeedback.alignment()
+            } label: {
+                Label("AirDrop", systemImage: "shareplay")
+                    .font(.nkMeta.weight(.medium))
+                    .foregroundStyle(DS.Color.textPrimary)
+                    .labelStyle(.titleAndIcon)
+            }
+            .buttonStyle(.plain)
             Button {
                 ClipboardService.copy(fileURLs: fileStore.files.map(\.url))
-                NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+                HapticFeedback.alignment()
             } label: {
                 Label("Copy all", systemImage: "doc.on.doc")
                     .font(.nkMeta.weight(.medium))
@@ -82,7 +112,7 @@ struct FilesGridView: View {
                 withAnimation(.spring(response: 0.32, dampingFraction: 0.74)) {
                     fileStore.clearAll()
                 }
-                NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+                HapticFeedback.levelChange()
             } label: {
                 Label("Clear", systemImage: "xmark.circle")
                     .font(.nkMeta.weight(.medium))
@@ -94,6 +124,33 @@ struct FilesGridView: View {
         .padding(.horizontal, DS.Spacing.md)
         .padding(.top, DS.Spacing.sm)
         .padding(.bottom, DS.Spacing.xs)
+    }
+
+    /// Share the staged files via AirDrop. NSSharingServicePicker
+    /// shows the standard popover the user already knows from
+    /// Finder's right-click → Share. We anchor it to the panel's
+    /// content view; macOS positions the popover sensibly near
+    /// the source button automatically when the rect is small.
+    private func shareViaAirDrop() {
+        let urls = fileStore.files.map(\.url)
+        guard !urls.isEmpty else { return }
+        let picker = NSSharingServicePicker(items: urls)
+        // Floating NSPanel doesn't reliably become keyWindow even
+        // on click, so `NSApp.keyWindow` is sometimes nil here.
+        // Walk the visible-window list and prefer our NSPanel as
+        // the anchor — falls through to keyWindow / mainWindow if
+        // not found.
+        let anchorWindow = NSApp.windows.first(where: { $0.isVisible && $0 is NSPanel })
+            ?? NSApp.keyWindow
+            ?? NSApp.mainWindow
+        guard let view = anchorWindow?.contentView else { return }
+        // Anchor to the center-bottom of the panel content view
+        // so the popover appears below the visible silhouette
+        // rather than offscreen above the menu bar (which `.zero`
+        // could pick on a flipped coordinate system).
+        let bounds = view.bounds
+        let anchor = NSRect(x: bounds.midX, y: bounds.minY, width: 1, height: 1)
+        picker.show(relativeTo: anchor, of: view, preferredEdge: .minY)
     }
 }
 

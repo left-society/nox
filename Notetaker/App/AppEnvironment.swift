@@ -17,6 +17,7 @@ final class AppEnvironment: ObservableObject {
     let fileStore: FileStore
     let retentionService: RetentionService
     let linkPreviewService: LinkPreviewService
+    let bluetoothDeviceService: BluetoothDeviceService
 
     init() throws {
         self.database = try Database()
@@ -32,5 +33,6 @@ final class AppEnvironment: ObservableObject {
         ).appendingPathComponent("Notetaker", isDirectory: true)
         self.retentionService = RetentionService(db: database, imageRoot: imageRoot)
         self.linkPreviewService = LinkPreviewService()
+        self.bluetoothDeviceService = BluetoothDeviceService()
     }
 }

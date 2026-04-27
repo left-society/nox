@@ -5,6 +5,11 @@ struct Note: Identifiable, Codable, FetchableRecord, MutablePersistableRecord, E
     var id: String
     var title: String?
     var body: String
+    /// Gemini-generated one-line summary. Populated asynchronously
+    /// after the note is saved; until it lands, the list row falls
+    /// back to the derived title (first line of body). Nullable so
+    /// legacy rows from before the v5 migration display cleanly.
+    var summary: String?
     var createdAt: Double
     var updatedAt: Double
     var status: String
@@ -16,6 +21,7 @@ struct Note: Identifiable, Codable, FetchableRecord, MutablePersistableRecord, E
         static let id = Column("id")
         static let title = Column("title")
         static let body = Column("body")
+        static let summary = Column("summary")
         static let createdAt = Column("created_at")
         static let updatedAt = Column("updated_at")
         static let status = Column("status")
@@ -23,7 +29,7 @@ struct Note: Identifiable, Codable, FetchableRecord, MutablePersistableRecord, E
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, body, status
+        case id, title, body, summary, status
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case trashedAt = "trashed_at"

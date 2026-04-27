@@ -4,9 +4,45 @@ import SwiftUI
 final class PanelPresenter: ObservableObject {
     @Published var isShown: Bool = false
     @Published var activeTab: PanelTab = .notes
+
+    /// True while a panel-frame morph is in flight (~0.5–1s
+    /// window). Set by PanelWindowController right before its
+    /// SpringFrameAnimator starts, cleared in the spring's
+    /// completion handler. Heavy continuous content (the sphere
+    /// visualizer's 60Hz draw loop) gates on this so it doesn't
+    /// compete with the spring for main-thread runloop slots — the
+    /// Timer-based spring needs uncontested pacing to read as
+    /// "buttery smooth jelly" rather than the jittery wobble the
+    /// user reported.
+    @Published var isMorphing: Bool = false
     /// Driven by PanelDropContainer (the contentView wrapper) when a drag
     /// hovers over the panel. Used by PanelRootView to draw an accent ring.
     @Published var isDropTargeted: Bool = false
+
+    /// True while the system session is locked. Driven by
+    /// `LockScreenWatcher`'s `com.apple.screenIsLocked` /
+    /// `com.apple.screenIsUnlocked` subscriptions and routed
+    /// through AppDelegate.
+    ///
+    /// Read by `LockMusicCardWindowController` to gate visibility
+    /// of the lock-screen music card. Could also be read by
+    /// PanelRootView in the future if we want to show different
+    /// pill content on lock vs desktop.
+    @Published var isLocked: Bool = false
+
+    /// True while the user is in any system Focus or DND mode AND
+    /// has authorized us to read it. Pumped from `FocusStatusService`
+    /// in AppDelegate. Used by `setPendingSystemEvent` to mute
+    /// non-essential transient pills (charging, screenshots,
+    /// downloads, BT, note-saved) so the pill doesn't pop while
+    /// the user is in heads-down mode. User-initiated events
+    /// (timer countdown, video preview, charging IF the user has
+    /// explicitly opted into seeing it through Focus) still fire.
+    ///
+    /// Default false — when the user hasn't authorized Focus access
+    /// or hasn't opted into the auto-hide behavior, this stays
+    /// false forever and the gating becomes a no-op.
+    @Published var isFocused: Bool = false
 
     /// True when the panel is sitting at closed-pill geometry as a
     /// persistent now-playing indicator (Alcove-style "always-on" pill).
@@ -53,6 +89,278 @@ final class PanelPresenter: ObservableObject {
     /// constructed before the orchestrator exists; the delegate
     /// installs this closure once both have been built.
     var onMediaCommand: ((MediaRemoteService.Command) -> Void)?
+
+    /// "Bring the source app for the now-playing track to the front."
+    /// Wired by AppDelegate to NotchOrchestrator.openSourceApp, which
+    /// knows how to jump to the specific browser tab when the source
+    /// is YouTube/SoundCloud/Twitch (instead of just opening Chrome
+    /// to whatever tab happens to be active).
+    var onOpenSourceApp: (() -> Void)?
+
+    /// Pending video-URL candidate from the clipboard. When set, the
+    /// pill content swaps from the music indicator to a video preview
+    /// (thumbnail/icon + Download button on the right). User: "we
+    /// need the pill we have right now for playing music to animate
+    /// and go, something like a video thumbnail or something like
+    /// that, and a download button."
+    ///
+    /// Auto-clears after `pendingVideoTimeout` seconds if the user
+    /// neither downloads nor explicitly dismisses — at which point
+    /// the pill reverts to whatever it was showing before (music or
+    /// system audio).
+    @Published var pendingVideoCandidate: URL? = nil
+
+    /// Closure that the AppDelegate installs to handle "user clicked
+    /// Download on the video preview pill." Lifts the actual download
+    /// dispatch out of the presenter (which has no access to
+    /// `videoStore` or `panelController`) and into the layer that
+    /// owns those references.
+    var onDownloadVideo: ((URL) -> Void)?
+
+    /// Transient system events (charging plug/unplug, volume change,
+    /// etc.) that should briefly take over the pill's content area
+    /// then auto-revert to music. User: "the pill should have
+    /// animations for different kinds of actions ... should
+    /// transform the music into that charging animation, into the
+    /// same size."
+    enum SystemEvent: Equatable {
+        case charging(percent: Int, plugged: Bool)
+        /// Brief flash when a screenshot is captured. The
+        /// associated value is the count of screenshots taken
+        /// within the recent burst window — single capture shows
+        /// just "Saved", a burst shows "Saved · 3" so the user
+        /// gets multi-shot acknowledgement without the pill
+        /// flickering off and on per shot. Setting this with the
+        /// same case (different count) just resets the timer,
+        /// extending the visible window through the burst.
+        case screenshotSaved(count: Int)
+        /// Video download is starting. Pill shows the platform-tinted
+        /// glyph + "Downloading" badge while the user gets a clear
+        /// "yes, your tap registered" tell.
+        case downloadStarted(host: String)
+        /// Video download finished successfully. Brief checkmark
+        /// flash; user knows the file is in the Videos tab now.
+        case downloadCompleted(host: String)
+        /// Plain text auto-saved to a new note from the clipboard.
+        /// Yellow note glyph in the pill so the user knows the
+        /// copy was captured — replaces the previous "open panel
+        /// on every copy" behavior, which was disruptive.
+        case noteSaved
+        /// Bluetooth device just connected. Pill shows the device
+        /// name and a small headphones glyph. Fades after the
+        /// per-event window. `isAirPods` swaps the icon to a
+        /// dedicated AirPods symbol.
+        case bluetoothConnected(deviceName: String, isAirPods: Bool)
+        /// Bluetooth device just disconnected. Same shape as
+        /// connected but with a "disconnected" affordance —
+        /// fades to nothing as the device walks away.
+        case bluetoothDisconnected(deviceName: String, isAirPods: Bool)
+        /// Active countdown timer. The remaining-seconds value is
+        /// updated 1Hz by `TimerService` and pushed through the
+        /// pendingSystemEvent slot — each tick replaces the
+        /// previous case with the new value. The pill stays
+        /// visible the entire time the timer is counting; the
+        /// auto-dismiss timer is reset on every push to keep it
+        /// pinned. When the timer hits zero we transition to
+        /// `timerFinished` for a brief celebratory pill.
+        case timerRunning(remainingSeconds: Int)
+        /// Timer just hit zero. Pill shows "Timer done" with a
+        /// quick checkmark; auto-dismisses after the per-event
+        /// window. The owning service plays the "ding" haptic on
+        /// the same edge.
+        case timerFinished
+        /// Next calendar meeting is about to start (within the
+        /// CalendarMonitorService.leadTime window). Pill shows
+        /// title + minutes remaining. The owner-side click handler
+        /// reads the join URL out of `PanelPresenter.upcomingMeetingJoinURL`
+        /// rather than putting it in the enum, so the enum stays
+        /// Equatable-cheap (URLs aren't a clean Hashable for our
+        /// purposes — same-string-different-encoding gotchas).
+        case calendarUpcoming(title: String, minutesUntilStart: Int)
+        /// File just landed via AirDrop. Pill shows the filename
+        /// + a small AirDrop glyph. Tap-to-reveal in Finder via
+        /// `PanelPresenter.lastAirDropURL` (kept off the enum for
+        /// the same Equatable-friendliness reason as the calendar
+        /// join URL).
+        case airDropReceived(filename: String)
+    }
+    @Published var pendingSystemEvent: SystemEvent? = nil
+    private var pendingSystemEventTimer: Task<Void, Never>?
+
+    /// Latest join URL for the calendar pill, kept out-of-band from
+    /// the SystemEvent enum so the enum's Equatable conformance stays
+    /// cheap (URL equality has encoding gotchas). Set by AppDelegate
+    /// each time CalendarMonitorService pushes a new upcoming event;
+    /// nil otherwise. Read by the click handler to open the join link.
+    @Published var upcomingMeetingJoinURL: URL? = nil
+
+    /// Closure AppDelegate installs to forward a "user tapped the
+    /// calendar pill" signal. Defaults to opening
+    /// `upcomingMeetingJoinURL` in the user's browser.
+    var onJoinUpcomingMeeting: (() -> Void)?
+
+    /// Most recent AirDrop arrival. Set when the watcher pushes a
+    /// `.airDropReceived` event; used by the pill's click handler
+    /// to reveal the file in Finder. Cleared when the event window
+    /// expires (same lifecycle as `lastScreenshotThumbnail`).
+    @Published var lastAirDropURL: URL? = nil
+
+    /// AirDrop pill click → reveal in Finder. AppDelegate installs
+    /// this; PanelRootView calls it on tap. Same indirection as
+    /// `onJoinUpcomingMeeting` so the presenter stays unaware of
+    /// AppKit specifics.
+    var onRevealAirDrop: (() -> Void)?
+
+    /// Latest screenshot's actual image, displayed inside the
+    /// screenshot pill instead of the camera glyph. Cleared when
+    /// the event window expires. Lives on PanelPresenter (rather
+    /// than being an associated value of `SystemEvent`) so the
+    /// SystemEvent enum can stay Equatable cheaply — comparing
+    /// NSImage references through Equatable would be brittle and
+    /// the count-update flow (which DOES fire on equality) would
+    /// pay for unnecessary diffs.
+    @Published var lastScreenshotThumbnail: NSImage? = nil
+
+    /// 3.5s window — long enough for the user to glance and read,
+    /// short enough that they're back to the music pill quickly.
+    /// Overridable from Settings → Charging → Visible for (only
+    /// applies to charging events; the others use shorter
+    /// per-event durations below).
+    static let pendingSystemEventTimeout: TimeInterval = 3.5
+
+    /// Per-event timeout. Charging respects the Settings override;
+    /// screenshot/download events are quicker (1.5–2s) so they
+    /// don't linger over the music pill.
+    private static func timeout(for event: SystemEvent) -> TimeInterval {
+        switch event {
+        case .charging:
+            let stored = UserDefaults.standard.double(forKey: "chargingPillDuration")
+            return stored > 0 ? stored : pendingSystemEventTimeout
+        case .screenshotSaved: return 1.4
+        case .downloadStarted: return 1.8
+        case .downloadCompleted: return 1.8
+        case .noteSaved: return 1.4
+        case .bluetoothConnected: return 2.2     // longer so user can read the device name
+        case .bluetoothDisconnected: return 1.6
+        case .timerRunning:
+            // Reset every second by the service, so this is just
+            // a watchdog "if we miss a tick, hide after 5s." In
+            // normal flow the pill stays pinned via repeated
+            // setPendingSystemEvent(.timerRunning(...)).
+            return 5.0
+        case .timerFinished: return 3.0
+        case .calendarUpcoming:
+            // 60s watchdog. The CalendarMonitorService re-pushes
+            // every 30s while the event is in the lead-time
+            // window, so this just guards against a service
+            // hiccup leaving a stale pill on screen.
+            return 60.0
+        case .airDropReceived:
+            // Long enough to read the filename and decide whether
+            // to tap-to-reveal; short enough that an ignored
+            // arrival doesn't camp on the music pill.
+            return 4.0
+        }
+    }
+
+    /// Should this transient pill be suppressed while the user is in
+    /// a Focus / DND mode? Yes for ambient/system events (charging,
+    /// screenshots, BT pairing, downloads, autocopy) — no for events
+    /// the user explicitly initiated (timer countdown, timer finished).
+    /// Music keeps showing because it's not routed through
+    /// `setPendingSystemEvent` — the resting pill gates on
+    /// `nowPlaying`, not on this enum.
+    private static func isMutedByFocus(_ event: SystemEvent) -> Bool {
+        switch event {
+        case .charging, .screenshotSaved, .downloadStarted,
+             .downloadCompleted, .noteSaved,
+             .bluetoothConnected, .bluetoothDisconnected:
+            return true
+        case .timerRunning, .timerFinished:
+            return false
+        case .calendarUpcoming:
+            // Meeting reminders are exactly the kind of thing
+            // people want during Focus — "deep work, but please
+            // remind me when my standup starts." Don't mute.
+            return false
+        case .airDropReceived:
+            // AirDrop is initiated by another person interacting
+            // with the user's device; muting it would mean the
+            // user wonders if their accept landed. Always show.
+            return false
+        }
+    }
+
+    func setPendingSystemEvent(_ event: SystemEvent) {
+        // Focus / DND auto-hide. When the user has enabled the
+        // "respect Focus" toggle (`SettingsKey.respectFocusMode`,
+        // default true), and their system Focus is active, swallow
+        // the ambient pills so the pill stays out of the way. This
+        // intentionally does NOT clear an already-displayed event —
+        // if the user toggled Focus on while a charging pill was
+        // mid-fade, let it finish; only NEW events get muted.
+        if isFocused && Self.isMutedByFocus(event) {
+            let respect: Bool = {
+                if UserDefaults.standard.object(forKey: "respectFocusMode") == nil { return true }
+                return UserDefaults.standard.bool(forKey: "respectFocusMode")
+            }()
+            if respect { return }
+        }
+
+        pendingSystemEvent = event
+        pendingSystemEventTimer?.cancel()
+        let duration = Self.timeout(for: event)
+        pendingSystemEventTimer = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            self.pendingSystemEvent = nil
+            self.pendingSystemEventTimer = nil
+            // Drop the thumbnail too. NSImage holds the decoded
+            // backing store; for a 1080p screenshot that's ~6MB.
+            // No reason to keep it around once the pill window has
+            // closed — the next screenshot will set a fresh one.
+            self.lastScreenshotThumbnail = nil
+            // And the AirDrop URL — once the pill is gone the
+            // tap target it would have routed to is also gone.
+            self.lastAirDropURL = nil
+        }
+    }
+
+    func clearPendingSystemEvent() {
+        pendingSystemEvent = nil
+        pendingSystemEventTimer?.cancel()
+        pendingSystemEventTimer = nil
+    }
+
+    /// 15s visibility window before the preview auto-dismisses.
+    /// Long enough for the user to read it and decide; short enough
+    /// that an ignored copy doesn't get stuck onscreen forever.
+    static let pendingVideoTimeout: TimeInterval = 15.0
+
+    private var pendingVideoTimer: Task<Void, Never>?
+
+    /// Set the pending video candidate and arm the auto-dismiss
+    /// timer. Replacing an existing candidate restarts the timer
+    /// (so a fresh copy resets the 15s window).
+    func setPendingVideo(_ url: URL) {
+        pendingVideoCandidate = url
+        pendingVideoTimer?.cancel()
+        pendingVideoTimer = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.pendingVideoTimeout * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            self.pendingVideoCandidate = nil
+            self.pendingVideoTimer = nil
+        }
+    }
+
+    /// Clear the pending video candidate immediately — called when
+    /// the user taps Download (we route the URL elsewhere) or when
+    /// something else explicitly takes over the pill.
+    func clearPendingVideo() {
+        pendingVideoCandidate = nil
+        pendingVideoTimer?.cancel()
+        pendingVideoTimer = nil
+    }
 
     /// Tabs to show in the segmented bar, in display order. Music
     /// only appears when something is actively playing — when nothing

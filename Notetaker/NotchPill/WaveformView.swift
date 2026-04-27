@@ -50,6 +50,14 @@ struct WaveformView: View {
     /// secondary-info brightness — it's decorative, not the focal
     /// point.
     var opacity: Double = 0.85
+    /// Optional rhythmic pattern that drives the amplitude envelope.
+    /// When provided, the wave's height pulses to a programmatically-
+    /// generated beat structure (kick, swell, fills) instead of a
+    /// continuous sine — gives the visualizer the LOOK of real audio
+    /// without needing system audio capture. Pick one per track via
+    /// `WaveformPattern.deterministic(for:)` for stable per-track
+    /// visual identity.
+    var pattern: WaveformPattern = .midtempo
 
     var body: some View {
         // TimelineView re-evaluates the body at each refresh. Inside the
@@ -60,7 +68,18 @@ struct WaveformView: View {
         // re-invoked, so the view freezes at the last drawn frame
         // (visually equivalent to a "muted, ready" state).
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !isPlaying)) { context in
-            let time = context.date.timeIntervalSinceReferenceDate
+            // Fold the absolute reference-date time (currently ~7.6e8
+            // and growing ~3e7/year) into a small repeating window
+            // before feeding it into sin(). For very large arguments,
+            // sin/cos lose precision because each radian represents
+            // a smaller fraction of the magnitude. Folding by
+            // `2π * 1000` keeps the value < ~6283 — comfortably below
+            // the precision-loss regime — while preserving the visual
+            // continuity (the wave loops every 1000 seconds, longer
+            // than any reasonable continuous viewing session).
+            let raw = context.date.timeIntervalSinceReferenceDate
+            let foldedTime = raw.truncatingRemainder(dividingBy: 2 * .pi * 1000)
+            let time = foldedTime.isFinite ? foldedTime : 0
             Canvas { ctx, size in
                 var path = Path()
                 // 32 vertices is enough for the curve to read smooth at
@@ -71,22 +90,45 @@ struct WaveformView: View {
                 // Idle amplitude is a barely-perceptible wobble — the
                 // user reads "audio is loaded but quiet" rather than
                 // "view is broken / blank."
-                let amplitudeMul: Double = isPlaying ? 0.42 : 0.05
+                // Rhythmic envelope from the selected pattern — drives
+                // the wave's height as if it were sampling a real
+                // audio signal. Each pattern has its own BPM and
+                // dynamic feel (kick spikes, swells, fills); the
+                // visualizer pulses in time with that simulated
+                // beat instead of a continuous sine.
+                let envelope = pattern.envelope(at: time)
+                let envFinite = envelope.isFinite ? envelope : 1.0
+                let amplitudeMul: Double = (isPlaying ? 0.55 : 0.05) * envFinite
                 for i in 0...steps {
                     let t = Double(i) / Double(steps)
                     let x = CGFloat(t) * size.width
-                    // Two summed sinusoids at incommensurate frequencies
-                    // (4.0 and 6.5 cycles across the width) — the sum
-                    // never repeats periodically, so the wave doesn't
-                    // settle into a recognizable static pattern. Phase
-                    // scrolls leftward at different rates per component
-                    // (5.0 vs 3.2 rad/s), so the two layers visibly
-                    // beat against each other — adds the "live signal"
-                    // feeling that a single pure tone misses.
-                    let p1 = t * 4.0 * .pi - time * 5.0
-                    let p2 = t * 6.5 * .pi - time * 3.2
-                    let signal = sin(p1) * 0.65 + sin(p2) * 0.35
-                    let y = size.height / 2 + CGFloat(signal * amplitudeMul) * size.height
+                    // FOUR summed sinusoids at incommensurate
+                    // frequencies. Each has a different spatial
+                    // frequency (cycles across the width) AND a
+                    // different phase scroll rate, with no integer
+                    // ratios between them — the sum never repeats
+                    // periodically and never falls into a
+                    // recognizable static pattern. Mixing weights
+                    // (0.45/0.28/0.18/0.09) put most energy in the
+                    // low-frequency carrier with progressively
+                    // smaller contributions from higher harmonics —
+                    // gives a "natural musical" silhouette rather
+                    // than a synthetic pure-tone sawtooth feel.
+                    let p1 = t * 3.4 * .pi - time * 4.7
+                    let p2 = t * 5.9 * .pi - time * 3.1
+                    let p3 = t * 9.1 * .pi - time * 6.3
+                    let p4 = t * 13.7 * .pi - time * 2.4
+                    let signal = sin(p1) * 0.45
+                                + sin(p2) * 0.28
+                                + sin(p3) * 0.18
+                                + sin(p4) * 0.09
+                    // Final NaN/inf guard — if any sin() returned a
+                    // non-finite value (vanishingly unlikely with the
+                    // folded `time`, but cheap to enforce), fall
+                    // back to the centerline so we draw a flat line
+                    // rather than corrupting the Canvas path.
+                    let safeSignal = signal.isFinite ? signal : 0
+                    let y = size.height / 2 + CGFloat(safeSignal * amplitudeMul) * size.height
                     if i == 0 {
                         path.move(to: CGPoint(x: x, y: y))
                     } else {
