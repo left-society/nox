@@ -563,6 +563,116 @@
   }
 
 
+  // ============ Anime.js layer: hero entrance + scroll reveals + counters ============
+  if (typeof anime === 'function') {
+
+    // Hero entrance — words rise into place after the page paints
+    document.addEventListener('DOMContentLoaded', () => {
+      anime({
+        targets: '.hero-words > *',
+        opacity: [0, 1],
+        translateY: [22, 0],
+        duration: 850,
+        delay: anime.stagger(110, { start: 250 }),
+        easing: 'easeOutQuart'
+      });
+    });
+
+    // Section reveal on first scroll-into-view — each section's headline + body
+    // glide up together. One-shot per section.
+    const revealSections = document.querySelectorAll(
+      '.declare, .pull, .ribbon, .keystroke, .montage, .keys, .quiet, .end'
+    );
+    const revealIO = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (e.isIntersecting) {
+          const targets = e.target.querySelectorAll(
+            'h2, .pull-line, .body, .keys-table, .ribbon-panel, .end h2, .end p, .end .btn-primary, .montage-stage, .keystroke-keys, .keystroke-line'
+          );
+          if (targets.length) {
+            anime.set(targets, { opacity: 0, translateY: 20 });
+            anime({
+              targets,
+              opacity: [0, 1],
+              translateY: [20, 0],
+              duration: 750,
+              delay: anime.stagger(70),
+              easing: 'easeOutQuart'
+            });
+          }
+          revealIO.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.18, rootMargin: '0px 0px -8% 0px' });
+    revealSections.forEach((s) => revealIO.observe(s));
+
+    // 4.5 MB number counter — counts up the first time the native card is shown
+    const nativeCard = document.querySelector('.mc[data-mc="native"]');
+    const nativeNum  = nativeCard?.querySelector('.mc-num');
+    let nativeCounted = false;
+    if (nativeCard && nativeNum) {
+      // Snapshot the markup so we can rebuild it after animating the digit
+      const mbSpan = nativeNum.querySelector('span');
+      const mbHTML = mbSpan ? mbSpan.outerHTML : '<span>MB</span>';
+      const cardObserver = new MutationObserver(() => {
+        if (nativeCounted) return;
+        if (!nativeCard.classList.contains('is-active')) return;
+        nativeCounted = true;
+        const obj = { v: 0 };
+        anime({
+          targets: obj,
+          v: 4.5,
+          duration: 1400,
+          easing: 'easeOutQuart',
+          update: () => {
+            nativeNum.innerHTML = obj.v.toFixed(1) + mbHTML;
+          },
+          complete: () => {
+            nativeNum.innerHTML = '4.5' + mbHTML;
+          }
+        });
+      });
+      cardObserver.observe(nativeCard, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    // Spring on dock icons — replace CSS scale with elastic-feeling click bounce
+    document.querySelectorAll('#mbpDock .dock-icon').forEach((icon) => {
+      icon.addEventListener('click', () => {
+        anime.remove(icon);
+        anime({
+          targets: icon,
+          translateY: [0, -14, 0],
+          duration: 600,
+          easing: 'spring(1, 70, 8, 0)'
+        });
+      });
+    });
+
+    // Soft pulse on the hero pill the first time it cycles through music — draws
+    // the eye to the music state without being distracting.
+    const heroPill = document.getElementById('notch');
+    if (heroPill) {
+      let firstPulse = true;
+      const pulseObserver = new MutationObserver(() => {
+        if (!firstPulse) return;
+        if (heroPill.getAttribute('data-state') !== 'music') return;
+        firstPulse = false;
+        // Wait a beat after settle so it doesn't fight the state-change transition
+        setTimeout(() => {
+          if (heroPill.getAttribute('data-state') !== 'music') return;
+          anime({
+            targets: heroPill,
+            scale: [1, 1.04, 1],
+            duration: 1200,
+            easing: 'easeInOutQuad'
+          });
+        }, 800);
+      });
+      pulseObserver.observe(heroPill, { attributes: true, attributeFilter: ['data-state'] });
+    }
+  }
+
+
   // ============ Section animations (scroll into view) ============
   const animSections = document.querySelectorAll('[data-anim]');
   if (animSections.length && 'IntersectionObserver' in window) {
