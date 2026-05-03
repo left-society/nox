@@ -138,9 +138,16 @@ final class LockMusicCardWindowController {
         // could miss nil transitions when the title happens to
         // match the previous one (rare but real), leaving the
         // card stuck on screen.
+        // Per BUG-082 mitigation: chain `.removeDuplicates()` so
+        // byte-identical re-emissions from MediaRemoteService
+        // don't churn this subscription's `refreshVisibility`
+        // path. MediaRemoteService dedups before forwarding,
+        // but the @Published publisher emits on every assignment
+        // regardless — `.removeDuplicates()` here belt-and-
+        // braces it.
         Publishers.CombineLatest(
             presenter.$isLocked.removeDuplicates(),
-            presenter.$nowPlaying
+            presenter.$nowPlaying.removeDuplicates()
         )
         .receive(on: DispatchQueue.main)
         .sink { [weak self] locked, info in
@@ -154,15 +161,47 @@ final class LockMusicCardWindowController {
     /// than re-reading `presenter.nowPlaying` — guarantees we
     /// react to the exact state that triggered this refresh, no
     /// race against a same-tick second update.
+    ///
+    /// 2026-05-02: ALWAYS show on lock screen (info nil → lock-only
+    /// minimal pill). Earlier the gate was `locked && info != nil`,
+    /// so when nothing was playing the lock screen had no nox UI at
+    /// all — meaning the user couldn't see the lock-pill / shake-to-
+    /// hint affordance they asked for.
+    ///
+    /// Also: show/hide is now animated (0.30s ease) instead of a
+    /// hard `orderOut(nil)`. The user reported "glitches instead of
+    /// fading away with the lock screen" — that was the instant
+    /// `orderOut` on the `screenIsUnlocked` edge popping the panel
+    /// off in one frame while the lock-screen surface itself was
+    /// still cross-fading. Animating alphaValue lets the card melt
+    /// out in sync with the lock-screen dissolve.
     private func refreshVisibility(locked: Bool, info: NowPlayingInfo?) {
-        let shouldShow = locked && info != nil
+        let shouldShow = locked  // always-on while locked
         if shouldShow {
             positionForLockScreen()
             attachToSpaceIfNeeded()
-            panel.alphaValue = 1
-            panel.orderFrontRegardless()
+            // Show with a fade. If already visible alphaValue is
+            // already 1 — the runAnimationGroup is a no-op then.
+            if !panel.isVisible || panel.alphaValue < 1 {
+                panel.alphaValue = 0
+                panel.orderFrontRegardless()
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = 0.32
+                    ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    panel.animator().alphaValue = 1
+                }
+            }
         } else {
-            panel.orderOut(nil)
+            // Fade out, then orderOut. If already hidden this is a
+            // no-op (alpha 0, orderOut is idempotent).
+            guard panel.isVisible else { return }
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.32
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                panel.animator().alphaValue = 0
+            }, completionHandler: { [weak panel] in
+                panel?.orderOut(nil)
+            })
         }
     }
 
@@ -282,13 +321,27 @@ struct LockMusicCardView: View {
                         // imperceptible chromatic fringe.
                         .liquidGlass(strength: 10, aberration: 3)
                         .clipShape(cardShape)
-                    VisualEffectBlur(material: .menu, blendingMode: .behindWindow)
+                    // 2026-05-01: switched from `.menu` material to
+                    // `.hudWindow` and added a dark tint overlay.
+                    // The previous `.menu` + forced light colorScheme
+                    // gave a washed-out light-blue look against
+                    // colourful wallpapers (user shot showed Sequoia
+                    // blue wallpaper bleeding through, made the card
+                    // look cyan-tinted instead of premium dark
+                    // glass). The hudWindow material is darker by
+                    // default and reads as proper "frosted dark
+                    // glass" — same vocabulary as the panel above.
+                    VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
                         .clipShape(cardShape)
-                        .opacity(0.45)
+                    Color.black.opacity(0.18)
+                        .clipShape(cardShape)
                     cardShape
-                        .strokeBorder(Color.white.opacity(0.30), lineWidth: 0.5)
+                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5)
                 }
-                .environment(\.colorScheme, .light)
+                // No forced colorScheme — let it adapt. The card's
+                // text + controls are explicitly white, so dark
+                // mode is the right default; light mode would make
+                // the white text disappear against light wallpapers.
             }
         .onAppear { startPositionTimer() }
         .onDisappear { stopPositionTimer() }
@@ -329,11 +382,68 @@ struct LockMusicCardView: View {
         livePosition = info.currentPosition() ?? info.elapsedTime ?? 0
     }
 
+    /// Shake animation amplitude — sin-based horizontal nudge that
+    /// mimics iOS's "wrong password" wiggle on the lock screen.
+    /// Bumped on every click of the lock-only pill so the user gets
+    /// a tactile "tap me again, but actually unlock first" cue.
+    @State private var shakeAmount: CGFloat = 0
+
+    @ViewBuilder
     private var cardContent: some View {
-        VStack(spacing: 10) {
-            headerRow
-            progressRow
-            transportRow
+        // When something is playing, render the full music card.
+        // When the lock screen is up but nothing is playing, render
+        // a minimal lock-only pill (lock glyph + "Locked" label)
+        // that shakes when clicked — same affordance as iOS uses
+        // for the password field. The user explicitly asked for
+        // both behaviors.
+        if presenter.nowPlaying != nil {
+            VStack(spacing: 10) {
+                headerRow
+                progressRow
+                transportRow
+            }
+        } else {
+            lockOnlyContent
+                .modifier(ShakeEffect(animatableData: shakeAmount))
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    // Bump shake by a full unit; the GeometryEffect's
+                    // sin curve gives ~3 oscillations per unit. Spring
+                    // settles back to integer so the next tap starts
+                    // from rest.
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.32)) {
+                        shakeAmount += 1
+                    }
+                }
+        }
+    }
+
+    /// Compact lock-only pill content. Lock glyph in a tile that
+    /// matches the artwork-tile vocabulary, plus "Locked" / "Tap to
+    /// unlock" labels. Mirrors Alcove's lock-screen treatment.
+    private var lockOnlyContent: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.10))
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+            .frame(width: 44, height: 44)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Locked")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text("Tap to unlock with Touch ID or password")
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.9)
+            }
+
+            Spacer(minLength: 0)
         }
     }
 
@@ -511,5 +621,28 @@ struct LockMusicCardView: View {
         let m = total / 60
         let s = total % 60
         return String(format: "%d:%02d", m, s)
+    }
+}
+
+// MARK: - Shake animation
+
+/// Horizontal shake/wiggle effect — same vocabulary iOS uses on the
+/// lock screen when you submit a wrong passcode. We use it on the
+/// nox lock-only pill: tapping it nudges `shakeAmount` by 1, which
+/// drives a damped sin oscillation across the X axis. Three full
+/// cycles per unit so the shake reads as a deliberate "no, you
+/// need to actually unlock" feedback rather than a glitch.
+private struct ShakeEffect: GeometryEffect {
+    var animatableData: CGFloat
+    /// Pixels of horizontal travel per oscillation.
+    private let amplitude: CGFloat = 6
+    /// Number of half-cycles per unit of `animatableData`. 6 → three
+    /// full back-and-forth cycles, which is the sweet spot for a
+    /// "wrong passcode" feel without being cartoonish.
+    private let cycles: CGFloat = 6
+
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        let translateX = amplitude * sin(animatableData * .pi * cycles)
+        return ProjectionTransform(CGAffineTransform(translationX: translateX, y: 0))
     }
 }

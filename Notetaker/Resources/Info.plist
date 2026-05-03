@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Notetaker</string>
+	<string>nox</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -17,24 +17,24 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>1.2</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>3</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Notetaker reads the current tab URL from your browser when you press ⌥⌘V so it can download the video you're watching.</string>
+	<string>nox reads the current tab URL from your browser when you press ⌥⌘V so it can download the video you're watching.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>nox reads your upcoming events to show a "next meeting" pill in the notch and surface the join link.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>nox shows your next meeting in the notch pill so you can see it without opening Calendar.</string>
+	<key>NSFocusStatusUsageDescription</key>
+	<string>nox hides transient pills (charging, screenshots, Bluetooth) while you're in a Focus or Do Not Disturb mode.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Aritra Debnath.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Notetaker transcribes your voice offline to create notes. Audio never leaves your Mac.</string>
-	<key>NSFocusStatusUsageDescription</key>
-	<string>Notetaker hides transient pills (charging, screenshots, Bluetooth) while you're in a Focus or Do Not Disturb mode.</string>
-	<key>NSCalendarsUsageDescription</key>
-	<string>Notetaker shows your next meeting in the notch pill so you can see it without opening Calendar.</string>
-	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Notetaker reads your upcoming events to show a "next meeting" pill in the notch and surface the join link.</string>
+	<string>nox dictates your voice into the active app. Audio is sent to your configured transcription provider (Groq by default) and is not stored or retained.</string>
 </dict>
 </plist>

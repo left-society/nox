@@ -27,3 +27,23 @@ ExportOptions.plist
 # Bundled tools — fetched via scripts/fetch-binaries.sh
 Notetaker/Resources/bin/yt-dlp
 Notetaker/Resources/bin/ffmpeg
+
+# Release artifacts (notarized DMGs, signed app bundles, build logs)
+release/
+
+# Local Claude / agent state
+.claude/
+
+# Scratch screenshots and diagnostic captures (drag into the right folder before committing)
+/*.png
+/diag-*
+/v[0-9]*-*
+
+# Marketing zips / one-off bundles
+notetaker-website.zip
+
+# Internal review docs (kept locally, not versioned)
+*.docx
+
+# Website "before-this-cinema-redesign" snapshot folder
+website/.backup-pre-cinema/

@@ -29,6 +29,11 @@ final class PowerSourceWatcher {
     private let onChange: (PowerState) -> Void
     private var runLoopSource: CFRunLoopSource?
     private var lastEmitted: PowerState?
+    /// Pointer to the +1 retained `self` we hand IOKit. Tracked
+    /// explicitly so we can `Unmanaged.release()` it in `stop()`
+    /// or `deinit`, balancing the `passRetained` we did in
+    /// `start()`. Per BUG-004 fix.
+    private var contextPtr: UnsafeMutableRawPointer?
 
     init(onChange: @escaping (PowerState) -> Void) {
         self.onChange = onChange
@@ -42,10 +47,20 @@ final class PowerSourceWatcher {
     func start() {
         guard runLoopSource == nil else { return }
 
-        // The callback fires on the runloop we attach to. We pass `self`
-        // through Unmanaged so the C-style callback can resolve back to
-        // the Swift instance. Retained here, released in stop().
-        let context = Unmanaged.passUnretained(self).toOpaque()
+        // Per BUG-004 fix: previously this used
+        // `Unmanaged.passUnretained(self).toOpaque()`, which gave
+        // IOKit a NON-retained pointer to self. If the watcher
+        // was deallocated while a notification was in flight (e.g.
+        // app shutdown immediately after a charger-plug event),
+        // the C callback would resolve a dangling pointer and
+        // crash. IOKit's `IOPSNotificationCreateRunLoopSource`
+        // doesn't take retain/release callbacks like FSEventStream
+        // does, so we manage the +1 retain manually here:
+        // `passRetained` in `start()`, `release` in `stop()` /
+        // `deinit`. The +1 keeps `self` alive until the runloop
+        // source is detached.
+        let unmanaged = Unmanaged.passRetained(self)
+        let context = unmanaged.toOpaque()
         guard let source = IOPSNotificationCreateRunLoopSource(
             { ctx in
                 guard let ctx else { return }
@@ -59,11 +74,15 @@ final class PowerSourceWatcher {
             },
             context
         )?.takeRetainedValue() else {
+            // Source creation failed — release the +1 we just took
+            // so `self` doesn't leak.
+            unmanaged.release()
             NSLog("Notetaker: PowerSourceWatcher failed to create runloop source")
             return
         }
 
         runLoopSource = source
+        contextPtr = context
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         // Emit once on start so the orchestrator has a baseline.
         refreshAndEmit()
@@ -74,7 +93,28 @@ final class PowerSourceWatcher {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
             runLoopSource = nil
         }
+        if let ptr = contextPtr {
+            // Balance the `passRetained` from `start()` so `self`
+            // can deallocate normally. Per BUG-004 fix.
+            Unmanaged<PowerSourceWatcher>.fromOpaque(ptr).release()
+            contextPtr = nil
+        }
         lastEmitted = nil
+    }
+
+    deinit {
+        // Safety net: if `stop()` was never called, detach the
+        // runloop source so the C callback can't fire on freed
+        // memory. We can't call `stop()` directly because deinit
+        // is non-isolated — duplicate the minimum cleanup here.
+        // Note: if the +1 retain from `passRetained` was never
+        // released (i.e. `stop()` not called before drop), we
+        // still leak `self` — but that's preferable to crashing.
+        // The explicit `stop()` path is the documented lifecycle
+        // and the orchestrator does call it.
+        if let source = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+        }
     }
 
     // MARK: - State read
@@ -129,7 +169,12 @@ final class PowerSourceWatcher {
             let psState = desc[kIOPSPowerSourceStateKey] as? String ?? ""
             let onAC = (psState == kIOPSACPowerValue)
 
-            let percent = Int((Double(current) / Double(capacity)) * 100.0)
+            // Per BUG-053 fix: round, don't truncate. Old code
+            // `Int(99.7) = 99` left the indicator stuck at 99% in
+            // the final stretch before fully charged, mismatching
+            // the system battery menu. Rounding pulls 99.5+ up to
+            // 100 the way the user expects.
+            let percent = Int((Double(current) / Double(capacity) * 100.0).rounded())
             return PowerState(
                 isCharging: isChargingFlag || onAC,
                 percent: max(0, min(100, percent))

@@ -131,11 +131,19 @@ struct NowPlayingPillView: View {
             Spacer(minLength: 0)
             WaveformView(
                 isPlaying: info.isPlaying,
-                width: 22,
-                height: 14,
-                lineWidth: 1.4,
-                tint: .white,
-                opacity: 0.85
+                // Sized up per user request: "audio visualizer is
+                // fine, just make it more in real frame, in small
+                // pill it's too small." Bumped 16×14 → 26×18 with
+                // 2.8pt-wide bars (was 2.0pt) so the equalizer reads
+                // at a glance without squinting at the pill.
+                width: 26,
+                height: 18,
+                lineWidth: 2.8,
+                // Album-color accent — matches the visualizer in the
+                // open slab. Falls back to white when artwork hasn't
+                // loaded yet so the pill never goes invisibly dark.
+                tint: ArtworkColor.dominant(from: info.artworkData) ?? .white,
+                opacity: 0.95
             )
         }
         .padding(.horizontal, 6)

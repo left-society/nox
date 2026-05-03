@@ -14,8 +14,35 @@ struct Note: Identifiable, Codable, FetchableRecord, MutablePersistableRecord, E
     var updatedAt: Double
     var status: String
     var trashedAt: Double?
+    /// What KIND of note this is. Two flavours coexist in the same
+    /// list / DB:
+    ///   • `handwritten` — user typed it in the editor (intentional).
+    ///   • `clipboard`   — auto-saved from a copy event (transient).
+    /// The Notes tab UI shows a 3-way filter pill ("All / Notes /
+    /// Clipboard") that segments on this column. Default is
+    /// `handwritten` so legacy rows from before the v6 migration
+    /// (everything that existed before this feature) read as
+    /// "real notes" — which is what the user expected them to be
+    /// since the feature didn't exist yet.
+    var kind: String  // "handwritten" | "clipboard"
+    /// Optional video companion URL. When set, opening the note in
+    /// the editor also opens a side-panel WKWebView that loads this
+    /// URL — for taking notes alongside a YouTube tutorial, lecture,
+    /// podcast, etc. Persisted per-note so re-opening the note
+    /// reattaches the same video without retyping the link. Nullable
+    /// so the vast majority of notes (no video) cost a single byte
+    /// each.
+    var videoURL: String?
 
     static let databaseTableName = "notes"
+
+    /// Strongly-typed kind enum for in-memory use. Stored as TEXT
+    /// in SQLite (via the `kind: String` column above) so we can
+    /// add new variants without a schema migration.
+    enum Kind: String {
+        case handwritten
+        case clipboard
+    }
 
     enum Columns {
         static let id = Column("id")
@@ -26,13 +53,16 @@ struct Note: Identifiable, Codable, FetchableRecord, MutablePersistableRecord, E
         static let updatedAt = Column("updated_at")
         static let status = Column("status")
         static let trashedAt = Column("trashed_at")
+        static let kind = Column("kind")
+        static let videoURL = Column("video_url")
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, body, summary, status
+        case id, title, body, summary, status, kind
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case trashedAt = "trashed_at"
+        case videoURL = "video_url"
     }
 }
 

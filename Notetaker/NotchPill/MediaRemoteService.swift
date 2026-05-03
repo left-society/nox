@@ -70,10 +70,23 @@ struct NowPlayingInfo: Equatable {
     /// `elapsedTime` when paused (the snapshot is the source of truth
     /// in that state — wall-clock advance shouldn't move the bar).
     /// nil whenever the source app didn't publish elapsed-time data.
+    ///
+    /// 2026-05-02: removed the 2.5s drift cap. The cap was added
+    /// when YouTube-paused snapshots stayed isPlaying=true forever
+    /// and the bar would extrapolate indefinitely. Pill visibility
+    /// is now gated on `nowPlaying.isPlaying` (AppDelegate
+    /// updatePillVisibility), AND the orchestrator forwards
+    /// MediaRemote's actual isPlaying flag instead of caching a
+    /// stale true. So when the source is paused, isPlaying flips
+    /// false and this function falls back to `elapsed` (no
+    /// extrapolation) via the guard below. The cap was capping
+    /// LEGIT playback at 2.5s past the last MR snapshot, making
+    /// the bar look stuck at 2-4 seconds for sources whose MR
+    /// emit cadence is sparse.
     func currentPosition(at moment: Date = Date()) -> TimeInterval? {
         guard let elapsed = elapsedTime else { return nil }
         guard let timestamp = infoTimestamp, isPlaying else { return elapsed }
-        let drift = moment.timeIntervalSince(timestamp)
+        let drift = max(moment.timeIntervalSince(timestamp), 0)
         let projected = elapsed + drift
         if let total = duration { return min(max(0, projected), total) }
         return max(0, projected)
@@ -154,11 +167,21 @@ final class MediaRemoteService {
     /// cased, trimmed). Avoids re-querying iTunes Search every time the
     /// user pauses and resumes the same track, switches tracks back to
     /// one we've already fetched, or relaunches the app within the same
-    /// listening session. Bounded organically by the user's actual play
-    /// history — a typical session touches at most a few dozen tracks,
-    /// each ~30-100KB, so the cache stays in low MB territory and never
-    /// needs explicit eviction.
+    /// listening session.
+    ///
+    /// Per BUG-039 fix: previously documented as "bounded organically
+    /// by user's actual play history — typical session touches a few
+    /// dozen tracks." That assumption breaks for shuffle-mode users
+    /// who blow through hundreds of tracks an hour; the cache could
+    /// swell into 100MB+ of artwork bytes with no eviction path.
+    /// Now: explicit LRU cap at 100 entries, total ~10-50 MB. The
+    /// `artworkCacheOrder` array tracks insertion order; on overflow
+    /// we evict the least-recently-used key first. Re-touching a
+    /// cached key promotes it to the most-recently-used end, so an
+    /// active session's hot set is preserved.
     private var artworkCache: [String: Data] = [:]
+    private var artworkCacheOrder: [String] = []
+    private let artworkCacheLimit = 100
 
     /// Set of cache keys for fetches currently in flight. Spotify's
     /// PlaybackStateChanged and MediaRemote's NowPlayingInfoDidChange
@@ -166,6 +189,41 @@ final class MediaRemoteService {
     /// suppresses the duplicate HTTP request the second one would
     /// otherwise trigger.
     private var artworkInFlight: Set<String> = []
+
+    /// Currently in-flight artwork fetch task. Cancelled before each
+    /// new fetch starts so fast track-skipping doesn't pile up
+    /// orphaned network requests racing the new track's fetch.
+    /// Mirrors boring.notch's `artworkFetchTask?.cancel()` pattern in
+    /// `boringNotch/MediaControllers/SpotifyController.swift`.
+    private var currentArtworkFetchTask: Task<Void, Never>?
+
+    /// Pending session-end clear, debounced via a 500ms grace period.
+    /// Per `jackson-storm/DynamicNotch`'s `NowPlayingViewModel`
+    /// (`transientSessionGracePeriod = 0.55`): Spotify and Apple Music
+    /// constantly send spurious "no session" notifications between
+    /// tracks (especially during a skip — the source app briefly drops
+    /// to a non-playing state before announcing the new track). If we
+    /// clear `lastInfo` immediately on those notifications, the pill
+    /// flashes empty and the new track's fetch starts from scratch
+    /// with no artwork inheritance. The grace period lets a real
+    /// track update arrive and cancel the pending clear, eliminating
+    /// the flash entirely.
+    private var pendingSessionEndWorkItem: DispatchWorkItem?
+
+    /// Pause-debounce work item. When `info.isPlaying` transitions
+    /// true → false, we hold the false-state for `pauseDebounceDelay`
+    /// before propagating to `onChange`. If isPlaying flips back to
+    /// true within that window, we cancel and fire the new state
+    /// immediately — eliminating the brief paused-state flicker
+    /// Spotify (and to a lesser extent Apple Music) emit between
+    /// tracks (80-150ms gap during track skip where playbackState
+    /// is briefly "paused").
+    ///
+    /// Pattern lifted from Alcove's `pauseDebounce` (verified in
+    /// the Alcove binary's strings table during the 2026-04-29
+    /// reverse-engineering pass).
+    private var pauseDebounceWorkItem: DispatchWorkItem?
+    private let pauseDebounceDelay: TimeInterval = 0.20
 
     // MARK: - Lifecycle
 
@@ -232,16 +290,23 @@ final class MediaRemoteService {
             "kMRMediaRemoteNowPlayingApplicationDidChangeNotification"
         ]
         for name in names {
-            // Routed through MainActor.assumeIsolated to keep the call
-            // site simple — these post on the main queue (we passed
-            // `.main` to register), and the closure body calls into
-            // @MainActor methods.
+            // Per BUG-010 fix: previously `MainActor.assumeIsolated`,
+            // which TRUSTS the caller's claim that the call is in
+            // the main actor's isolation domain. Passing `queue: .main`
+            // to NotificationCenter.addObserver only guarantees the
+            // closure runs on the main THREAD — that's not the same
+            // as the main actor's isolation domain in Swift's
+            // structured-concurrency model. Strict-concurrency
+            // builds rightly flag this; future Swift versions may
+            // turn it into a runtime crash. Routing through
+            // `Task { @MainActor in ... }` properly hops into the
+            // actor's isolation domain.
             let token = nc.addObserver(
                 forName: Notification.Name(name),
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated {
+                Task { @MainActor in
                     self?.refresh()
                 }
             }
@@ -256,7 +321,7 @@ final class MediaRemoteService {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated {
+                Task { @MainActor in
                     self?.refresh()
                 }
             }
@@ -282,7 +347,9 @@ final class MediaRemoteService {
                 object: nil,
                 queue: .main
             ) { [weak self] note in
-                MainActor.assumeIsolated {
+                // Per BUG-010 fix: same as the loop above — replace
+                // `MainActor.assumeIsolated` with a proper Task hop.
+                Task { @MainActor in
                     self?.applyAppNotification(note, sourceBundleID: entry.source)
                 }
             }
@@ -329,6 +396,19 @@ final class MediaRemoteService {
     /// the user's existing automation grant (already required for the
     /// transport buttons to work), so there's no extra permission cost.
     private func probeRunningMusicApps() {
+        // Per 2026-04-29 deep dive on open-source notch HUDs: NONE of
+        // boring.notch / DynamicNotch / ComfyNotch special-case
+        // Podcasts.app, even though Podcasts publishes sparsely to
+        // MediaRemote (often just bundle ID + media type, no title
+        // for ~500ms after play start). Adding it here is a clean
+        // differentiator and the user's specific bug — "Apple
+        // Podcast just says podcast with no description, title, or
+        // thumbnail" — is downstream of the Podcasts.app being
+        // absent from this list.
+        //
+        // Podcasts.app's AppleScript dictionary uses `current
+        // episode` (not `current track`); the probe routes through
+        // a separate helper to handle the schema diff.
         let probes: [(bundleID: String, appName: String)] = [
             ("com.spotify.client", "Spotify"),
             ("com.apple.Music", "Music")
@@ -340,6 +420,19 @@ final class MediaRemoteService {
             guard !running.isEmpty else { continue }
             probeAppleScriptTrack(appName: probe.appName, sourceBundleID: probe.bundleID)
         }
+        // NO Apple Podcasts AppleScript probe — Podcasts.app has
+        // no AppleScript dictionary on macOS 15+ (verified via
+        // `osascript -e 'tell application "Podcasts" to ...'`
+        // returning syntax errors, and `scriptable of (application
+        // process "Podcasts")` in System Events failing). The agent
+        // research that suggested `name of current episode` was
+        // incorrect — that schema is for Music.app's old podcast-
+        // mode (deprecated when Podcasts.app split off in macOS
+        // Catalina). The proper fix for richer Podcasts metadata
+        // is the `ungive/mediaremote-adapter` Perl bridge — Perl
+        // is signed as `com.apple.perl` and retains MediaRemote
+        // artwork access that direct dlopen'd MediaRemote loses
+        // on 15.4+. Bundle that adapter as a follow-up ship.
     }
 
     /// Single-app probe. Wrapped in a Task because executeAndReturnError
@@ -435,17 +528,23 @@ final class MediaRemoteService {
 
         NSLog("Notetaker: app-notif source=\(sourceBundleID) title=\"\(title)\" artist=\"\(artist)\" state=\(stateRaw)")
 
-        // Stopped state with no track payload → publish nil (collapse
-        // the HUD). We treat "Paused" as "still showing the pill but
-        // marked paused" — same as MediaRemote behavior — so the user
-        // can hit play in the HUD without re-summoning it.
+        // Stopped state with no track payload → schedule a deferred
+        // session-end clear (500ms grace period). Don't tear down
+        // immediately — Spotify constantly sends "no session" between
+        // tracks, and immediate clear-then-rebuild flashes the pill
+        // back to placeholder. If a real track update arrives within
+        // 500ms, the cancel below in the publish path skips the clear.
+        // Pattern from jackson-storm/DynamicNotch's transientSession
+        // GracePeriod = 0.55 (NowPlayingViewModel.swift:47-49).
         if title.isEmpty && artist.isEmpty && !isPlaying {
-            if lastInfo != nil {
-                lastInfo = nil
-                onChange?(nil)
-            }
+            scheduleSessionEnd()
             return
         }
+
+        // Real track update — cancel any pending session-end clear.
+        // If we got here, the session is alive after all (Spotify just
+        // sent a transient empty-state mid-skip).
+        cancelPendingSessionEnd()
 
         publish(NowPlayingInfo(
             title: title,
@@ -662,8 +761,40 @@ final class MediaRemoteService {
         case "com.apple.Music":
             runAppleScript(forApp: "Music", command: command)
         default:
-            // Unknown / nil source — best-effort MediaRemote fallback.
-            // This is the path Safari + Chrome tabs end up on.
+            // Unknown / nil source. On macOS 15.4+ `sendCommand` resolves
+            // to nil (the private framework is restricted) so the bare
+            // MediaRemote dispatch is a silent no-op — the user reported
+            // "press play, nothing happens, the panel keeps saying
+            // Nothing playing" because of exactly this branch.
+            //
+            // For play-style commands we can still do something useful:
+            // if Spotify or Apple Music is already running but paused
+            // (no MediaRemote source is published when they're paused),
+            // route the AppleScript verb to whichever is running. This
+            // matches the empty-state hint the panel shows
+            // ("Open Spotify, Apple Music, or any audio source") and
+            // makes the play button feel responsive instead of broken.
+            //
+            // Gate on `runningApplications(withBundleIdentifier:)` so we
+            // never auto-launch an app the user hasn't already opened —
+            // `tell application "Spotify" to play` would otherwise
+            // cold-launch Spotify, which is a surprise click. Skip
+            // commands fall through to MediaRemote so we don't try to
+            // "next track" a paused app that has no track loaded.
+            if command == .play || command == .togglePlayPause {
+                if !NSRunningApplication.runningApplications(
+                    withBundleIdentifier: "com.spotify.client"
+                ).isEmpty {
+                    runAppleScript(forApp: "Spotify", command: command)
+                    return
+                }
+                if !NSRunningApplication.runningApplications(
+                    withBundleIdentifier: "com.apple.Music"
+                ).isEmpty {
+                    runAppleScript(forApp: "Music", command: command)
+                    return
+                }
+            }
             _ = sendCommand?(command.rawValue, nil)
         }
     }
@@ -729,9 +860,14 @@ final class MediaRemoteService {
         }
 
         getInfo(.main) { [weak self] dict in
-            // The closure may fire on .main asynchronously; route back
-            // to MainActor via assumeIsolated since we passed .main.
-            MainActor.assumeIsolated {
+            // Per BUG-010 follow-up: the prior `MainActor.assumeIsolated`
+            // missed the same actor-isolation hole the notification path
+            // got fixed for. Passing `.main` to MediaRemote's C callback
+            // gets us on the main *thread* but not in MainActor's
+            // isolation domain. `Task { @MainActor in ... }` hops
+            // properly. Same template now used in three other call
+            // sites in this file plus NotchHUDWindowController.
+            Task { @MainActor in
                 guard let self else { return }
                 self.applyInfoDict(dict)
             }
@@ -804,11 +940,17 @@ final class MediaRemoteService {
         // sourceBundleID stays nil for YouTube/Chrome tracks and
         // the "click to open source" gesture doesn't work.
         resolveSourceBundleID { [weak self] sourceID in
-            MainActor.assumeIsolated {
+            // Per BUG-010 follow-up: same actor-isolation fix as the
+            // notification observers above. resolveSourceBundleID's
+            // completion fires on the main queue (its inner getDisplayID
+            // callback uses `.main`) but outside MainActor isolation.
+            Task { @MainActor in
                 guard let self else { return }
                 if let getPlaying = self.getIsPlaying {
                     getPlaying(.main) { [weak self] playing in
-                        MainActor.assumeIsolated {
+                        // Same fix as the outer hop — proper actor
+                        // domain entry, not a runtime assertion.
+                        Task { @MainActor in
                             guard let self else { return }
                             self.publish(NowPlayingInfo(
                                 title: title,
@@ -841,6 +983,43 @@ final class MediaRemoteService {
         }
     }
 
+    // MARK: - Session-end grace period
+
+    /// Schedule a deferred session clear in 500ms. If a real track
+    /// update arrives in that window, `cancelPendingSessionEnd()` is
+    /// called from publish() and the clear never happens. Otherwise
+    /// the clear fires, lastInfo is nilled, and the HUD collapses.
+    /// Per jackson-storm/DynamicNotch's `transientSessionGracePeriod`
+    /// = 0.55 in NowPlayingViewModel.swift.
+    private func scheduleSessionEnd() {
+        // Already scheduled? Don't pile up multiple clears.
+        if pendingSessionEndWorkItem != nil { return }
+        // No-op if there's nothing to clear.
+        guard lastInfo != nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            // Final sanity check at fire time — if a real track update
+            // landed and self.pendingSessionEndWorkItem was already
+            // cancelled, this work item won't run anyway. But belt +
+            // suspenders.
+            self.pendingSessionEndWorkItem = nil
+            if self.lastInfo != nil {
+                self.lastInfo = nil
+                self.onChange?(nil)
+            }
+        }
+        pendingSessionEndWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+    }
+
+    /// Cancel a pending session-end clear (a real track update arrived
+    /// within the 500ms grace window). Called from publish() at the
+    /// top — any successful publish proves the session is alive.
+    private func cancelPendingSessionEnd() {
+        pendingSessionEndWorkItem?.cancel()
+        pendingSessionEndWorkItem = nil
+    }
+
     /// Resolve the active MediaRemote source's bundle ID via the
     /// private symbol if available. Falls back to nil (the existing
     /// publish() inheritance from the previous track will then keep
@@ -859,6 +1038,15 @@ final class MediaRemoteService {
     }
 
     private func publish(_ info: NowPlayingInfo) {
+        // Cancel any pending session-end clear at the top of every
+        // publish — a real track update is the proof we need that
+        // the session is alive. Without this, the deferred clear
+        // would still fire 500ms after a transient empty notification
+        // even though the session is actually playing again. Pattern
+        // from DynamicNotch's NowPlayingViewModel.scheduleSessionEnd
+        // / apply(snapshot:) interplay.
+        cancelPendingSessionEnd()
+
         // Inherit sourceBundleID from lastInfo when the new info doesn't
         // carry one but it's clearly the same track. Without this, the
         // app-notification path publishes with sourceBundleID set
@@ -875,7 +1063,7 @@ final class MediaRemoteService {
         var info = info
         // Same-track inheritance — when title+artist match the last
         // publish, fields the new info doesn't carry are filled in
-        // from lastInfo. Three inheritances matter:
+        // from lastInfo. Four inheritances matter:
         //   • sourceBundleID — keeps `send()` routing pointed at the
         //     right app when a follow-up publish arrives without a
         //     bundle ID (the original "pause hits a different app"
@@ -887,6 +1075,20 @@ final class MediaRemoteService {
         //     click is silently ignored. AppleScript refresher will
         //     repopulate timing within 2.5s but during that window
         //     the bar is unresponsive. Inheriting preserves it.
+        //   • artworkData — kills the "thumbnail goes missing
+        //     mid-playback" bug. Spotify (and to a lesser extent
+        //     Apple Music) push notifications in stages: title +
+        //     artist arrive first, artwork bytes arrive 200-500ms
+        //     later in a SECOND notification for the same track.
+        //     Without this inheritance, the second notification
+        //     publishes with artworkData=nil → overwrites the good
+        //     bytes from the first publish + iTunes-Search fill →
+        //     the user sees the thumbnail vanish. boring.notch
+        //     (TheBoredTeam/boring.notch on GitHub) uses the same
+        //     "preserve on diff, only clear on full update" pattern
+        //     in its NowPlayingController. Reference:
+        //     boringNotch/MediaControllers/NowPlayingController.swift
+        //     (the `else if !diff { artwork = nil }` guard).
         // Track CHANGE (different title/artist) skips inheritance
         // entirely so a new song starts fresh.
         if let last = lastInfo,
@@ -897,7 +1099,7 @@ final class MediaRemoteService {
                 title: info.title,
                 artist: info.artist,
                 album: info.album,
-                artworkData: info.artworkData,
+                artworkData: info.artworkData ?? last.artworkData,
                 isPlaying: info.isPlaying,
                 sourceBundleID: info.sourceBundleID ?? last.sourceBundleID,
                 duration: info.duration ?? last.duration,
@@ -920,6 +1122,35 @@ final class MediaRemoteService {
             }
             return
         }
+        // Pause debounce: if we're transitioning from playing → paused,
+        // hold the new (paused) state for 200ms before publishing.
+        // Spotify emits a paused-state ping for 80-150ms between
+        // tracks during a skip; without this debounce the user sees
+        // the waveform briefly freeze + glow drop, then resume — a
+        // visible flicker. With it, only genuine pauses (held for
+        // >200ms) propagate.
+        let wasPlaying = lastInfo?.isPlaying ?? false
+        let isTransitionToPause = wasPlaying && !info.isPlaying
+            && lastInfo?.title == info.title
+            && lastInfo?.artist == info.artist
+        if isTransitionToPause {
+            pauseDebounceWorkItem?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.lastInfo = info
+                self.onChange?(info)
+                self.fetchArtworkIfNeeded(for: info)
+            }
+            pauseDebounceWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + pauseDebounceDelay, execute: work)
+            return
+        }
+        // Any non-pause-transition publish cancels a pending pause
+        // debounce — the new state wins immediately. Covers the
+        // "Spotify resumed before debounce fired" case.
+        pauseDebounceWorkItem?.cancel()
+        pauseDebounceWorkItem = nil
+
         lastInfo = info
         onChange?(info)
         // Kick off async artwork fill after the synchronous publish so
@@ -952,11 +1183,36 @@ final class MediaRemoteService {
     /// bytes — they'd blow the notification size limit). On a cache
     /// hit we re-publish synchronously; on a miss we dispatch a
     /// detached Task and re-publish from its completion.
+    ///
+    /// IN-FLIGHT CANCELLATION: every call cancels any prior in-flight
+    /// fetch task BEFORE starting a new one — boring.notch
+    /// (TheBoredTeam/boring.notch) does the same in its
+    /// `SpotifyController.swift` (`artworkFetchTask?.cancel()` at
+    /// line 138). Without this, fast track-skipping leaves stale
+    /// fetches racing the new track's fetch — they don't corrupt
+    /// the UI (the title/artist guard at completion time prevents
+    /// that) but they waste network and can starve the new fetch
+    /// when running over a slow connection.
     private func fetchArtworkIfNeeded(for info: NowPlayingInfo) {
-        guard info.artworkData == nil else { return }
+        // Treat tiny artwork (<1024 bytes) as effectively missing.
+        // Apple Podcasts publishes a ~72-byte placeholder stub via
+        // MediaRemote rather than nothing — verified by capturing
+        // the Perl-bridge stream on 2026-04-29 (payload had
+        // `artwork=72b` for a real episode). Without this guard the
+        // existing nil-only check would treat the stub as valid art
+        // and skip the iTunes Search fallback, leaving the small pill
+        // showing the music-note placeholder for podcasts forever.
+        // 1024 is a safe floor — any real JPEG/PNG album art is at
+        // least 5-10KB even at lowest quality.
+        let bytes = info.artworkData?.count ?? 0
+        guard bytes < 1024 else { return }
         guard let key = artworkKey(for: info) else { return }
 
         if let cached = artworkCache[key] {
+            // Per BUG-039 fix: promote to most-recently-used so
+            // an active hot track doesn't get evicted just
+            // because it's been in the cache the longest.
+            promoteArtworkCacheKey(key)
             // Re-publish with the cached bytes. publish() will dedup
             // against lastInfo (which lacks artworkData), so the new
             // info is genuinely different and onChange fires once more
@@ -967,15 +1223,56 @@ final class MediaRemoteService {
         if artworkInFlight.contains(key) { return }
         artworkInFlight.insert(key)
 
+        // Cancel any prior in-flight fetch — protects against
+        // wasted bandwidth when the user fast-skips through tracks.
+        currentArtworkFetchTask?.cancel()
+
         let title = info.title
         let artist = info.artist
-        Task.detached(priority: .userInitiated) { [weak self] in
-            let data = await Self.lookupArtwork(title: title, artist: artist)
+        let bundleID = info.sourceBundleID
+        currentArtworkFetchTask = Task.detached(priority: .userInitiated) { [weak self] in
+            // 2026-05-01: try YouTube thumbnail FIRST when the source
+            // is a browser. Many YouTube videos don't include artwork
+            // bytes in their MediaSession metadata, so the small pill
+            // shows the music-note placeholder. But every YouTube
+            // video has a thumbnail at a deterministic URL —
+            // `https://i.ytimg.com/vi/{ID}/hqdefault.jpg`. Get the
+            // active tab URL via AppleScript, parse the video ID,
+            // fetch. Falls through to iTunes Search if the URL isn't
+            // a YouTube URL or the fetch fails. Pattern from the
+            // 2026-04-29 reverse-engineering research findings.
+            var data: Data? = nil
+            if let bundleID, ["com.apple.Safari", "com.google.Chrome", "company.thebrowser.Browser", "com.brave.Browser"].contains(bundleID) {
+                if let ytData = await Self.lookupYouTubeThumbnail(bundleID: bundleID) {
+                    data = ytData
+                }
+            }
+            if data == nil {
+                data = await Self.lookupArtwork(title: title, artist: artist)
+            }
+            // Capture cancellation BEFORE the MainActor hop so the
+            // cleanup branch below always runs regardless of state.
+            let wasCancelled = Task.isCancelled
             await MainActor.run {
                 guard let self else { return }
+                // ALWAYS clean up the in-flight flag, even on cancel.
+                // Earlier version returned before this line on
+                // Task.isCancelled, which leaked the key forever:
+                // a cancelled fetch left `artworkInFlight` containing
+                // the key, so the next fetchArtworkIfNeeded() for the
+                // SAME track silently bailed at the `if
+                // artworkInFlight.contains(key) { return }` guard —
+                // no artwork ever loaded for that track again. User
+                // saw "Break My Heart" / Dua Lipa with the music-
+                // note placeholder on screen and reported the bug.
                 self.artworkInFlight.remove(key)
+                // Skip publishing on cancellation — the next track's
+                // fetch is already in flight and will publish its own
+                // artwork; this stale result isn't useful.
+                if wasCancelled { return }
                 guard let data else { return }
-                self.artworkCache[key] = data
+                // Per BUG-039 fix: bounded LRU insert.
+                self.insertArtworkCacheEntry(key: key, data: data)
                 // Only re-publish if this is still the current track.
                 // The user may have skipped to a different song while
                 // the lookup was in flight; we don't want to slap the
@@ -988,14 +1285,200 @@ final class MediaRemoteService {
         }
     }
 
+    /// URLSession used for artwork downloads. Tight per-request and
+    /// per-resource timeouts (5s / 8s) so a slow CDN miss doesn't
+    /// hang the artwork pipeline for the default 60 seconds — the
+    /// user sees a placeholder or the track-app icon for at most a
+    /// few seconds, then iTunes Search retries on the next track
+    /// notification.
+    ///
+    /// boring.notch's `ImageService` uses `URLSession.shared` with
+    /// no explicit timeout but RELIES on its `artworkFetchTask?.
+    /// cancel()` pattern to interrupt slow fetches when the next
+    /// track arrives. We use both: cancellation (above) AND a
+    /// shorter session timeout, since our pill stays mounted longer
+    /// per track than their notch HUD.
+    private static let artworkURLSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 5.0
+        config.timeoutIntervalForResource = 8.0
+        config.waitsForConnectivity = false
+        return URLSession(configuration: config)
+    }()
+
+    /// LRU bookkeeping: insert (or replace) an artwork cache
+    /// entry, evicting the least-recently-used key once we go
+    /// over the cap. Per BUG-039 fix.
+    private func insertArtworkCacheEntry(key: String, data: Data) {
+        if artworkCache[key] != nil {
+            // Replace + promote.
+            artworkCache[key] = data
+            promoteArtworkCacheKey(key)
+            return
+        }
+        artworkCache[key] = data
+        artworkCacheOrder.append(key)
+        while artworkCacheOrder.count > artworkCacheLimit {
+            let oldest = artworkCacheOrder.removeFirst()
+            artworkCache.removeValue(forKey: oldest)
+        }
+    }
+
+    /// Move `key` to the most-recently-used end of
+    /// `artworkCacheOrder`. Per BUG-039 fix.
+    private func promoteArtworkCacheKey(_ key: String) {
+        if let idx = artworkCacheOrder.firstIndex(of: key) {
+            artworkCacheOrder.remove(at: idx)
+            artworkCacheOrder.append(key)
+        }
+    }
+
     /// One-shot iTunes Search query. Returns the first matching song's
     /// artwork as JPEG/PNG bytes, or nil if anything along the way
     /// failed (no matches, network timeout, decode error). iTunes
     /// serves 100×100 by default; URL-substituting `100x100bb` for
     /// `600x600bb` gets us a sharp asset for the panel's 180pt artwork
     /// at retina densities without any extra round trip.
+    /// Strip the noise iTunes Search hates from a track title:
+    ///   - "(feat. WILLOW)" / "(feat. Olivia Rodrigo)" parentheticals
+    ///   - "(Sped Up)" / "(Slowed Down)" variant labels
+    ///   - "(Remastered 2024)" / "(Live)" / "(Acoustic)" annotations
+    ///   - " - Remastered 2024" / " - Sped Up" trailing dash segments
+    /// iTunes Search relevance scoring drops the result when these
+    /// extras don't exactly match its catalog metadata. Stripping
+    /// them gets us a clean "Title Artist" query that hits reliably.
+    /// Per the research finding on Atoll's `lookupArtwork` cleanup
+    /// pattern.
+    private static func sanitizeForITunesSearch(_ raw: String) -> String {
+        var s = raw
+        // Drop parenthetical content
+        while let range = s.range(of: "\\s*\\([^)]*\\)", options: .regularExpression) {
+            s.removeSubrange(range)
+        }
+        while let range = s.range(of: "\\s*\\[[^\\]]*\\]", options: .regularExpression) {
+            s.removeSubrange(range)
+        }
+        // Drop trailing " - <variant>" segments
+        if let dashRange = s.range(of: " - ") {
+            s.removeSubrange(dashRange.lowerBound..<s.endIndex)
+        }
+        // Drop "feat." / "ft." mentions if any survived
+        s = s.replacingOccurrences(of: "feat\\..*", with: "", options: .regularExpression)
+        s = s.replacingOccurrences(of: "ft\\..*", with: "", options: .regularExpression)
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Get the URL of the active tab in the given browser via
+    /// AppleScript, parse a YouTube video ID if present, and
+    /// fetch `https://i.ytimg.com/vi/{ID}/hqdefault.jpg`.
+    /// Returns nil if not a YouTube URL or fetch fails.
+    ///
+    /// Supported browsers: Safari, Chrome, Arc, Brave. Each has
+    /// a slightly different AppleScript dictionary for getting
+    /// the active tab URL.
+    private static func lookupYouTubeThumbnail(bundleID: String) async -> Data? {
+        // Get the URL via AppleScript on the calling browser.
+        let script: String
+        switch bundleID {
+        case "com.apple.Safari":
+            script = "tell application \"Safari\" to return URL of current tab of front window"
+        case "com.google.Chrome":
+            script = "tell application \"Google Chrome\" to return URL of active tab of front window"
+        case "company.thebrowser.Browser":
+            // Arc uses Chrome's scripting interface.
+            script = "tell application \"Arc\" to return URL of active tab of front window"
+        case "com.brave.Browser":
+            script = "tell application \"Brave Browser\" to return URL of active tab of front window"
+        default:
+            return nil
+        }
+        // Run the AppleScript synchronously in a detached task so
+        // we don't block the main thread. NSAppleScript blocks
+        // ~100-300ms per call; we're already in a Task.detached
+        // path so this is fine.
+        guard let urlString = await withCheckedContinuation({ (cont: CheckedContinuation<String?, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard let appleScript = NSAppleScript(source: script) else {
+                    cont.resume(returning: nil)
+                    return
+                }
+                var error: NSDictionary?
+                let result = appleScript.executeAndReturnError(&error)
+                if error != nil {
+                    cont.resume(returning: nil)
+                    return
+                }
+                cont.resume(returning: result.stringValue)
+            }
+        }) else {
+            return nil
+        }
+        // Extract YouTube video ID from the URL. Supports:
+        //   • https://www.youtube.com/watch?v=VIDEO_ID&...
+        //   • https://youtu.be/VIDEO_ID
+        //   • https://music.youtube.com/watch?v=VIDEO_ID
+        //   • https://www.youtube.com/shorts/VIDEO_ID
+        guard let videoID = extractYouTubeVideoID(from: urlString) else {
+            return nil
+        }
+        // Fetch hqdefault.jpg — public CDN, no auth needed,
+        // ~480x360px which is plenty for the 22pt pill artwork.
+        guard let thumbURL = URL(string: "https://i.ytimg.com/vi/\(videoID)/hqdefault.jpg") else {
+            return nil
+        }
+        do {
+            let (data, response) = try await artworkURLSession.data(from: thumbURL)
+            // YouTube returns a 120x90 placeholder image (~1.5KB) for
+            // videos that don't have an hqdefault thumbnail. Reject
+            // anything under 5KB so we fall through to iTunes Search.
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+                  data.count > 5000 else {
+                return nil
+            }
+            NSLog("Notetaker: YouTube thumb fetched videoID=\(videoID) bytes=\(data.count)")
+            return data
+        } catch {
+            return nil
+        }
+    }
+
+    /// Extract a YouTube video ID from a URL string. Handles
+    /// the common YouTube URL shapes (watch?v=, youtu.be/, shorts/, music).
+    private static func extractYouTubeVideoID(from urlString: String) -> String? {
+        guard let url = URL(string: urlString),
+              let host = url.host?.lowercased() else { return nil }
+
+        if host.contains("youtu.be") {
+            // https://youtu.be/VIDEO_ID
+            let id = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            return id.isEmpty ? nil : id
+        }
+
+        if host.contains("youtube.com") {
+            // /watch?v=ID OR /shorts/ID OR /embed/ID
+            if url.path == "/watch" {
+                let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+                return comps?.queryItems?.first(where: { $0.name == "v" })?.value
+            }
+            if url.path.hasPrefix("/shorts/") {
+                return String(url.path.dropFirst("/shorts/".count))
+                    .components(separatedBy: "/").first
+            }
+            if url.path.hasPrefix("/embed/") {
+                return String(url.path.dropFirst("/embed/".count))
+                    .components(separatedBy: "/").first
+            }
+        }
+        return nil
+    }
+
     private static func lookupArtwork(title: String, artist: String) async -> Data? {
-        let term = "\(title) \(artist)".trimmingCharacters(in: .whitespaces)
+        // Sanitize both fields independently — title gets the
+        // parenthetical/variant scrub; artist usually doesn't have
+        // those but gets trimmed for safety.
+        let cleanTitle = sanitizeForITunesSearch(title)
+        let cleanArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        let term = "\(cleanTitle) \(cleanArtist)".trimmingCharacters(in: .whitespaces)
         guard !term.isEmpty else { return nil }
 
         var components = URLComponents(string: "https://itunes.apple.com/search")
@@ -1008,7 +1491,7 @@ final class MediaRemoteService {
         guard let url = components?.url else { return nil }
 
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await artworkURLSession.data(from: url)
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let results = json["results"] as? [[String: Any]],
                   let first = results.first,
@@ -1020,11 +1503,80 @@ final class MediaRemoteService {
             // same CDN; this is just a URL rewrite, no extra negotiation.
             let upscaled = artUrl100.replacingOccurrences(of: "100x100bb", with: "600x600bb")
             guard let imageURL = URL(string: upscaled) else { return nil }
-            let (imgData, _) = try await URLSession.shared.data(from: imageURL)
+            let (imgData, _) = try await artworkURLSession.data(from: imageURL)
             NSLog("Notetaker: artwork lookup hit for \"\(term)\" (\(imgData.count) bytes)")
             return imgData
         } catch {
             NSLog("Notetaker: artwork lookup error for \"\(term)\": \(error)")
+            return nil
+        }
+    }
+
+    /// Pull the current Spotify track's artwork URL via AppleScript,
+    /// then download the bytes. THIS IS THE CRITICAL PATH ON MACOS 26.
+    ///
+    /// Why we need this: macOS 15.4+ tightened MediaRemote so that
+    /// `MRMediaRemoteGetNowPlayingInfo`'s `playbackQueue` read returns
+    /// "Operation not permitted" for our app — observed in Console.app
+    /// as `Error Domain=kMRMediaRemoteFrameworkErrorDomain Code=3`.
+    /// That means Spotify's bundled artwork bytes never reach us via
+    /// MediaRemote on this OS. iTunes Search is one fallback, but it
+    /// misses tracks (regional restrictions, explicit-version mismatches,
+    /// recent releases not yet indexed — observed: "Pain" by
+    /// PinkPantheress).
+    ///
+    /// Spotify's AppleScript dictionary `artwork url of current track`
+    /// returns the EXACT current track's Spotify CDN URL. Format is
+    /// usually `https://i.scdn.co/image/ab67616d0000b273...` (HTTPS)
+    /// directly — no URI-conversion needed. Some older Spotify versions
+    /// return `spotify:image:HASH` URIs, which we convert to
+    /// `https://i.scdn.co/image/HASH` before fetching.
+    ///
+    /// Reference: TheBoredTeam/boring.notch's
+    /// `boringNotch/MediaControllers/SpotifyController.swift` lines
+    /// 176-199 use the same AS approach.
+    private static func lookupSpotifyArtworkURL() async -> Data? {
+        let urlString: String? = await Task.detached(priority: .userInitiated) {
+            let script = """
+            tell application "Spotify"
+                if it is running then
+                    try
+                        return artwork url of current track
+                    on error
+                        return ""
+                    end try
+                end if
+            end tell
+            return ""
+            """
+            var error: NSDictionary?
+            guard let osa = NSAppleScript(source: script) else { return nil }
+            let result = osa.executeAndReturnError(&error)
+            if let err = error {
+                NSLog("Notetaker: Spotify artwork-url AS error: \(err)")
+                return nil
+            }
+            guard let str = result.stringValue, !str.isEmpty else { return nil }
+            return str
+        }.value
+
+        guard let raw = urlString else { return nil }
+        // Convert Spotify URI scheme to HTTPS if needed.
+        let httpsURL: String
+        if raw.hasPrefix("spotify:image:") {
+            let hash = raw.replacingOccurrences(of: "spotify:image:", with: "")
+            httpsURL = "https://i.scdn.co/image/\(hash)"
+        } else {
+            httpsURL = raw
+        }
+        guard let url = URL(string: httpsURL) else { return nil }
+        do {
+            let (imgData, _) = try await artworkURLSession.data(from: url)
+            guard !imgData.isEmpty else { return nil }
+            NSLog("Notetaker: Spotify AS artwork hit (\(imgData.count) bytes) URL=\(httpsURL)")
+            return imgData
+        } catch {
+            NSLog("Notetaker: Spotify AS artwork fetch error: \(error)")
             return nil
         }
     }

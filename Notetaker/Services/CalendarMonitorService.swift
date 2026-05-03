@@ -61,13 +61,39 @@ final class CalendarMonitorService: ObservableObject {
         /// Prefers `meet.google.com`, `zoom.us`, `teams.microsoft.com`.
         let joinURL: URL?
 
+        // Per BUG-026 fix: previously this only compared `id` and
+        // `minutesUntilStart`. If the organizer renamed the meeting
+        // or swapped the join URL (a real concern: a 9 AM standup
+        // gets a fresh Zoom link from the host minutes before
+        // start), our pill kept showing the stale title and tapped
+        // the dead URL. Comparing all four fields means any
+        // upstream change in EventKit triggers a fresh emission.
         static func == (lhs: UpcomingEvent, rhs: UpcomingEvent) -> Bool {
-            lhs.id == rhs.id && lhs.minutesUntilStart == rhs.minutesUntilStart
+            lhs.id == rhs.id
+                && lhs.title == rhs.title
+                && lhs.minutesUntilStart == rhs.minutesUntilStart
+                && lhs.joinURL == rhs.joinURL
         }
     }
 
     init() {
         authorizationStatus = EKEventStore.authorizationStatus(for: .event)
+        // Per BUG-118 fix: seed leadTime from UserDefaults at
+        // init. Was previously a hardcoded 5-minute default that
+        // only got overridden via the Settings UI's .onChange
+        // handler — fires only when the user touches the picker,
+        // so a stored setting from a previous session reverted
+        // until the user re-opened Settings.
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: "nextMeetingLeadMinutes") != nil {
+            let minutes = defaults.integer(forKey: "nextMeetingLeadMinutes")
+            // Defensive clamp: if a corrupt value somehow stored
+            // 0 or negative, fall back to the 5-minute default
+            // rather than disabling the pill entirely.
+            if minutes > 0 {
+                leadTime = TimeInterval(minutes) * 60
+            }
+        }
     }
 
     /// Begin polling. Idempotent — re-calling just refreshes the

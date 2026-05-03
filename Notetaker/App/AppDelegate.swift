@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Combine
+import ServiceManagement
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -24,6 +25,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Owns the separate notch HUD pills (charging, music, etc.) that
     /// auto-bloom on system events independent of the notes panel.
     var notchOrchestrator: NotchOrchestrator?
+    /// Dictation pipeline — Fn-key (or custom hotkey) starts a
+    /// recording, transcribes via Groq Whisper (or user-configured
+    /// OpenAI-compat provider), and pastes the cleaned text at the
+    /// cursor in whatever app is frontmost. Wired up at launch so
+    /// the hotkey listener is live system-wide.
+    var dictationOrchestrator: DictationOrchestrator?
+
+    /// First-launch onboarding manager. Lazy: only allocated if
+    /// the user hasn't completed onboarding yet (or if Settings
+    /// invokes "Show onboarding" to re-run the flow).
+    private let onboardingManager = OnboardingManager()
     /// Lock-screen music card (separate NSPanel, attached to the
     /// SkyLight space at level 400 alongside the main notch panel).
     /// Created lazily after `panelController` exists so it can share
@@ -77,6 +89,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// reaches the panel controller.
     private var nowPlayingNilDebounce: DispatchWorkItem?
 
+    /// Transient-media filter state. Track key + first-seen timestamp
+    /// for the most recent short-duration track. Used by
+    /// `isTransientMedia(_:)` to suppress pill bloom on browser ads,
+    /// system tones, error chimes, etc. — anything with duration <5s
+    /// gets a 1-second dwell time before the pill is allowed to
+    /// expand. Pattern from Alcove (`transientMediaDurationThreshold`
+    /// in their binary).
+    private var lastTransientTrackKey: String = ""
+    private var lastTransientFirstSeenAt: Date = .distantPast
+
+    /// Pending pill-retract work when audio stops flowing. Cancelled
+    /// if audio resumes within the 2s debounce window so the pill
+    /// doesn't flicker out and back during brief gaps (YouTube
+    /// scrub, Spotify track-change pause, ad-break).
+    private var audioFlowingRetractWork: DispatchWorkItem?
+
     /// Reusable Settings window. We manage this ourselves rather than
     /// relying on the SwiftUI `Settings { }` scene because that scene's
     /// open mechanism (`SettingsLink`, `\.openSettings`, or
@@ -90,6 +118,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// window directly here makes "click gear → Settings appears" a
     /// straight call into AppKit, which Just Works.
     private var settingsWindow: NSWindow?
+    /// Token returned by `NotificationCenter.addObserver(forName:...)`
+    /// for the Settings window's willClose hook. Stored so we can
+    /// `removeObserver(_:)` when the window closes — without this,
+    /// the observer leaks for the lifetime of the AppDelegate (i.e.
+    /// the app), and every subsequent open of Settings adds another
+    /// orphan observer pointing at a dead window. Per BUG-015 fix.
+    private var settingsWindowCloseObserver: NSObjectProtocol?
 
     /// Sliding window of recent screenshots — used only for the in-memory
     /// dedup of file-watcher vs clipboard captures of the same shot.
@@ -102,15 +137,82 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return stored > 0 ? stored : 3.0
     }
 
+    /// Per BUG-122 / BUG-123 fix: tear down the dictation
+    /// orchestrator's hotkey listeners before app exit. The
+    /// orchestrator's CGEventTap and Carbon hotkey handlers hold
+    /// retained references to the orchestrator (so callbacks can
+    /// never see freed memory), and those references are released
+    /// here in `stop()`. Without this call, the orchestrator
+    /// would leak its retained-self refs at shutdown — harmless
+    /// in practice (process is exiting anyway) but the diagnostic
+    /// log line in the orchestrator's deinit would fire.
+    ///
+    /// applicationWillTerminate runs on the main actor, which is
+    /// the right thread for the CGEvent / Carbon teardown calls.
+    func applicationWillTerminate(_ notification: Notification) {
+        dictationOrchestrator?.stop()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.shared = self
         NSApp.setActivationPolicy(.accessory)
+
+        // SECURITY: one-shot migration of API keys from plaintext
+        // UserDefaults → encrypted Keychain. Idempotent — gated by
+        // `noxKeychainMigrationV1Done`. Runs BEFORE any service that
+        // might try to read a key, so the migration completes before
+        // first use. After migration the plaintext entries are
+        // removed from the .plist on disk. See SecureKeyStore for
+        // the full audit rationale.
+        SecureKeyStore.shared.migrateFromUserDefaultsIfNeeded()
+
+        // First-run bootstrap of "Launch at login". The Settings UI
+        // defaults this @AppStorage toggle to `true`, but it only
+        // calls SMAppService.mainApp.register() when the user
+        // actually flips the switch — which most users never do
+        // because they assume "default = on" already means it's
+        // registered. Fix: register on first launch automatically,
+        // and remember we did it so user opt-outs later don't get
+        // overridden.
+        let defaults = UserDefaults.standard
+        let bootstrapKey = "noxLaunchAtLoginBootstrapped"
+        if !defaults.bool(forKey: bootstrapKey) {
+            do {
+                try SMAppService.mainApp.register()
+                defaults.set(true, forKey: bootstrapKey)
+                defaults.set(true, forKey: "launchAtLogin")
+                NSLog("nox: registered for launch-at-login on first run")
+            } catch {
+                NSLog("nox: launch-at-login registration failed: \(error)")
+            }
+        }
+
+        // Diagnostic dump of the host screen geometry. Surfaces in
+        // /tmp/notetaker-dictation.log on every launch so users
+        // (and us) can see the exact dimensions Notetaker is
+        // adapting to. Especially useful for diagnosing pill /
+        // notch mismatches across MacBook Pro 14"/16" and Air
+        // 13"/15" — each model has slightly different
+        // safeAreaInsets.top and notch-cutout widths.
+        for screen in NSScreen.screens {
+            let frame = screen.frame
+            let visible = screen.visibleFrame
+            let safe = screen.safeAreaInsets
+            DictationOrchestrator.dlog("screen \(screen.localizedName): frame=\(Int(frame.width))x\(Int(frame.height)) visible=\(Int(visible.width))x\(Int(visible.height)) scale=\(screen.backingScaleFactor) safeTop=\(safe.top)")
+        }
 
         do {
             let env = try AppEnvironment()
             self.environment = env
             env.retentionService.start()
             env.bluetoothDeviceService.start()
+            // One-shot retroactive tagging: re-classifies obvious
+            // clipboard auto-saves (URLs, pure-digit snippets, short
+            // single-token captures) from the legacy data so the
+            // user's existing notes split sensibly the first time
+            // they open the new Notes tab. Idempotent — gated by
+            // a UserDefaults flag, runs once per install.
+            env.noteStore.backfillClipboardKindIfNeeded()
             // Wire connect/disconnect HUD pills. When a device
             // appears in the connected list (after the initial
             // poll completes), show a brief pill with the device
@@ -120,19 +222,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // animation system.
             env.bluetoothDeviceService.onDeviceConnected = { [weak self] device in
                 guard Self.bluetoothPillEnabled() else { return }
-                self?.panelController?.presenter.setPendingSystemEvent(
+                guard let panel = self?.panelController else { return }
+                // Bring the panel up at pill geometry first — without
+                // this, when no music is playing the panel is
+                // offscreen and the pill content has nowhere to
+                // render. PanelRootView's pill overlay gates on
+                // `presenter.isResting && !presenter.isShown`, so
+                // resting mode IS the surface this event paints on.
+                panel.enterRestingMode()
+                panel.presenter.setPendingSystemEvent(
                     .bluetoothConnected(deviceName: device.name, isAirPods: device.isAirPods)
                 )
                 HapticFeedback.bluetoothChange()
             }
             env.bluetoothDeviceService.onDeviceDisconnected = { [weak self] device in
                 guard Self.bluetoothPillEnabled() else { return }
-                self?.panelController?.presenter.setPendingSystemEvent(
+                guard let panel = self?.panelController else { return }
+                panel.enterRestingMode()
+                panel.presenter.setPendingSystemEvent(
                     .bluetoothDisconnected(deviceName: device.name, isAirPods: device.isAirPods)
                 )
                 HapticFeedback.bluetoothChange()
             }
             panelController = PanelWindowController(environment: env)
+            // Eagerly warm up the on-device Whisper model so the
+            // first dictation doesn't pay the ~5-10s Core ML
+            // compile + ANE engine selection cost. Cache hits
+            // resolve in <1s; cache miss kicks off the ~466 MB
+            // small.en download in the background. Either way,
+            // by the time the user triggers dictation the
+            // pipeline is ready.
+            Task.detached(priority: .background) {
+                await LocalWhisperService.shared.prepare()
+            }
             // Lock-screen music card: a second NSPanel attached to
             // the SkyLight space at level 400, visible when locked
             // AND something is playing. Shares the main panel's
@@ -150,6 +272,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let timer = TimerService()
             timer.onFinish = { [weak self] in
                 guard let panel = self?.panelController else { return }
+                // Same surface-availability guarantee as Bluetooth:
+                // the pill renders on the resting overlay, which
+                // requires resting mode to be active. Without this
+                // call, a timer that finishes while no music is
+                // playing produces no visible pill.
+                panel.enterRestingMode()
                 panel.presenter.setPendingSystemEvent(.timerFinished)
                 // Per-event toggle: respect Settings → Timer → Haptic
                 // feedback even if global haptics are on. Default true.
@@ -173,6 +301,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let seconds = Int(ceil(remaining))
                 if seconds != lastPushedSeconds {
                     lastPushedSeconds = seconds
+                    // First tick of a fresh timer needs to surface the
+                    // panel before the pill push — subsequent ticks
+                    // are a no-op because `enterRestingMode` early-
+                    // returns when already resting.
+                    panel.enterRestingMode()
                     panel.presenter.setPendingSystemEvent(.timerRunning(remainingSeconds: seconds))
                 }
             }
@@ -252,7 +385,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             airDrop.start()
             airDropWatcher = airDrop
         } catch {
+            // Per BUG-030 fix: previously the user saw the app
+            // open and immediately quit with no explanation —
+            // worst possible first-launch experience. Now we
+            // surface a real NSAlert that:
+            //   • names the failure (DB migration / init)
+            //   • explains the recovery path (delete the data
+            //     folder, which uninstalls then reinstalls user
+            //     data)
+            //   • shows the underlying error so a power user can
+            //     diagnose / file a useful bug report
+            // The terminate happens AFTER the alert is dismissed,
+            // so the user has a clear story for what happened
+            // instead of "the app just crashed."
             NSLog("Notetaker failed to initialize: \(error)")
+            let alert = NSAlert()
+            alert.alertStyle = .critical
+            alert.messageText = "nox can't start"
+            alert.informativeText = """
+            The local database couldn't be opened or migrated.
+
+            Details: \(error.localizedDescription)
+
+            To recover, quit nox and remove the folder at:
+            ~/Library/Application Support/Notetaker
+
+            That'll reset the database to a fresh state. Your
+            Spotify history, screenshots, and AirDrops will be
+            untouched — only nox's own notes / images / videos
+            cache lives there. (The folder is named "Notetaker"
+            for legacy reasons; it's still nox's data.)
+            """
+            alert.addButton(withTitle: "Quit")
+            alert.runModal()
             NSApp.terminate(nil)
             return
         }
@@ -283,6 +448,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         menuBarController?.isTimerRunning = { [weak self] in
             self?.timerService?.isRunning ?? false
+        }
+
+        // Debug pill triggers. Fires a synthetic SystemEvent of the
+        // selected kind so the user can verify pill animations without
+        // having to trigger the real-world event (plug in a charger,
+        // AirDrop a file, etc.). Each synthetic event runs through the
+        // same `setPendingSystemEvent` pipeline that the real handlers
+        // use, so what you see here is exactly what'd happen on a real
+        // event.
+        menuBarController?.onTriggerTestPill = { [weak self] kind in
+            guard let panel = self?.panelController else { return }
+            panel.enterRestingMode()
+            switch kind {
+            case .charging:
+                panel.presenter.setPendingSystemEvent(.charging(percent: 67, plugged: true))
+                HapticFeedback.chargingChange()
+            case .bluetoothConnected:
+                panel.presenter.setPendingSystemEvent(
+                    .bluetoothConnected(deviceName: "AirPods Pro", isAirPods: true)
+                )
+                HapticFeedback.bluetoothChange()
+            case .bluetoothDisconnected:
+                panel.presenter.setPendingSystemEvent(
+                    .bluetoothDisconnected(deviceName: "AirPods Pro", isAirPods: true)
+                )
+                HapticFeedback.bluetoothChange()
+            case .timerFinished:
+                panel.presenter.setPendingSystemEvent(.timerFinished)
+                HapticFeedback.alignment()
+                NSSound(named: NSSound.Name("Glass"))?.play()
+            case .calendarUpcoming:
+                panel.presenter.setPendingSystemEvent(
+                    .calendarUpcoming(title: "Standup", minutesUntilStart: 2)
+                )
+            case .airDropReceived:
+                // Use the most-recent file in Downloads as a stand-in
+                // "received" URL so the pill's UTI glyph reflects a
+                // real file type rather than always falling back to
+                // the generic doc icon.
+                let url = Self.mostRecentDownloadURL()
+                    ?? URL(fileURLWithPath: NSHomeDirectory() + "/Downloads/photo.jpg")
+                panel.presenter.lastAirDropURL = url
+                panel.presenter.setPendingSystemEvent(
+                    .airDropReceived(filename: url.lastPathComponent)
+                )
+                HapticFeedback.generic()
+            case .noteSaved:
+                panel.presenter.setPendingSystemEvent(.noteSaved)
+                HapticFeedback.generic()
+            }
         }
 
         hotkeyService = HotkeyService { [weak self] event in
@@ -401,6 +616,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self, let panel = self.panelController else { return }
             self.handleNowPlayingChange(info, panel: panel)
         }
+        // CoreAudio-driven "is audio actually flowing" signal,
+        // forwarded into the presenter so SwiftUI views can bind
+        // to it as the authoritative "is something playing" check.
+        orchestrator.onAudioFlowingChange = { [weak self] flowing in
+            guard let self else { return }
+            self.panelController?.presenter.isAudioFlowing = flowing
+            self.handleAudioFlowingChange(flowing)
+        }
 
         // Lock-state edge → drives the music card's visibility.
         // Setting `presenter.isLocked` triggers the Combine
@@ -487,6 +710,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSWorkspace.shared.activateFileViewerSelecting([url])
         }
 
+        // Transient-pill cleanup. When a charging / Bluetooth /
+        // timer / AirDrop pill expires through its auto-dismiss
+        // timeout AND there's no music to anchor the resting pill,
+        // we exit resting mode so the empty silhouette doesn't camp
+        // on screen. With music, we stay resting because the pill
+        // body falls back to the now-playing artwork+waveform.
+        panelController?.presenter.onTransientEventCleared = { [weak self] in
+            guard let panel = self?.panelController else { return }
+            if panel.presenter.nowPlaying == nil {
+                panel.exitRestingMode()
+            }
+        }
+
         // Wire the "user tapped Download in the video preview pill"
         // callback. Routes to the existing video-store download path
         // (the same one the panel's auto-routing uses), then opens
@@ -506,10 +742,267 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         orchestrator.start()
         self.notchOrchestrator = orchestrator
 
+        // Dictation orchestrator — starts the Fn-key listener +
+        // wires the audio recorder + transcription service to the
+        // paste helper. Pulls API key + provider config from
+        // UserDefaults; disabled (no hotkey installed) if the user
+        // hasn't entered a key yet — they'll see a Settings →
+        // Dictation prompt directing them to grab a free Groq key.
+        let dictation = DictationOrchestrator()
+        // Note: the old `resolveActiveAudioSource` / `sendMediaCommand`
+        // wiring was removed when dictation switched to muting the
+        // **system audio output** instead of pausing the source app.
+        // See `SystemAudioMuter` — videos and music keep playing
+        // silently during recording, so nothing needs the source
+        // bundle ID anymore.
+        dictation.onTranscriptReady = { text in
+            // One-shot in-app routing: if a view (e.g. note editor's
+            // mic button) claimed the next transcript via
+            // DictationRouter.pendingDestination, deliver it there
+            // and skip system-wide typing entirely. Otherwise type
+            // the text at the cursor of the frontmost app via direct
+            // CGEvent unicode keystrokes (no clipboard touched).
+            if let destination = DictationRouter.pendingDestination {
+                DictationRouter.pendingDestination = nil
+                destination(text)
+            } else {
+                DictationPasteHelper.paste(text)
+            }
+        }
+        // Mirror the orchestrator's state onto PanelPresenter so the
+        // pill UI can react. Maps internal DictationOrchestrator.State
+        // to the simpler PanelPresenter.DictationPhase enum the views
+        // observe.
+        //
+        // Critical secondary effect: when entering .recording, the
+        // panel needs to be in resting mode (pill visible) even when
+        // no music is playing. Without that gate flip, the dictation
+        // pill content lives inside an invisible panel — the user
+        // hears nothing happen and sees no notch react. We call
+        // `enterRestingMode()` to force the NSPanel front + flip
+        // `isResting=true`. On exit (.idle) we leave resting mode
+        // alone — the music auto-pause wiring already restores
+        // whatever was playing, and the resting state sticks if
+        // music is back.
+        dictation.onStateChange = { [weak self] state in
+            // Broadcast to in-app dictation UI (mic buttons in
+            // toolbars) — they listen on this and update their
+            // visual state regardless of where the dictation was
+            // triggered from.
+            let isRecording: Bool
+            if case .recording = state { isRecording = true } else { isRecording = false }
+            NotificationCenter.default.post(
+                name: .notetakerDictationStateChanged,
+                object: nil,
+                userInfo: ["isRecording": isRecording]
+            )
+
+            guard let panel = self?.panelController else {
+                DictationOrchestrator.dlog("⚠️ onStateChange — panelController is nil, can't update UI")
+                return
+            }
+            let presenter = panel.presenter
+            switch state {
+            case .idle:
+                presenter.dictationPhase = .idle
+                presenter.dictationLevel = 0
+                DictationOrchestrator.dlog("UI ⇒ idle (isResting=\(presenter.isResting) isShown=\(presenter.isShown))")
+            case .recording(let level):
+                if presenter.dictationPhase != .recording {
+                    presenter.dictationPhase = .recording
+                    panel.enterRestingMode()
+                    DictationOrchestrator.dlog("UI ⇒ recording — called enterRestingMode (isResting=\(presenter.isResting) isShown=\(presenter.isShown))")
+                }
+                presenter.dictationLevel = level
+            case .transcribing:
+                presenter.dictationPhase = .transcribing
+                presenter.dictationLevel = 0
+                DictationOrchestrator.dlog("UI ⇒ transcribing (isResting=\(presenter.isResting) isShown=\(presenter.isShown))")
+            case .error(let msg):
+                presenter.dictationPhase = .error(msg)
+                presenter.dictationLevel = 0
+                DictationOrchestrator.dlog("UI ⇒ error: \(msg)")
+            }
+        }
+        dictation.configure(serviceConfig: AppDelegate.loadDictationConfig())
+        // Default to FN-HOLD (press to start, release to stop) — what
+        // the user explicitly asked for: "I press on Fn; it kind of
+        // has an animation of talking … when I dispress the Fn, it
+        // just automatically gets off." Toggle stayed as a settings
+        // option for users who prefer tap-to-toggle.
+        let savedMode = UserDefaults.standard.string(forKey: "dictationHotkeyMode")
+            .flatMap { DictationOrchestrator.HotkeyMode(rawValue: $0) }
+            ?? .fnHold
+        dictation.setHotkeyMode(savedMode)
+        self.dictationOrchestrator = dictation
+
+        // In-app dictation entry point: views (note editor mic
+        // button, etc.) post `.notetakerStartDictation` after
+        // setting `DictationRouter.pendingDestination`. We start
+        // recording in toggle mode (release isn't bound to anything
+        // — the user must tap the same button or hit the Fn key /
+        // ⌘⇧D backup to stop).
+        NotificationCenter.default.addObserver(
+            forName: .notetakerStartDictation,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self, let orch = self.dictationOrchestrator else { return }
+            // If we're already recording, treat the request as a
+            // toggle-stop. This lets the same button start AND stop
+            // dictation without the user needing two distinct
+            // affordances.
+            if case .recording = orch.state {
+                orch.stopRecording()
+            } else {
+                orch.startRecording()
+            }
+        }
+
+        // Per BUG-008 fix: the entire NOTETAKER_* environment-
+        // variable surface is gated behind `#if DEBUG` so it
+        // doesn't ship in release builds. The shipped binary
+        // previously included ~150 lines of test paths,
+        // including NOTETAKER_TEST_URL which would call
+        // `videoStore.startDownload(url:)` against any string
+        // an attacker could plant via `launchctl setenv` — a
+        // remote-controlled video downloader surface, exactly
+        // the kind of thing an Apple Notarization reviewer
+        // would flag. DEBUG builds (Xcode Run, dev iteration)
+        // keep the helpers; Release builds (DMG, archive)
+        // strip them entirely.
+        #if DEBUG
         // Dev-only: auto-show the panel on launch for visual verification.
         if ProcessInfo.processInfo.environment["NOTETAKER_AUTOSHOW"] == "1" {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.panelController?.show()
+            }
+        }
+
+        // Dev-only: fire a synthetic test pill on launch so the
+        // visual can be verified via `screencapture` without
+        // requiring the user to drive the menubar manually. Maps
+        // env var values to MenuBarController.TestPill cases.
+        if let testKind = ProcessInfo.processInfo.environment["NOTETAKER_TEST_PILL"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                let pill: MenuBarController.TestPill?
+                switch testKind {
+                case "airdrop": pill = .airDropReceived
+                case "charging": pill = .charging
+                case "btconn": pill = .bluetoothConnected
+                case "btdisc": pill = .bluetoothDisconnected
+                case "timer": pill = .timerFinished
+                case "calendar": pill = .calendarUpcoming
+                case "noteSaved": pill = .noteSaved
+                default: pill = nil
+                }
+                if let pill = pill {
+                    self?.menuBarController?.onTriggerTestPill?(pill)
+                }
+                // Also support starting an actual countdown timer
+                // (rather than the "finished" pill) — useful for
+                // verifying the running pill body specifically.
+                if testKind == "timerRun" {
+                    self?.timerService?.start(seconds: 25)
+                }
+                // Pre-select the first 3 notes so the multi-select
+                // toolbar renders for screencapture verification.
+                // No real-world equivalent — purely a test path.
+                if testKind == "selectNotes" {
+                    NSLog("Notetaker: selectNotes test starting")
+                    guard let env = self?.environment else {
+                        NSLog("Notetaker: selectNotes — env nil, abort")
+                        return
+                    }
+                    self?.panelController?.show()
+                    self?.panelController?.presenter.activeTab = .notes
+                    NSLog("Notetaker: selectNotes — show + tab set, scheduling seed")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        let firstThree = env.noteStore.notes.prefix(3).map(\.id)
+                        NSLog("Notetaker: selectNotes — seeding \(firstThree.count) ids")
+                        UserDefaults.standard.set(Array(firstThree),
+                                                   forKey: "Notetaker.testSelectedNoteIds")
+                        NotificationCenter.default.post(
+                            name: NSNotification.Name("Notetaker.TestSeedSelection"),
+                            object: nil
+                        )
+                    }
+                }
+                // Synthetic two-stage swap: simulates Spotify's
+                // real behavior where a track change emits
+                // metadata first, artwork ~200ms later. Without
+                // the same-track artwork-refresh handler, the
+                // slab would show stale artwork forever (the
+                // bug the user reported as "next song's
+                // thumbnails not appearing").
+                //
+                // Stage 1: track1 with red 1x1 PNG → visible.
+                // Stage 2: track2 with NO artwork → should clear.
+                // Stage 3: track2 with green 1x1 PNG → should
+                //   trigger the same-track refresh branch and
+                //   load the green artwork.
+                if testKind == "musicTwoStage" {
+                    guard let panel = self?.panelController else { return }
+                    panel.presenter.activeTab = .music
+                    let red = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+                    let green = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+                    let track1 = NowPlayingInfo(
+                        title: "Track One", artist: "Artist Red",
+                        album: "Album", artworkData: red,
+                        isPlaying: true, sourceBundleID: nil,
+                        duration: 200, elapsedTime: 0, infoTimestamp: Date()
+                    )
+                    panel.presenter.nowPlaying = track1
+                    panel.enterRestingMode()
+                    NSLog("Notetaker: TEST stage 1 — track1 with red artwork")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        let track2NoArt = NowPlayingInfo(
+                            title: "Track Two", artist: "Artist Green",
+                            album: "Album", artworkData: nil,
+                            isPlaying: true, sourceBundleID: nil,
+                            duration: 240, elapsedTime: 0, infoTimestamp: Date()
+                        )
+                        panel.presenter.nowPlaying = track2NoArt
+                        NSLog("Notetaker: TEST stage 2 — track2 metadata, NO artwork")
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+                        let track2WithArt = NowPlayingInfo(
+                            title: "Track Two", artist: "Artist Green",
+                            album: "Album", artworkData: green,
+                            isPlaying: true, sourceBundleID: nil,
+                            duration: 240, elapsedTime: 0, infoTimestamp: Date()
+                        )
+                        panel.presenter.nowPlaying = track2WithArt
+                        NSLog("Notetaker: TEST stage 3 — track2 same-track with green artwork")
+                    }
+                }
+                // Synthetic music + skip flow. Injects a fake
+                // nowPlaying snapshot, then 1.5s later swaps to a
+                // second track. Lets us visually verify the
+                // tilt+blur+offset song-change animation on the
+                // pill without needing actual audio playback.
+                if testKind == "musicSkip" {
+                    guard let panel = self?.panelController else { return }
+                    let track1 = NowPlayingInfo(
+                        title: "First Track", artist: "Test Artist",
+                        album: "Test Album", artworkData: nil,
+                        isPlaying: true, sourceBundleID: nil,
+                        duration: 200, elapsedTime: 0,
+                        infoTimestamp: Date()
+                    )
+                    panel.presenter.nowPlaying = track1
+                    panel.enterRestingMode()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        let track2 = NowPlayingInfo(
+                            title: "Second Track", artist: "Other Artist",
+                            album: "Other Album", artworkData: nil,
+                            isPlaying: true, sourceBundleID: nil,
+                            duration: 240, elapsedTime: 0,
+                            infoTimestamp: Date()
+                        )
+                        panel.presenter.nowPlaying = track2
+                    }
+                }
             }
         }
 
@@ -524,6 +1017,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.panelController?.showOnTab(.videos)
             }
         }
+        #endif // DEBUG — closes the BUG-008 gate
+
+        // First-launch onboarding. Runs ONCE per machine (gated
+        // by `UserDefaults.onboardingCompletedV1`); subsequent
+        // launches skip it. Briefly delayed so the panel /
+        // resting pill have a chance to settle before the
+        // onboarding window claims focus — avoids a flash of
+        // panel-then-onboarding that reads as cluttered.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.onboardingManager.presentIfNeeded()
+        }
+    }
+
+    /// Re-runs the onboarding flow on demand (Settings → "Show
+    /// onboarding again" button). Kept alongside `openSettings`
+    /// since the trigger lives in the Settings UI.
+    func presentOnboarding() {
+        onboardingManager.present()
     }
 
     /// Opens (or refocuses) the Settings window. Builds the SwiftUI tree
@@ -570,20 +1081,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let host = NSHostingController(rootView: SettingsView().environmentObject(env))
         let window = NSWindow(contentViewController: host)
-        window.title = "Notetaker Settings"
+        window.title = "nox Settings"
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
         window.center()
         window.setFrameAutosaveName("NotetakerSettingsWindow")
         // Drop back to menu-bar-only when the user closes Settings, so
         // we don't strand a Dock icon for an `LSUIElement` app.
-        NotificationCenter.default.addObserver(
+        // Per BUG-015 fix: capture the observer token + clear the
+        // window reference inside the close handler so the observer
+        // can be removed (preventing leak) and a future
+        // `openSettings()` correctly takes the create-new path
+        // instead of re-using a closed window.
+        settingsWindowCloseObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
             queue: .main
-        ) { _ in
+        ) { [weak self] _ in
             Task { @MainActor in
                 NSApp.setActivationPolicy(.accessory)
+                if let token = self?.settingsWindowCloseObserver {
+                    NotificationCenter.default.removeObserver(token)
+                    self?.settingsWindowCloseObserver = nil
+                }
+                self?.settingsWindow = nil
             }
         }
         settingsWindow = window
@@ -607,63 +1128,186 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// immediately so artwork / title updates land without delay,
     /// and any pending teardown is cancelled (the music came back).
     private func handleNowPlayingChange(_ info: NowPlayingInfo?, panel: PanelWindowController) {
-        // Cancel any pending nil-teardown. If we're getting a non-nil,
-        // music's still alive; if we're getting another nil, restart
-        // the debounce window so we don't fire halfway through.
+        // 2026-05-01 ALCOVE-STYLE REWRITE.
+        //
+        // Old design: pill visibility was tied to `presenter.nowPlaying
+        // != nil`, with a 4s nil-debounce that cleared the cache when
+        // MR went silent. That caused the cascade of bugs the user
+        // ran into — pill flipping to "Nothing playing" on pause,
+        // ghost stubs polluting the cache, cross-source bleed-through.
+        //
+        // New design (matches Alcove behavior the user described):
+        //   • SMALL PILL visibility = `effectivelyPlaying`
+        //     = `isAudioFlowing && (nowPlaying?.isPlaying ?? true)`.
+        //     Pill is up only when there's live audio AND we're not
+        //     explicitly paused. Pause → small pill collapses
+        //     within 1.5s. Resume → pill grows back from the notch.
+        //   • SLAB content = sticky `presenter.nowPlaying`. Once
+        //     a track is set, it persists until a NEW non-nil
+        //     emission replaces it. nil emissions never wipe the
+        //     cache. So the user can hover the notch hours after
+        //     pausing and still see the paused track in the slab,
+        //     ready to resume from the play button.
+        //
+        // The orchestrator's nil→paused transform handles the
+        // "MR went silent but audio still flowing" case by flipping
+        // `nowPlaying.isPlaying` to false — that's what drives the
+        // small-pill collapse here without touching the cache.
         nowPlayingNilDebounce?.cancel()
         nowPlayingNilDebounce = nil
 
         if let info = info {
-            // Music alive — propagate immediately and ensure the pill
-            // is showing. Idempotent on repeated calls (enterRestingMode
-            // is a no-op when already resting).
-            panel.presenter.nowPlaying = info
-            panel.enterRestingMode()
-            return
-        }
-
-        // Nil emission — schedule a debounced teardown. If a non-nil
-        // arrives within 4s, this work item is cancelled above and the
-        // pill never disappears. 4s is generous enough to cover Safari
-        // tab transitions, audio-session preemptions, and our own
-        // panel-internal video-preview plays. Longer would feel
-        // sticky after a true playback stop; shorter would let
-        // transient gaps still collapse the pill.
-        let work = DispatchWorkItem { [weak self, weak panel] in
-            guard let self, let panel else { return }
-            // Re-check guard: if something else nudged the panel
-            // out of resting mode in the meantime, don't double-act.
-            if panel.presenter.nowPlaying != nil || panel.presenter.isResting == false {
-                // Either music came back through a path that bypassed
-                // this debounce, or the pill was already torn down
-                // somewhere else. Either way, nothing to do here —
-                // just clean up our reference.
-                self.nowPlayingNilDebounce = nil
-                return
+            // Transient stuff (ad jingles, error chimes < 5s) doesn't
+            // pollute the sticky cache and doesn't trigger pill bloom.
+            if !isTransientMedia(info) {
+                panel.presenter.nowPlaying = info
             }
-            panel.presenter.nowPlaying = nil
-            panel.exitRestingMode()
-            self.nowPlayingNilDebounce = nil
         }
-        nowPlayingNilDebounce = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: work)
+        // Nil emission path: leave `presenter.nowPlaying` sticky.
+        // Pill visibility is decided below from the live audio signal,
+        // not from nowPlaying-nil events. This is the key invariant
+        // that lets the slab show "your last track, paused" even
+        // after the source app has gone fully silent.
+
+        updatePillVisibility(panel: panel)
+    }
+
+    /// Single decision point for "is the small pill currently visible."
+    /// Combines CoreAudio's "is audio flowing" with MediaRemote's
+    /// "is the source actually playing." Either signal turning false
+    /// retracts the pill (after a 1.5s anti-flicker debounce); both
+    /// must be true for the pill to bloom.
+    ///
+    /// Why both:
+    ///   • `isAudioFlowing` alone is unreliable for browsers (Chrome
+    ///     keeps its audio helper's IO procs alive across pauses, so
+    ///     CoreAudio still says "Chrome is producing output" with
+    ///     silence flowing — verified in /tmp/notetaker-mra.log).
+    ///   • `nowPlaying.isPlaying` alone is unreliable because some
+    ///     sources (Discord chime, system tones) don't publish
+    ///     MediaRemote info at all — `nowPlaying` is nil and we'd
+    ///     never show the pill. The `?? true` default covers those:
+    ///     "no MR data → trust the audio signal alone."
+    ///
+    /// AND'ing them means: pill is up iff something is actively
+    /// producing user-perceptible audio.
+    private func updatePillVisibility(panel: PanelWindowController) {
+        let audioOn = panel.presenter.isAudioFlowing
+        let np = panel.presenter.nowPlaying
+        let mrSaysPlaying = np?.isPlaying ?? false
+        // 2026-05-02 Bluetooth-flicker fix.
+        //
+        // Log evidence: during stable Bluetooth playback the
+        // CoreAudio `isAudioFlowing` signal flickers between true
+        // and false (Bluetooth's audio output IO procs cycle as
+        // the device's buffer fills). My old logic AND'd audioOn
+        // with mrSaysPlaying, so any 1.5s+ false-flicker would
+        // collapse the pill while music was clearly still playing.
+        //
+        // New rule: if MR has rich track info AND says isPlaying=true,
+        // trust MR — show the pill regardless of audioOn flickers.
+        // MR is the authoritative "is the source app playing" signal;
+        // CoreAudio is the corroborator for sources WITHOUT MR data
+        // (Discord chimes, system tones).
+        //
+        // Three buckets:
+        //   1. MR says isPlaying=true            → show (Bluetooth-flicker-proof)
+        //   2. MR says isPlaying=false           → hide (user paused)
+        //   3. No MR data (np==nil) AND audioOn  → show (synthetic case)
+        //   4. Otherwise                         → hide
+        let effectivelyPlaying: Bool = {
+            if let np = np {
+                return np.isPlaying
+            }
+            return audioOn
+        }()
+
+        MediaRemoteAdapterService.fileLog("updatePillVisibility: audioOn=\(audioOn) np.title=\"\(np?.title ?? "nil")\" mrSaysPlaying=\(mrSaysPlaying) effectivelyPlaying=\(effectivelyPlaying) currentlyResting=\(panel.presenter.isResting)")
+
+        audioFlowingRetractWork?.cancel()
+        audioFlowingRetractWork = nil
+
+        if effectivelyPlaying {
+            // enterRestingMode is idempotent.
+            panel.enterRestingMode()
+        } else {
+            // 1.5s debounce so brief gaps (track changes, scrubs)
+            // don't flicker the pill. After 1.5s of no effective
+            // playback the pill collapses to the notch silhouette.
+            let work = DispatchWorkItem { [weak self] in
+                self?.panelController?.exitRestingMode()
+                self?.audioFlowingRetractWork = nil
+            }
+            audioFlowingRetractWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
+        }
+    }
+
+    /// Audio-flow signal handler. The actual visibility decision is
+    /// made in `updatePillVisibility` which combines `isAudioFlowing`
+    /// with `nowPlaying.isPlaying` so paused-but-still-flowing browser
+    /// audio (Chrome holds IO procs across pause) doesn't keep the
+    /// pill stuck visible.
+    private func handleAudioFlowingChange(_ flowing: Bool) {
+        guard let panel = panelController else { return }
+        updatePillVisibility(panel: panel)
+    }
+
+    /// Per Alcove's `transientMediaDurationThreshold` pattern.
+    /// Suppresses pill bloom for very short tracks (browser ad
+    /// jingles, system sounds, error chimes that get a duration
+    /// under 5 seconds) UNLESS they've been playing for at least
+    /// 1 second (proving it's not a transient bumper). After 1s
+    /// of consecutive play, the pill is allowed to expand.
+    ///
+    /// Tracks WITHOUT a duration field (most browser audio,
+    /// SystemAudioWatcher fallbacks) bypass the filter entirely
+    /// — we only have evidence to suppress when we know the
+    /// track is genuinely short.
+    private func isTransientMedia(_ info: NowPlayingInfo) -> Bool {
+        guard let duration = info.duration, duration > 0,
+              duration < 5.0 else { return false }
+        let trackKey = "\(info.title)|\(info.artist)"
+        let now = Date()
+        if trackKey == lastTransientTrackKey {
+            // Same short track we saw before — has it been playing
+            // for the minimum dwell time?
+            return now.timeIntervalSince(lastTransientFirstSeenAt) < 1.0
+        }
+        // New short track — record first-seen timestamp and
+        // suppress until min dwell time elapses.
+        lastTransientTrackKey = trackKey
+        lastTransientFirstSeenAt = now
+        return true
     }
 
     private func grabCurrentBrowserTab() {
         NSLog("Notetaker: ⌥⌘V fired")
-        guard let env = environment, let panel = panelController else {
-            NSLog("Notetaker: env or panel nil")
+        guard let panel = panelController else {
+            NSLog("Notetaker: panel nil")
             return
         }
         let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "nil"
         NSLog("Notetaker: frontmost=\(front)")
-        if let urlString = BrowserURLService.currentTabURL() {
-            NSLog("Notetaker: got URL=\(urlString)")
-            env.videoStore.startDownload(url: urlString)
-        } else {
-            NSLog("Notetaker: currentTabURL returned nil")
+        // Surface the URL via the pending-video pill (with Download
+        // button) instead of starting the download immediately. The
+        // user has been explicit: nothing should download until they
+        // click the Download button on the pill.
+        // Per BUG-018 fix: BrowserURLService.currentTabURL is async
+        // now (the inner clipboard poll was blocking the main
+        // thread for up to 400ms). Wrap in a Task so the hotkey
+        // handler returns immediately and the UI doesn't freeze
+        // while we wait for the browser to copy the URL.
+        Task { @MainActor in
+            if let urlString = await BrowserURLService.currentTabURL(),
+               let url = URL(string: urlString) {
+                NSLog("Notetaker: got URL=\(urlString) — surfacing pending-video pill")
+                panel.presenter.setPendingVideo(url)
+                panel.enterRestingMode()
+            } else {
+                NSLog("Notetaker: currentTabURL returned nil")
+            }
         }
-        panel.showOnTab(.videos)
     }
 
     private func handleNewScreenshot(at url: URL) {
@@ -778,6 +1422,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         userDefaultBool(SettingsKey.showBluetoothPill, default: true)
     }
 
+    /// Newest file in ~/Downloads, used by the synthetic AirDrop test
+    /// trigger so the pill's UTI glyph (photo / video / pdf / generic)
+    /// reflects something the user actually has on disk. Skips
+    /// directories and dotfiles. Returns nil if Downloads is empty.
+    fileprivate static func mostRecentDownloadURL() -> URL? {
+        guard let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        else { return nil }
+        let fm = FileManager.default
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .isDirectoryKey, .isHiddenKey]
+        guard let items = try? fm.contentsOfDirectory(
+            at: downloads, includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+        let files = items.filter { url in
+            let v = try? url.resourceValues(forKeys: Set(keys))
+            return v?.isDirectory == false && v?.isHidden == false
+        }
+        return files.max { a, b in
+            let aDate = (try? a.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            let bDate = (try? b.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            return aDate < bDate
+        }
+    }
+
     /// Read a bool from `UserDefaults`, falling back to `default`
     /// when the key has never been written. We can't use plain
     /// `bool(forKey:)` because it returns false for missing keys,
@@ -823,12 +1491,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let pb = NSPasteboard.general
 
-        // Text FIRST. Browser text copies (and most rich-text copies)
-        // ride on the pasteboard with a TIFF preview attached as a
-        // rich-text fallback — if we check images first we'd misroute
-        // a normal Cmd+C into the slow image-save path, which is what
-        // made copies feel sluggish and "not registered." Only fall
-        // through to the image branch when there's no meaningful text.
+        // EXPLICIT-IMAGE-FORMAT-FIRST. Earlier today I made this
+        // image-first too aggressively (any image data wins), which
+        // misclassified browser TEXT copies as images — Chrome /
+        // Safari attach a TIFF preview to ~every text copy, and the
+        // pill kept flashing the "screenshot saved" tile on every
+        // text Cmd+C. With no music to anchor the resting pill,
+        // that read as the jitter the user reported.
+        //
+        // Correct heuristic: only treat the clipboard as an image
+        // if it carries an EXPLICIT image format (PNG / JPEG / GIF /
+        // WebP / HEIC). TIFF is excluded here because it's the
+        // universal preview-fallback. Real "Copy Image" from a
+        // browser still lands as image because Chrome+Safari put
+        // PNG (or JPEG) on the pasteboard for genuine image copies,
+        // not just the URL string.
+        if Self.pasteboardHasExplicitImage(pb),
+           let (imageData, mime) = ImageDropExtractor.extract(from: pb) {
+            let pendingCount = recentScreenshots.count + 1
+            panel.presenter.lastScreenshotThumbnail = NSImage(data: imageData)
+            panel.enterRestingMode()
+            panel.presenter.setPendingSystemEvent(.screenshotSaved(count: pendingCount))
+            HapticFeedback.generic()
+            saveClipboardImage(env: env, data: imageData, mime: mime)
+            return
+        }
+
+        // Otherwise — check text. Browser text copies that ride
+        // with a TIFF-preview fallback land here, where they belong.
         let text = pb.string(forType: .string)
         let hasText = text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
 
@@ -868,8 +1558,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             do {
-                let note = try env.noteStore.createNote()
-                try env.noteStore.updateBody(id: note.id, body: text)
+                // Tag this as a clipboard capture (NOT handwritten).
+                // The Notes tab UI segments on this so user can scan
+                // their real notes without the URL/snippet noise.
+                _ = try env.noteStore.createNote(kind: .clipboard, body: text)
             } catch {
                 NSLog("Auto-save clipboard failed: \(error)")
                 return
@@ -886,35 +1578,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // No text on the pasteboard → either Ctrl+Shift+Cmd+3/4 (macOS
-        // clipboard screenshot) or "Copy Image" from a browser. Both
-        // give us image data with no string companion, so this branch
-        // is safe.
-        if let pngData = pb.data(forType: .png) {
-            // Same fast-path inversion as handleNewScreenshot:
-            // pill flash + thumbnail fire BEFORE the deferred save.
+        // No explicit image format AND no text — fall back to TIFF
+        // / file-URL paths. This catches the "browser image drag
+        // that decided to be TIFF-only with no string companion"
+        // edge case without false-positiving on rich-text copies
+        // (which always include a string).
+        if let (imageData, mime) = ImageDropExtractor.extract(from: pb) {
             let pendingCount = recentScreenshots.count + 1
-            panel.presenter.lastScreenshotThumbnail = NSImage(data: pngData)
+            panel.presenter.lastScreenshotThumbnail = NSImage(data: imageData)
             panel.enterRestingMode()
             panel.presenter.setPendingSystemEvent(.screenshotSaved(count: pendingCount))
             HapticFeedback.generic()
-            saveClipboardImage(env: env, data: pngData, mime: "image/png")
-            return
-        }
-        if let tiffData = pb.data(forType: .tiff),
-           let pngData = Self.tiffToPNG(tiffData) {
-            let pendingCount = recentScreenshots.count + 1
-            panel.presenter.lastScreenshotThumbnail = NSImage(data: pngData)
-            panel.enterRestingMode()
-            panel.presenter.setPendingSystemEvent(.screenshotSaved(count: pendingCount))
-            HapticFeedback.generic()
-            saveClipboardImage(env: env, data: pngData, mime: "image/png")
+            saveClipboardImage(env: env, data: imageData, mime: mime)
             return
         }
 
-        if !panel.isVisible {
-            panel.show()
+        // Nothing recognized — don't expand the slab. The previous
+        // fall-through called `panel.show()` here, which is exactly
+        // why an unclassifiable copy popped the full panel instead
+        // of the pill. We ignore unknown clipboard types now: the
+        // monitor's job is to capture useful captures, not to react
+        // to every changeCount tick.
+    }
+
+    /// Whether the pasteboard carries an EXPLICIT image format —
+    /// PNG, JPEG, GIF, WebP, or HEIC. TIFF deliberately excluded:
+    /// macOS attaches TIFF previews to ~all rich-text copies as a
+    /// universal fallback, so reading "has image" off TIFF
+    /// presence misclassifies regular browser text copies as
+    /// images. The other formats only show up when the user
+    /// actually copied a picture.
+    private static func pasteboardHasExplicitImage(_ pb: NSPasteboard) -> Bool {
+        let explicit: [NSPasteboard.PasteboardType] = [
+            .png,
+            NSPasteboard.PasteboardType("public.jpeg"),
+            NSPasteboard.PasteboardType("com.compuserve.gif"),
+            NSPasteboard.PasteboardType("org.webmproject.webp"),
+            NSPasteboard.PasteboardType("public.heic")
+        ]
+        for type in explicit where pb.data(forType: type) != nil {
+            return true
         }
+        return false
     }
 
     /// Routes a clipboard image into the same deferred-save path that
@@ -1008,4 +1713,76 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         "com.adobe.Photoshop",
         "com.adobe.illustrator"
     ]
+
+    // MARK: - Dictation config
+
+    /// Build a `DictationService.Configuration` from UserDefaults
+    /// keys the Settings UI writes. Falls back to Groq defaults
+    /// for any missing/empty values. Called at AppDelegate launch
+    /// AND whenever Settings → Dictation saves.
+    static func loadDictationConfig() -> DictationService.Configuration {
+        let defaults = UserDefaults.standard
+        // API key — Keychain-backed as of 2026-05-02 security audit.
+        // Earlier comment ("the key is a free Groq key, not a paid
+        // OpenAI key, so the security cost is small") was wrong:
+        // even a free Groq key gives an attacker the ability to drain
+        // the user's per-key rate limit, fingerprint usage, or pivot
+        // if the user reuses keys across services. Migrated to
+        // SecureKeyStore (kSecClassGenericPassword,
+        // kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly) — not
+        // synced via iCloud Keychain, not exported in Time Machine,
+        // bound to the nox bundle.
+        let apiKey = SecureKeyStore.shared.load(.dictationApiKey) ?? ""
+        let provider = defaults.string(forKey: "dictationProvider") ?? "groq"
+        let baseDefault: URL
+        let modelDefault: String
+        let cleanupDefault: String?
+        switch provider {
+        case "openai":
+            baseDefault = URL(string: "https://api.openai.com/v1")!
+            modelDefault = "whisper-1"
+            cleanupDefault = "gpt-4o-mini"
+        case "custom":
+            baseDefault = URL(string: defaults.string(forKey: "dictationCustomURL") ?? "")
+                ?? URL(string: "https://api.groq.com/openai/v1")!
+            modelDefault = defaults.string(forKey: "dictationCustomModel") ?? "whisper-large-v3-turbo"
+            cleanupDefault = defaults.string(forKey: "dictationCustomCleanupModel")
+        default:  // "groq" or anything else
+            baseDefault = URL(string: "https://api.groq.com/openai/v1")!
+            modelDefault = "whisper-large-v3-turbo"
+            cleanupDefault = "llama-3.3-70b-versatile"
+        }
+        // Allow disabling cleanup pass via the toggle.
+        let cleanupEnabled = defaults.object(forKey: "dictationCleanupEnabled") as? Bool ?? true
+        // Default to English. Settings exposes a language picker
+        // (UserDefaults key `dictationLanguage`) so users dictating
+        // in other languages can override.
+        let language = defaults.string(forKey: "dictationLanguage") ?? "en"
+        // Custom vocabulary — passed to Whisper as the `prompt`
+        // field (biases recognition toward listed terms) and
+        // appended to the cleanup LLM's system prompt (second
+        // line of defense). User edits this in Settings →
+        // Dictation. Empty/nil = no vocabulary hint.
+        let customVocabulary = defaults.string(forKey: "dictationCustomVocabulary")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Local Whisper toggle. Default ON (true) — privacy +
+        // offline + zero per-transcription cost. Users can
+        // disable in Settings to fall back to the remote
+        // (Groq/OpenAI) path for max accuracy.
+        let useLocal: Bool = {
+            // Treat unset as true — fresh installs default to local.
+            if defaults.object(forKey: "dictationUseLocalWhisper") == nil { return true }
+            return defaults.bool(forKey: "dictationUseLocalWhisper")
+        }()
+        return DictationService.Configuration(
+            apiKey: apiKey,
+            baseURL: baseDefault,
+            transcriptionModel: modelDefault,
+            cleanupModel: cleanupEnabled ? cleanupDefault : nil,
+            cleanupSystemPrompt: DictationService.Configuration.defaultCleanupPrompt,
+            language: language.isEmpty ? nil : language,
+            customVocabulary: (customVocabulary?.isEmpty ?? true) ? nil : customVocabulary,
+            useLocalWhisper: useLocal
+        )
+    }
 }

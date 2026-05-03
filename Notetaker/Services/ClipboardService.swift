@@ -134,7 +134,17 @@ final class DragMonitor {
 @MainActor
 final class ScreenshotWatcher: NSObject {
     private var stream: FSEventStreamRef?
+    /// Bounded set of seen paths. Same fix as AirDropWatcher's
+    /// BUG-013 — previously a plain unbounded `Set<String>` that
+    /// grew forever as new screenshots arrived. For users who
+    /// take dozens of screenshots a day, this would accumulate
+    /// thousands of entries per year of uptime. Set + ordered
+    /// list with FIFO eviction at the cap keeps memory bounded
+    /// without losing dedup correctness for any reasonably-sized
+    /// flush window.
     private var seenPaths: Set<String> = []
+    private var seenPathsOrder: [String] = []
+    private let seenPathsLimit = 2000
     private let onNewScreenshot: (URL) -> Void
     private let watchedDir: URL
 
@@ -161,16 +171,31 @@ final class ScreenshotWatcher: NSObject {
         // files when the stream warms up.
         if let existing = try? FileManager.default.contentsOfDirectory(atPath: watchedDir.path) {
             for name in existing {
-                seenPaths.insert((watchedDir.path as NSString).appendingPathComponent(name))
+                markSeen((watchedDir.path as NSString).appendingPathComponent(name))
             }
         }
         NSLog("Notetaker: ScreenshotWatcher watching \(watchedDir.path), seeded \(seenPaths.count) existing files")
 
+        // Per BUG-003 fix (matches AirDropWatcher's BUG-001 fix):
+        // FSEventStreamContext now uses proper retain/release
+        // callbacks so FSEventStream holds a strong reference
+        // to `self` for the stream's lifetime. Old version with
+        // `passUnretained` + nil retain/release callbacks could
+        // dereference freed memory if the watcher was deallocated
+        // mid-flush.
         var context = FSEventStreamContext(
             version: 0,
             info: Unmanaged.passUnretained(self).toOpaque(),
-            retain: nil,
-            release: nil,
+            retain: { ptr in
+                guard let ptr else { return nil }
+                return UnsafeRawPointer(
+                    Unmanaged<ScreenshotWatcher>.fromOpaque(ptr).retain().toOpaque()
+                )
+            },
+            release: { ptr in
+                guard let ptr else { return }
+                Unmanaged<ScreenshotWatcher>.fromOpaque(ptr).release()
+            },
             copyDescription: nil
         )
 
@@ -190,7 +215,13 @@ final class ScreenshotWatcher: NSObject {
                 let isRenamed = (flags & UInt32(kFSEventStreamEventFlagItemRenamed)) != 0
                 let isModified = (flags & UInt32(kFSEventStreamEventFlagItemModified)) != 0
                 if isFile && (isCreated || isRenamed || isModified) {
-                    DispatchQueue.main.async {
+                    // Per BUG-003 fix: hop into the main actor's
+                    // isolation domain via `Task { @MainActor in }`.
+                    // Mirrors AirDropWatcher's BUG-002 fix and
+                    // MediaRemoteService's BUG-010 fix so the entire
+                    // watcher/notification fleet uses one
+                    // consistent actor-hop pattern.
+                    Task { @MainActor in
                         watcher.handleEvent(path: path)
                     }
                 }
@@ -237,9 +268,30 @@ final class ScreenshotWatcher: NSObject {
         guard imageExts.contains(ext) else { return }
         guard FileManager.default.fileExists(atPath: path) else { return }
         guard Self.looksLikeScreenshot(path: path) else { return }
-        seenPaths.insert(path)
+        markSeen(path)
         NSLog("Notetaker: ScreenshotWatcher new screenshot at \(path)")
         onNewScreenshot(URL(fileURLWithPath: path))
+    }
+
+    /// Bounded insert into `seenPaths` with LRU eviction at the
+    /// cap. Per BUG-014 fix (mirrors AirDropWatcher's BUG-013).
+    /// Re-seeing a known path promotes it to most-recently-used
+    /// so a long-lived screenshot dir never gets evicted out
+    /// from under us by churn elsewhere.
+    private func markSeen(_ path: String) {
+        if seenPaths.contains(path) {
+            if let idx = seenPathsOrder.firstIndex(of: path) {
+                seenPathsOrder.remove(at: idx)
+                seenPathsOrder.append(path)
+            }
+            return
+        }
+        seenPaths.insert(path)
+        seenPathsOrder.append(path)
+        while seenPathsOrder.count > seenPathsLimit {
+            let oldest = seenPathsOrder.removeFirst()
+            seenPaths.remove(oldest)
+        }
     }
 
     /// Filename prefix OR Spotlight xattr — covers macOS English-locale

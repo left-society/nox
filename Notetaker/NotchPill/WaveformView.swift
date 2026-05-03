@@ -1,155 +1,170 @@
 import SwiftUI
 
-/// Oscilloscope-style audio waveform — a thin scrolling sine line that
-/// flows left-to-right, drawn on a `Canvas` so we get one path per
-/// frame instead of N animated SwiftUI views.
+/// Equalizer-style audio visualizer — three thin vertical capsules
+/// that pulse up and down from a central baseline, driven by three
+/// incommensurate sinusoids so the bars never sync into a recognizable
+/// pattern. Drawn on a `Canvas` for one path per frame instead of N
+/// animated SwiftUI views.
 ///
-/// The previous version of this file rendered four phase-offset
-/// vertical capsules. The user reported that "the waveform doesn't
-/// look like this" alongside a screenshot of the pill — the four
-/// bars happened to land in an ascending staircase pattern at the
-/// captured moment, which read as a Wi-Fi / signal-strength bar
-/// indicator rather than as an audio visualizer. That ambiguity is
-/// fundamental to the bars-on-a-baseline silhouette: at any instant
-/// the four heights *can* line up that way, especially with closely-
-/// spaced phase offsets.
+/// History — what changed and why:
+///   v1: Four phase-offset vertical capsules growing from a bottom
+///       baseline. User reported the four bars sometimes landed in an
+///       ASCENDING STAIRCASE that read as Wi-Fi / signal-strength
+///       indicator instead of audio. Rejected.
+///   v2: Scrolling sine wave (oscilloscope). No staircase failure
+///       mode, but unique to us — visually distinct from NotchNook
+///       and other notch HUDs that ship a bar-style equalizer.
+///   v3 (current): Three bars, CENTER-JUSTIFIED (grow up AND down
+///       from middle). Two anti-Wi-Fi guards:
+///         • Bars grow from middle out, not from bottom up. A
+///           growing-from-middle pattern is fundamentally different
+///           from a Wi-Fi indicator (which always grows from a single
+///           bottom baseline) — even when the heights are sorted
+///           1<2<3, the visual is two centered capsules getting
+///           taller, not a left-to-right ramp.
+///         • Three INCOMMENSURATE periods (0.71s / 1.13s / 1.69s,
+///           ratios irrational so the cycle never repeats). At any
+///           instant the heights might be sorted ascending, but the
+///           NEXT instant one bar will leap and break the pattern.
+///           Statistical mean position of each bar over time is
+///           identical, so no bar is "the loud one" or "the short one."
 ///
-/// A scrolling sine wave has no such failure mode. It reads as audio
-/// at every instant — the silhouette is always a curvy line, never
-/// an ordered set of bars. Two summed sinusoids at incommensurate
-/// frequencies give a richer "real audio" wiggle than a single pure
-/// tone, and the whole signal scrolls leftward at ~5 Hz so the wave
-/// visibly flows across the pill instead of standing still.
+/// Used in two places (same view, different sizes):
+/// 1. Notch HUD resting pill — right edge, replaces the
+///    play/pause/skip cluster so the pill reads as a status indicator
+///    first and a transport remote second.
+/// 2. Music page in the open slab — small badge near the source
+///    credit; same "alive while playing" tell as the closed pill,
+///    smaller to not compete with the larger artwork.
 ///
-/// Used in two places:
-/// 1. The notch HUD pill — replaces the play/pause/skip cluster on the
-///    right edge so the pill reads as a status indicator first and a
-///    transport remote second. (Transport stays in the main panel's
-///    Music page.)
-/// 2. The Music page — small badge near the source credit, gives the
-///    expanded player the same "alive while playing" tell the closed
-///    pill has, without competing with the larger artwork for attention.
+/// Per direct frame-by-frame audit of NotchNook (Built-in Retina
+/// Display 1300-1320): their resting pill has 3 thin vertical bars
+/// at varying heights that animate frame-to-frame — exact match
+/// for the equalizer pattern this view now ships.
 struct WaveformView: View {
     let isPlaying: Bool
 
     /// Drawing width in points. Defaults size up the visualizer for
     /// the pill; pass smaller for the music-page source badge.
-    var width: CGFloat = 26
-    /// Drawing height in points. The wave occupies the central
-    /// `height * 2 * amplitudeMul` band; the rest is breathing room
-    /// so peaks don't clip against the line cap.
+    var width: CGFloat = 16
+    /// Drawing height in points. Bars grow up to half this height
+    /// in each direction from the centerline.
     var height: CGFloat = 14
-    /// Stroke width — 1.6pt reads as confident at retina scale without
-    /// turning into a thick line that hides the curvy silhouette.
-    var lineWidth: CGFloat = 1.6
-    /// Tint applied to the stroke. Defaults to `Color.white` so the view
+    /// Width of each individual bar capsule.
+    var lineWidth: CGFloat = 2.0
+    /// Tint applied to the bars. Defaults to `Color.white` so the view
     /// works on any dark background; pass an explicit color for callers
     /// that need brand alignment.
     var tint: Color = .white
-    /// Foreground opacity. Used to dial the wave down to a quiet
+    /// Foreground opacity. Used to dial the visualizer down to a quiet
     /// secondary-info brightness — it's decorative, not the focal
     /// point.
     var opacity: Double = 0.85
     /// Optional rhythmic pattern that drives the amplitude envelope.
-    /// When provided, the wave's height pulses to a programmatically-
-    /// generated beat structure (kick, swell, fills) instead of a
-    /// continuous sine — gives the visualizer the LOOK of real audio
-    /// without needing system audio capture. Pick one per track via
+    /// When provided, the bars' heights pulse to a programmatically-
+    /// generated beat structure (kick, swell, fills) — gives the
+    /// visualizer the LOOK of real audio without needing system audio
+    /// capture. Pick one per track via
     /// `WaveformPattern.deterministic(for:)` for stable per-track
     /// visual identity.
     var pattern: WaveformPattern = .midtempo
 
+    /// Number of bars. Three is the sweet spot:
+    ///   • 2 bars read as bare-minimum and feel sparse
+    ///   • 4+ bars increase the chance of sorted-staircase moments
+    ///     and reintroduce the Wi-Fi ambiguity
+    ///   • 3 bars give clear equalizer character with minimal risk
+    private let barCount = 3
+
     var body: some View {
-        // TimelineView re-evaluates the body at each refresh. Inside the
-        // closure we recompute the entire path from `context.date` —
-        // cheap because Canvas just walks the path once per frame, no
-        // SwiftUI view diffing per-sample. `paused: !isPlaying` halts
-        // the timeline when playback pauses; the closure is then never
-        // re-invoked, so the view freezes at the last drawn frame
-        // (visually equivalent to a "muted, ready" state).
+        // TimelineView re-evaluates the body at each refresh. Inside
+        // the closure we recompute all bar heights from `context.date`.
+        // `paused: !isPlaying` halts the timeline when playback pauses;
+        // bars freeze at their last height — visually "muted, ready."
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !isPlaying)) { context in
-            // Fold the absolute reference-date time (currently ~7.6e8
-            // and growing ~3e7/year) into a small repeating window
-            // before feeding it into sin(). For very large arguments,
-            // sin/cos lose precision because each radian represents
-            // a smaller fraction of the magnitude. Folding by
-            // `2π * 1000` keeps the value < ~6283 — comfortably below
-            // the precision-loss regime — while preserving the visual
-            // continuity (the wave loops every 1000 seconds, longer
-            // than any reasonable continuous viewing session).
+            // Fold the absolute reference-date time before feeding it
+            // into sin(). Same precision-preservation reason as the
+            // previous oscilloscope version: very large radian
+            // arguments lose sin/cos resolution.
             let raw = context.date.timeIntervalSinceReferenceDate
             let foldedTime = raw.truncatingRemainder(dividingBy: 2 * .pi * 1000)
             let time = foldedTime.isFinite ? foldedTime : 0
+
+            // Rhythmic envelope from the selected pattern — drives
+            // the OVERALL height as if sampling a real audio signal.
+            // The bars individually pulse against this envelope so
+            // a "kick" beat shows as all three bars peaking at once,
+            // while quiet moments dampen all bars together.
+            let envelope = pattern.envelope(at: time)
+            let envFinite = envelope.isFinite ? envelope : 1.0
+            // Idle amplitude is a barely-perceptible wobble — reads
+            // as "audio loaded but quiet" rather than "view broken."
+            let amplitudeMul: Double = (isPlaying ? 0.85 : 0.10) * envFinite
+
             Canvas { ctx, size in
-                var path = Path()
-                // 32 vertices is enough for the curve to read smooth at
-                // retina at the sizes we use (≤ 28pt wide). Higher counts
-                // pay diminishing returns — the line cap rounds out any
-                // remaining angularity at the joints.
-                let steps = 32
-                // Idle amplitude is a barely-perceptible wobble — the
-                // user reads "audio is loaded but quiet" rather than
-                // "view is broken / blank."
-                // Rhythmic envelope from the selected pattern — drives
-                // the wave's height as if it were sampling a real
-                // audio signal. Each pattern has its own BPM and
-                // dynamic feel (kick spikes, swells, fills); the
-                // visualizer pulses in time with that simulated
-                // beat instead of a continuous sine.
-                let envelope = pattern.envelope(at: time)
-                let envFinite = envelope.isFinite ? envelope : 1.0
-                let amplitudeMul: Double = (isPlaying ? 0.55 : 0.05) * envFinite
-                for i in 0...steps {
-                    let t = Double(i) / Double(steps)
-                    let x = CGFloat(t) * size.width
-                    // FOUR summed sinusoids at incommensurate
-                    // frequencies. Each has a different spatial
-                    // frequency (cycles across the width) AND a
-                    // different phase scroll rate, with no integer
-                    // ratios between them — the sum never repeats
-                    // periodically and never falls into a
-                    // recognizable static pattern. Mixing weights
-                    // (0.45/0.28/0.18/0.09) put most energy in the
-                    // low-frequency carrier with progressively
-                    // smaller contributions from higher harmonics —
-                    // gives a "natural musical" silhouette rather
-                    // than a synthetic pure-tone sawtooth feel.
-                    let p1 = t * 3.4 * .pi - time * 4.7
-                    let p2 = t * 5.9 * .pi - time * 3.1
-                    let p3 = t * 9.1 * .pi - time * 6.3
-                    let p4 = t * 13.7 * .pi - time * 2.4
-                    let signal = sin(p1) * 0.45
-                                + sin(p2) * 0.28
-                                + sin(p3) * 0.18
-                                + sin(p4) * 0.09
-                    // Final NaN/inf guard — if any sin() returned a
-                    // non-finite value (vanishingly unlikely with the
-                    // folded `time`, but cheap to enforce), fall
-                    // back to the centerline so we draw a flat line
-                    // rather than corrupting the Canvas path.
-                    let safeSignal = signal.isFinite ? signal : 0
-                    let y = size.height / 2 + CGFloat(safeSignal * amplitudeMul) * size.height
-                    if i == 0 {
-                        path.move(to: CGPoint(x: x, y: y))
-                    } else {
-                        path.addLine(to: CGPoint(x: x, y: y))
-                    }
-                }
-                ctx.stroke(
-                    path,
-                    with: .color(tint.opacity(opacity)),
-                    style: StrokeStyle(
-                        lineWidth: lineWidth,
-                        lineCap: .round,
-                        lineJoin: .round
+                let halfH = size.height / 2
+                // Total horizontal layout: barCount bars + (barCount-1)
+                // gaps. Spacing chosen so the bars hug each other
+                // tightly (gap = 0.7 * lineWidth) — looks like a single
+                // visualizer cluster, not three independent dots.
+                let gap = lineWidth * 0.7
+                let totalW = CGFloat(barCount) * lineWidth + CGFloat(barCount - 1) * gap
+                let startX = (size.width - totalW) / 2
+
+                // Three INCOMMENSURATE periods, picked so no two share
+                // a rational ratio. Tuned by eye for "real-audio"
+                // dynamics — the ear/eye reads bursty pulses against
+                // a sustained background, not a metronome.
+                //   • bar 0 period 0.71s (fastest, ~1.4 Hz)
+                //   • bar 1 period 1.13s (~0.88 Hz)
+                //   • bar 2 period 1.69s (slowest, ~0.59 Hz)
+                // π / e / √2 family — ratios irrational, the loop
+                // composed of all three never closes.
+                let periods: [Double] = [0.71, 1.13, 1.69]
+                // Phase offsets so the three bars don't start in lock-
+                // step. Different starting points + different periods
+                // = bars are never in any predictable relative
+                // configuration.
+                let phases: [Double] = [0.0, 1.7, 3.3]
+
+                for i in 0..<barCount {
+                    let phase = (time / periods[i] + phases[i]) * 2 * .pi
+                    // Per-bar "audio" signal sums two harmonics so
+                    // each bar pulses with character (bursty), not a
+                    // pure clean sine. Different harmonic ratio per
+                    // bar so each one has its own personality.
+                    let h1 = sin(phase) * 0.7
+                    let h2 = sin(phase * 2.3 + Double(i)) * 0.3
+                    let signal = h1 + h2
+                    let safeSignal = signal.isFinite ? abs(signal) : 0.5
+                    // Per-bar height as fraction of half-height.
+                    // Floor at 0.18 so bars are always visible (no
+                    // collapsing to zero — would look broken).
+                    let barHeightFrac = max(0.18, safeSignal * amplitudeMul)
+                    let barHalfH = halfH * CGFloat(barHeightFrac)
+
+                    let x = startX + CGFloat(i) * (lineWidth + gap)
+                    // Capsule centered on the middle of the canvas
+                    // — grows up AND down from y = halfH. This is
+                    // what kills the Wi-Fi ambiguity: a Wi-Fi
+                    // indicator always grows from a single bottom
+                    // baseline, never from a middle line.
+                    let rect = CGRect(
+                        x: x,
+                        y: halfH - barHalfH,
+                        width: lineWidth,
+                        height: barHalfH * 2
                     )
-                )
+                    let path = Path(roundedRect: rect,
+                                    cornerRadius: lineWidth / 2)
+                    ctx.fill(path, with: .color(tint.opacity(opacity)))
+                }
             }
             .frame(width: width, height: height)
         }
         .frame(width: width, height: height)
-        // Kill default accessibility; the waveform is decorative. The
-        // surrounding view (pill, badge) carries the actual semantics.
+        // Kill default accessibility; the visualizer is decorative.
+        // The surrounding view (pill, badge) carries the semantics.
         .accessibilityHidden(true)
     }
 }

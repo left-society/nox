@@ -34,8 +34,10 @@ enum GeminiSummaryService {
     /// Returns `.missingAPIKey` (caller surfaces a settings prompt),
     /// `.success` with the summary, or `.failure` with a short reason.
     static func summarize(body: String) async -> Result {
-        let key = (UserDefaults.standard.string(forKey: apiKeyDefaultsKey) ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Keychain-backed read — see GeminiOCRService for the full
+        // rationale (security audit, May 2026).
+        let stored = await MainActor.run { SecureKeyStore.shared.load(.geminiApiKey) }
+        let key = (stored ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return .missingAPIKey }
 
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -57,13 +59,17 @@ enum GeminiSummaryService {
         \(capped)
         """
 
-        guard let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=\(key)") else {
+        // Per BUG-007 fix: API key moved out of URL query into
+        // the `x-goog-api-key` header. See GeminiOCRService for
+        // the rationale.
+        guard let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent") else {
             return .failure("Bad URL")
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(key, forHTTPHeaderField: "x-goog-api-key")
         request.timeoutInterval = 30
 
         let payload: [String: Any] = [
@@ -77,11 +83,16 @@ enum GeminiSummaryService {
                 // (high temp would invite creative paraphrasing the
                 // user didn't ask for).
                 "temperature": 0.2,
-                // Cap output tokens to ~30 — comfortably above the
-                // 6-10 word target. The model usually self-stops
-                // after the summary, but the cap is a safety net
-                // against runaway generations.
-                "maxOutputTokens": 40
+                // Per BUG-073 fix: bumped from 40 to 80. 40 tokens
+                // covered ~25 words but Gemini sometimes added an
+                // explanatory clause and got truncated MID-WORD,
+                // landing things like "This note discusses the
+                // implementation of a new" in the DB. 80 tokens
+                // gives generous headroom for a complete sentence
+                // while still capping runaway generations. The
+                // model still self-stops at 6-10 words in the
+                // common case so cost-per-call doesn't change.
+                "maxOutputTokens": 80
             ]
         ]
 
@@ -120,6 +131,90 @@ enum GeminiSummaryService {
             }
             summary = summary.replacingOccurrences(of: "\n", with: " ")
             summary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !summary.isEmpty else { return .failure("Empty result") }
+            return .success(summary)
+        } catch {
+            return .failure(error.localizedDescription)
+        }
+    }
+
+    /// Longer, in-editor summary for the popout note window. Returns
+    /// a one-sentence overview followed by 3-6 markdown bullet points
+    /// — designed to be PREPENDED to a note (the user is watching a
+    /// video and wants their captured-as-they-typed notes condensed
+    /// into a study-ready block at the top).
+    ///
+    /// Same key, same model, same cap as `summarize` — just a fuller
+    /// prompt and a higher token ceiling. The popout's "AI Summarize"
+    /// button calls this; the auto-summary on save still uses the
+    /// short variant for the list-row preview.
+    static func summarizeDetail(body: String) async -> Result {
+        let stored = await MainActor.run { SecureKeyStore.shared.load(.geminiApiKey) }
+        let key = (stored ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return .missingAPIKey }
+
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .failure("Empty note") }
+        let capped = String(trimmed.prefix(8000))
+
+        let prompt = """
+        You are a study-notes assistant. The user is taking notes while watching a video. Read their note and produce a concise review block:
+
+        - Open with ONE sentence summarizing what the note covers (no preamble like "This note discusses…").
+        - Then list 3 to 6 bullet points capturing the key takeaways.
+        - Use markdown: hyphens for bullets, **bold** sparingly for true emphasis only.
+        - Output ONLY the summary block. No headers, no quotes, no commentary.
+
+        Note text:
+        \(capped)
+        """
+
+        guard let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent") else {
+            return .failure("Bad URL")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(key, forHTTPHeaderField: "x-goog-api-key")
+        request.timeoutInterval = 60
+
+        let payload: [String: Any] = [
+            "contents": [["parts": [["text": prompt]]]],
+            "generationConfig": [
+                "temperature": 0.3,
+                // ~600 tokens ≈ 450 words: comfortable headroom for
+                // 1 sentence + 6 bullet points without truncation.
+                "maxOutputTokens": 600
+            ]
+        ]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        } catch {
+            return .failure("Encode failed")
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                return .failure("No response")
+            }
+            guard http.statusCode == 200 else {
+                return .failure("HTTP \(http.statusCode)")
+            }
+            guard
+                let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let candidates = json["candidates"] as? [[String: Any]],
+                let first = candidates.first,
+                let content = first["content"] as? [String: Any],
+                let parts = content["parts"] as? [[String: Any]],
+                let firstPart = parts.first,
+                let text = firstPart["text"] as? String
+            else {
+                return .failure("Bad shape")
+            }
+            let summary = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !summary.isEmpty else { return .failure("Empty result") }
             return .success(summary)
         } catch {

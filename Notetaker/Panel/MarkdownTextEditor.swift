@@ -36,6 +36,11 @@ struct MarkdownTextEditor: NSViewRepresentable {
         var insertTodo: (() -> Void)?
         var insertQuote: (() -> Void)?
         var insertDivider: (() -> Void)?
+        /// Insert arbitrary text at the current caret position.
+        /// Used by the dictation mic button to drop the
+        /// transcribed text right where the user was typing,
+        /// without going through the system-wide auto-type path.
+        var insertText: ((String) -> Void)?
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -74,6 +79,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
         coordinatorRef.insertTodo = { context.coordinator.insertLinePrefix("- [ ] ") }
         coordinatorRef.insertQuote = { context.coordinator.insertLinePrefix("> ") }
         coordinatorRef.insertDivider = { context.coordinator.insertDivider() }
+        coordinatorRef.insertText = { text in context.coordinator.insertText(text) }
 
         scroll.documentView = textView
         return scroll
@@ -115,7 +121,19 @@ struct MarkdownTextEditor: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
             text = tv.string
-            applyStyling()
+            // Per BUG-036 fix: restyle ONLY the edited line(s),
+            // not the entire document. The old `applyStyling()`
+            // iterated every line in the storage on every
+            // keystroke — fine for short notes, but on a
+            // 5000-line note that's 5000 lineRange/applyLineStyle
+            // round-trips per keystroke, which the user reported
+            // as visible jank. Localized restyle is O(1) in
+            // typing cost regardless of document length. We
+            // include one line above and one below the caret in
+            // the restyle window so multi-line edits (paste,
+            // cross-line delete, return-key) still get re-styled
+            // correctly without needing a full pass.
+            applyStylingNearCaret(tv: tv)
         }
 
         // MARK: Cursor-aware insertion
@@ -179,6 +197,44 @@ struct MarkdownTextEditor: NSViewRepresentable {
             return line
         }
 
+        /// Insert arbitrary text at the current caret position.
+        /// Replaces any current selection. Used by the dictation
+        /// mic button to drop transcribed text right where the
+        /// user was typing.
+        ///
+        /// Adds a leading space if the character before the caret
+        /// isn't whitespace and the inserted text doesn't start
+        /// with one — so dictating mid-sentence reads as "old text
+        /// new text" rather than "old textnew text."
+        func insertText(_ insertion: String) {
+            guard let tv = textView, !insertion.isEmpty else { return }
+            let sel = tv.selectedRange()
+            let ns = tv.string as NSString
+
+            var toInsert = insertion
+            // Leading-space heuristic: if caret is mid-sentence and
+            // the inserted text doesn't start with whitespace, add
+            // one. Skip when caret is at line start, document start,
+            // or right after whitespace.
+            if sel.location > 0 && sel.length == 0 && !insertion.first!.isWhitespace {
+                let prevChar = ns.substring(with: NSRange(location: sel.location - 1, length: 1))
+                if let prev = prevChar.first, !prev.isWhitespace {
+                    toInsert = " " + insertion
+                }
+            }
+
+            tv.shouldChangeText(in: sel, replacementString: toInsert)
+            tv.replaceCharacters(in: sel, with: toInsert)
+            tv.didChangeText()
+
+            // Move caret to end of inserted text.
+            let newCaret = sel.location + (toInsert as NSString).length
+            let safeMax = (tv.string as NSString).length
+            tv.setSelectedRange(NSRange(location: min(newCaret, safeMax), length: 0))
+            text = tv.string
+            applyStylingNearCaret(tv: tv)
+        }
+
         func insertDivider() {
             guard let tv = textView else { return }
             let ns = tv.string as NSString
@@ -215,6 +271,71 @@ struct MarkdownTextEditor: NSViewRepresentable {
         /// dimmed color so it's still legible (the user knows they
         /// have a heading) but recedes visually next to the actual
         /// content.
+        /// Per BUG-036 fix: localized restyling around the caret.
+        /// Used by `textDidChange` instead of the full-document
+        /// pass below, so per-keystroke cost is O(1) in document
+        /// size. Includes one line above and below the caret so
+        /// multi-line edits (paste, return key, cross-line
+        /// delete) still get restyled.
+        func applyStylingNearCaret(tv: NSTextView) {
+            guard let storage = tv.textStorage else { return }
+            let ns = storage.string as NSString
+            guard ns.length > 0 else { return }
+            let bodyFont = NSFont.systemFont(ofSize: 14)
+            let headingFont = NSFont.systemFont(ofSize: 18, weight: .semibold)
+            let subheadFont = NSFont.systemFont(ofSize: 16, weight: .semibold)
+            let primary = NSColor(DS.Color.textPrimary)
+            let secondary = NSColor(DS.Color.textSecondary)
+            let dim = NSColor(DS.Color.textTertiary).withAlphaComponent(0.55)
+
+            let caret = min(tv.selectedRange().location, ns.length)
+            // Anchor line: where the caret currently sits.
+            let anchorLine = ns.lineRange(for: NSRange(location: caret, length: 0))
+            // Expand by one line above and one below.
+            var startLoc = anchorLine.location
+            var endLoc = anchorLine.location + anchorLine.length
+            if startLoc > 0 {
+                let above = ns.lineRange(for: NSRange(location: startLoc - 1, length: 0))
+                startLoc = above.location
+            }
+            if endLoc < ns.length {
+                let below = ns.lineRange(for: NSRange(location: endLoc, length: 0))
+                endLoc = below.location + below.length
+            }
+            let restyleRange = NSRange(location: startLoc, length: endLoc - startLoc)
+
+            storage.beginEditing()
+            // Reset attributes within the restyle window only.
+            storage.setAttributes([
+                .font: bodyFont,
+                .foregroundColor: primary
+            ], range: restyleRange)
+            // Re-style each line within the window.
+            var lineLoc = restyleRange.location
+            while lineLoc < restyleRange.location + restyleRange.length {
+                let lr = ns.lineRange(for: NSRange(location: lineLoc, length: 0))
+                let lt = ns.substring(with: lr)
+                applyLineStyle(
+                    storage: storage,
+                    lineRange: lr,
+                    lineText: lt,
+                    bodyFont: bodyFont,
+                    headingFont: headingFont,
+                    subheadFont: subheadFont,
+                    primary: primary,
+                    secondary: secondary,
+                    dim: dim
+                )
+                lineLoc = lr.location + lr.length
+            }
+            storage.endEditing()
+        }
+
+        /// Full-document restyle. Used on initial mount + when the
+        /// binding rebinds to a different note. Per BUG-036 fix:
+        /// no longer called from `textDidChange` — that path uses
+        /// `applyStylingNearCaret` instead so typing on long notes
+        /// stays smooth.
         func applyStyling() {
             guard let tv = textView, let storage = tv.textStorage else { return }
             let full = NSRange(location: 0, length: storage.length)

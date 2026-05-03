@@ -3,11 +3,16 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Notetaker. Lives in your notch.</title>
-<meta name="description" content="Notes, screenshots, music, video. All from your notch. Without leaving what you're doing." />
+<title>nox — it's there.</title>
+<meta name="description" content="Music, notes, files — in the notch you already own. A quiet HUD for macOS that lives in the strip above your screen." />
+<meta property="og:title" content="nox — it's there." />
+<meta property="og:description" content="Music, notes, files — in the notch you already own." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://nox.app" />
+<meta name="theme-color" content="#000000" />
+
 <link rel="icon" type="image/png" href="assets/app-icon-128.png" />
 <link rel="apple-touch-icon" href="assets/app-icon-256.png" />
-<meta name="theme-color" content="#000000" />
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -17,824 +22,286 @@
 </head>
 <body>
 
+<!-- Reusable inline brand glyph, same silhouette as the macOS app icon. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="noxGlyph" viewBox="0 0 32 32">
+      <mask id="noxNotchMask">
+        <rect width="32" height="32" fill="white"/>
+        <rect x="14.5" y="5.4" width="3" height="1.4" fill="black"/>
+      </mask>
+      <g mask="url(#noxNotchMask)">
+        <circle cx="16" cy="16" r="9.4" fill="none" stroke="#C5A3FF" stroke-width="1.6"/>
+      </g>
+    </symbol>
+  </defs>
+</svg>
+
 <header class="site-nav">
   <a href="#" class="brand">
-    <img src="assets/app-icon-128.png" alt="" />
-    <span>Notetaker</span>
+    <span class="brand-mark"><svg viewBox="0 0 32 32" width="22" height="22"><use href="#noxGlyph"/></svg></span>
+    <span class="brand-name">nox</span>
+    <span class="brand-version">v1.2 beta</span>
   </a>
   <nav>
-    <a href="#what">What it does</a>
-    <a href="#keys">Keys</a>
+    <a href="#privacy">Privacy</a>
+    <a href="#compare">Compare</a>
+    <a href="#faq">FAQ</a>
     <a href="#download" class="dl">Download</a>
   </nav>
 </header>
 
 
-<!-- =========================================================
-     HERO — one big interactive notch demo, that's the whole hero
-     ========================================================= -->
 <main>
 
-<section class="hero">
+<!-- =====================================================================
+     CINEMA STAGE
+     The MacBook is the protagonist. It stays pinned in view across the
+     hero + pillar + music beats. Only the notch content morphs as the
+     user scrolls. ScrollTrigger drives the timeline; Lenis adds the
+     smooth-inertial feel.
+     ===================================================================== -->
+<div class="cinema-stage" id="cinema">
 
-  <div class="mbp" aria-label="MacBook with active notch">
-    <div class="mbp-screen">
-      <div class="mbp-wallpaper"></div>
-      <div class="mbp-menubar">
-        <span class="apple"></span>
-        <span class="mb-app">Notetaker</span>
-        <span class="mb-menu">File</span>
-        <span class="mb-menu">Edit</span>
-        <span class="mb-menu">View</span>
-        <span class="mb-menu">Window</span>
-        <span class="mb-menu">Help</span>
-        <span class="spacer"></span>
-        <!-- right-side menubar glyphs — proper macOS Sonoma proportions -->
-        <!-- WiFi (3 arcs with a dot) -->
-        <svg class="mb-glyph" viewBox="0 0 18 14" width="15" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-          <path d="M2.2 5.6a10 10 0 0 1 13.6 0"/>
-          <path d="M4.5 8a6.5 6.5 0 0 1 9 0"/>
-          <path d="M6.8 10.4a3 3 0 0 1 4.4 0"/>
-          <circle cx="9" cy="12" r="0.9" fill="currentColor" stroke="none"/>
-        </svg>
-        <!-- Battery (rounded with fill bar + nub) -->
-        <svg class="mb-glyph mb-glyph-battery" viewBox="0 0 24 11" width="22" height="10" fill="none">
-          <rect x="0.6" y="0.6" width="20" height="9.8" rx="2.2" stroke="currentColor" stroke-width="1.2" fill="none"/>
-          <rect x="2" y="2" width="14" height="7" rx="1" fill="currentColor"/>
-          <rect x="21.6" y="3.5" width="1.8" height="4" rx="0.8" fill="currentColor"/>
-        </svg>
-        <!-- Spotlight magnifier -->
-        <svg class="mb-glyph" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-          <circle cx="6.8" cy="6.8" r="4.6"/>
-          <path d="M10.4 10.4l4 4"/>
-        </svg>
-        <!-- Control Center (two stacked pill sliders) -->
-        <svg class="mb-glyph mb-glyph-cc" viewBox="0 0 18 14" width="15" height="12" fill="none">
-          <rect x="0.6" y="1" width="16.8" height="4.2" rx="2.1" stroke="currentColor" stroke-width="1.2" fill="none"/>
-          <circle cx="13" cy="3.1" r="1.1" fill="currentColor"/>
-          <rect x="0.6" y="8.8" width="16.8" height="4.2" rx="2.1" stroke="currentColor" stroke-width="1.2" fill="none"/>
-          <circle cx="5" cy="10.9" r="1.1" fill="currentColor"/>
-        </svg>
-        <span class="mb-time">Sun 26 Apr&nbsp;&nbsp;12:34</span>
-      </div>
+  <!-- The pinned region. Stays in view across the cinema-stage's full
+       height. All beats live INSIDE this pin (as overlays); only one
+       is visible at a time, controlled by GSAP. -->
+  <div class="cinema-pin">
 
-      <div class="notch" id="notch" data-state="music">
-        <!-- music state — the dominant resting pill, matching the real app.
-             Wave is a Canvas running the same 4-sinusoid algorithm the
-             Swift WaveformView uses, so it never repeats. -->
-        <div class="n-state n-music" data-state="music">
-          <div class="art"><img src="assets/inbox/inbox-6.jpg" alt=""/></div>
-          <canvas class="wave-canvas" data-tint="#ff6b8a" width="60" height="36"></canvas>
-        </div>
+  <!-- The MacBook lives inside the pin too. It's centered. -->
+  <div class="cinema-mac" id="cinemaMac">
+    <div class="mbp">
+      <div class="mbp-screen">
+        <div class="mbp-wallpaper"></div>
 
-        <!-- shot state -->
-        <div class="n-state n-shot" data-state="shot">
-          <div class="shot-thumb"></div>
-          <div class="shot-text">
-            <div class="shot-line">Screenshot saved</div>
-            <div class="shot-sub">Notetaker · Images</div>
-          </div>
-        </div>
-
-        <!-- video download state -->
-        <div class="n-state n-video" data-state="video">
-          <div class="vid-icon">↓</div>
-          <div class="vid-text">
-            <div class="vid-line">Downloading…</div>
-            <div class="vid-bar"><div class="vid-bar-fill"></div></div>
-          </div>
-        </div>
-
-        <!-- panel-open state — full app UI matching the real Notetaker -->
-        <div class="n-state n-panel" data-state="panel" id="nPanel">
-          <!-- title bar -->
-          <div class="panel-titlebar">
-            <button class="panel-newnote" title="New note">
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M2 14h12M11 2l3 3-8 8H3v-3z"/>
-              </svg>
-            </button>
-            <span class="panel-title">Notetaker</span>
-            <span class="panel-grow"></span>
-            <span class="panel-kbd">⌥</span>
-            <span class="panel-kbd-text">Space</span>
-            <button class="panel-gear" title="Settings">
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4">
-                <circle cx="8" cy="8" r="2.4"/>
-                <path d="M8 1.2v1.8M8 13v1.8M14.8 8H13M3 8H1.2M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3M12.6 12.6l-1.3-1.3M4.7 4.7L3.4 3.4"/>
-              </svg>
-            </button>
-          </div>
-
-          <!-- tab bar — matches real app: music icon | Notes | Images | Videos | Files -->
-          <div class="panel-tabs" id="panelTabs">
-            <button data-pt="music" class="is-active is-icon" title="Music">
-              <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
-                <path d="M13 2.5a.5.5 0 0 0-.59-.49l-7 1.5A.5.5 0 0 0 5 4v8.05a2.5 2.5 0 1 0 1 2v-7.6l6-1.29v5.94a2.5 2.5 0 1 0 1 2z"/>
-              </svg>
-            </button>
-            <button data-pt="notes">Notes</button>
-            <button data-pt="images">Images</button>
-            <button data-pt="videos">Videos</button>
-            <button data-pt="files">Files</button>
-          </div>
-
-          <div class="panel-body" id="panelBody">
-            <!-- MUSIC PANE — matches real app: art + title/artist/album + dot viz + progress + transport + source pill -->
-            <div class="pane is-active" data-pp="music">
-              <div class="m-row">
-                <div class="m-art">
-                  <img src="assets/inbox/inbox-6.jpg" alt="" onerror="this.style.display='none'"/>
-                </div>
-                <div class="m-meta">
-                  <div class="m-title">Closer</div>
-                  <div class="m-artist">The Chainsmokers</div>
-                  <div class="m-album">Closer</div>
-                </div>
-                <canvas class="sphere-viz" data-tint="232,196,124" width="160" height="160"></canvas>
-              </div>
-
-              <div class="m-progress">
-                <div class="m-progress-bar">
-                  <div class="m-progress-fill"></div>
-                </div>
-                <div class="m-times">
-                  <span>0:38</span>
-                  <span>−3:26</span>
-                </div>
-              </div>
-
-              <div class="m-transport">
-                <button class="m-prev">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 5v14M19 5v14L8 12z"/></svg>
-                </button>
-                <button class="m-pp">
-                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M9 5v14l11-7z"/></svg>
-                </button>
-                <button class="m-next">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M18 5v14M5 5v14l11-7z"/></svg>
-                </button>
-              </div>
-
-              <div class="m-source">
-                <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor"><path d="M3 6v4h2l3 3V3L5 6H3zm9 0a2 2 0 0 1 0 4M11.5 4a4 4 0 0 1 0 8"/></svg>
-                Playing in Spotify
-              </div>
-            </div>
-
-            <!-- NOTES PANE — matches real app: + New note, search, list with timestamps -->
-            <div class="pane" data-pp="notes">
-              <button class="notes-new">
-                <span class="plus">+</span>
-                <span class="notes-new-label">New note</span>
-                <span class="notes-new-kbd">⌥&nbsp;N</span>
-              </button>
-              <div class="notes-search">
-                <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
-                  <circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5"/>
-                </svg>
-                <span class="notes-search-ph">Search notes</span>
-                <button class="notes-clear-btn" type="button">
-                  <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 5h10M5.5 5V3.5h5V5M6 5v8M10 5v8M4 5l1 9h6l1-9"/></svg>
-                  Clear
-                </button>
-              </div>
-              <div class="notes-list">
-                <div class="note-row">
-                  <div class="note-t">Tomorrow&apos;s standup. Demo the pill. Agree on launch tweet.</div>
-                  <div class="note-time">3 min ago</div>
-                </div>
-                <div class="note-row">
-                  <div class="note-t">"The best interface is no interface. Until you need one."</div>
-                  <div class="note-time">20 min ago</div>
-                </div>
-                <div class="note-row">
-                  <div class="note-t">https://news.ycombinator.com/item?id=42…</div>
-                  <div class="note-time">36 min ago</div>
-                </div>
-                <div class="note-row">
-                  <div class="note-t">Closer. The Chainsmokers. Spotify link.</div>
-                  <div class="note-time">45 min ago</div>
-                </div>
-                <div class="note-row">
-                  <div class="note-t">Idea: pre-bloom the panel on cursor entry, dwell 200&nbsp;ms for full open</div>
-                  <div class="note-time">1 hr ago</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- IMAGES PANE — count, "20 images / Copy all" stack card, 2-col grid with trash -->
-            <div class="pane" data-pp="images">
-              <div class="img-toolbar">
-                <span class="img-count">6 images</span>
-                <button class="img-clear-btn" type="button">
-                  <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 5h10M5.5 5V3.5h5V5M6 5v8M10 5v8M4 5l1 9h6l1-9"/></svg>
-                  Clear
-                </button>
-              </div>
-              <div class="img-stack">
-                <div class="img-stack-thumbs">
-                  <img src="assets/inbox/inbox-1.jpg" alt="" onerror="this.style.display='none'"/>
-                  <img src="assets/inbox/inbox-2.jpg" alt="" onerror="this.style.display='none'"/>
-                  <img src="assets/inbox/inbox-3.jpg" alt="" onerror="this.style.display='none'"/>
-                </div>
-                <div class="img-stack-meta">
-                  <div class="img-stack-t">6 images</div>
-                  <div class="img-stack-b">Copy or drag the stack</div>
-                </div>
-                <button class="img-stack-copy" type="button">
-                  <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4" y="4" width="9" height="9" rx="1.5"/><path d="M3 11V3h8"/></svg>
-                  Copy all
-                </button>
-              </div>
-              <div class="img-grid-2">
-                <div class="img-tile"><button class="tile-trash" aria-label="Delete"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M6 5V3.5h4V5M5.5 5l.5 8h4l.5-8"/></svg></button><img src="assets/inbox/inbox-4.jpg" alt="" onerror="this.style.display='none'"/></div>
-                <div class="img-tile"><button class="tile-trash" aria-label="Delete"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M6 5V3.5h4V5M5.5 5l.5 8h4l.5-8"/></svg></button><img src="assets/inbox/inbox-5.jpg" alt="" onerror="this.style.display='none'"/></div>
-                <div class="img-tile"><button class="tile-trash" aria-label="Delete"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M6 5V3.5h4V5M5.5 5l.5 8h4l.5-8"/></svg></button><img src="assets/inbox/inbox-6.jpg" alt="" onerror="this.style.display='none'"/></div>
-                <div class="img-tile"><button class="tile-trash" aria-label="Delete"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M6 5V3.5h4V5M5.5 5l.5 8h4l.5-8"/></svg></button><img src="assets/inbox/inbox-1.jpg" alt="" onerror="this.style.display='none'"/></div>
-              </div>
-            </div>
-
-            <!-- VIDEOS PANE — count, 2-col thumbnail grid with trash + play overlay + duration -->
-            <div class="pane" data-pp="videos">
-              <div class="vid-toolbar">
-                <span class="vid-count">4 videos</span>
-                <button class="vid-clear-btn" type="button">
-                  <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 5h10M5.5 5V3.5h5V5M6 5v8M10 5v8M4 5l1 9h6l1-9"/></svg>
-                  Clear
-                </button>
-              </div>
-              <div class="vid-grid">
-                <div class="vid-tile">
-                  <button class="tile-trash"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M6 5V3.5h4V5M5.5 5l.5 8h4l.5-8"/></svg></button>
-                  <video src="assets/videos/video-1.mp4" muted autoplay loop playsinline preload="metadata"></video>
-                  <div class="vid-play"><svg viewBox="0 0 24 24" width="14" height="14" fill="#fff"><path d="M9 5v14l11-7z"/></svg></div>
-                  <div class="vid-dur">0:41</div>
-                </div>
-                <div class="vid-tile">
-                  <button class="tile-trash"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M6 5V3.5h4V5M5.5 5l.5 8h4l.5-8"/></svg></button>
-                  <video src="assets/videos/video-2.mp4" muted autoplay loop playsinline preload="metadata"></video>
-                  <div class="vid-play"><svg viewBox="0 0 24 24" width="14" height="14" fill="#fff"><path d="M9 5v14l11-7z"/></svg></div>
-                  <div class="vid-dur">0:43</div>
-                </div>
-                <div class="vid-tile">
-                  <button class="tile-trash"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M6 5V3.5h4V5M5.5 5l.5 8h4l.5-8"/></svg></button>
-                  <div class="vid-fake-thumb" style="background:linear-gradient(135deg,#3a2030 0%,#80c060 100%);"></div>
-                  <div class="vid-play"><svg viewBox="0 0 24 24" width="14" height="14" fill="#fff"><path d="M9 5v14l11-7z"/></svg></div>
-                  <div class="vid-dur">20:20</div>
-                </div>
-                <div class="vid-tile">
-                  <button class="tile-trash"><svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M6 5V3.5h4V5M5.5 5l.5 8h4l.5-8"/></svg></button>
-                  <div class="vid-fake-thumb" style="background:linear-gradient(135deg,#c52050 0%,#f08020 100%);"></div>
-                  <div class="vid-play"><svg viewBox="0 0 24 24" width="14" height="14" fill="#fff"><path d="M9 5v14l11-7z"/></svg></div>
-                  <div class="vid-dur">1:55</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- FILES PANE -->
-            <div class="pane" data-pp="files">
-              <div class="file-row">
-                <div class="file-icon">PDF</div>
-                <div class="file-info">
-                  <div class="file-name">Notetaker design doc.pdf</div>
-                  <div class="file-meta">2.4 MB · added 3 min ago</div>
-                </div>
-              </div>
-              <div class="file-row">
-                <div class="file-icon zip">ZIP</div>
-                <div class="file-info">
-                  <div class="file-name">brand-assets-v3.zip</div>
-                  <div class="file-meta">18 MB · added today</div>
-                </div>
-              </div>
-              <div class="file-row">
-                <div class="file-icon doc">DOC</div>
-                <div class="file-info">
-                  <div class="file-name">launch-checklist.md</div>
-                  <div class="file-meta">12 KB · added today</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- macOS Dock — real magnification on cursor proximity -->
-      <div class="mbp-dock" id="mbpDock">
-        <div class="dock-icon" data-app="finder"   title="Finder"   ><img src="assets/dock/finder.png"   alt=""/></div>
-        <div class="dock-icon" data-app="safari"   title="Safari"   ><img src="assets/dock/safari.png"   alt=""/></div>
-        <div class="dock-icon" data-app="mail"     title="Mail"     ><img src="assets/dock/mail.png"     alt=""/></div>
-        <div class="dock-icon" data-app="messages" title="Messages" ><img src="assets/dock/messages.png" alt=""/></div>
-        <div class="dock-icon" data-app="music"    title="Music"    ><img src="assets/dock/music.png"    alt=""/></div>
-        <div class="dock-icon" data-app="photos"   title="Photos"   ><img src="assets/dock/photos.png"   alt=""/></div>
-        <div class="dock-icon" data-app="notes"    title="Notes"    ><img src="assets/dock/notes.png"    alt=""/></div>
-        <div class="dock-icon" data-app="calendar" title="Calendar" ><img src="assets/dock/calendar.png" alt=""/></div>
-        <div class="dock-icon" data-app="appstore" title="App Store"><img src="assets/dock/appstore.png" alt=""/></div>
-        <div class="dock-divider" aria-hidden="true"></div>
-        <div class="dock-icon active" data-app="notetaker" title="Notetaker"><img src="assets/app-icon-256.png" alt=""/></div>
-      </div>
-
-    </div>
-    <div class="mbp-base"></div>
-  </div>
-
-  <div class="hero-words">
-    <h1>Reclaim your notch.</h1>
-    <p>
-      Catches what you copy. Plays your music. Pulls down videos. All from your notch.
-    </p>
-
-    <div class="hero-cta">
-      <a href="#download" class="btn-primary">
-        Download for Mac
-      </a>
-      <a href="#what" class="btn-link">how it works ↓</a>
-    </div>
-    <p class="hero-foot">Free during beta. macOS&nbsp;13 or later.</p>
-  </div>
-</section>
-
-
-<!-- =========================================================
-     A series of single-thought sections.
-     One idea per viewport. Big type. No grids.
-     ========================================================= -->
-
-<!-- Visual-only: a MacBook with a real cursor traveling up to the notch. -->
-<section id="what" class="hover-scroll" aria-label="Reach for the notch">
-  <div class="hover-scroll-inner">
-
-    <p class="hover-scroll-hint" aria-hidden="true">scroll&nbsp;↓ &nbsp;reach&nbsp;for&nbsp;it</p>
-
-    <!-- a focused MacBook frame; cursor travels up inside the screen toward the notch -->
-    <div class="hmac" aria-hidden="true">
-      <div class="hmac-screen">
-        <div class="hmac-wp"></div>
-        <div class="hmac-mb">
+        <!-- Menu bar — visible behind the notch wings -->
+        <div class="mbp-menubar">
           <span class="apple"></span>
-          <span class="hmac-app">Notetaker</span>
+          <span class="mb-app">nox</span>
           <span class="mb-menu">File</span>
           <span class="mb-menu">Edit</span>
           <span class="mb-menu">View</span>
-          <span class="hmac-grow"></span>
-          <svg class="mb-glyph" viewBox="0 0 18 14" width="14" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <span class="mb-menu">Window</span>
+          <span class="mb-menu">Help</span>
+          <span class="spacer"></span>
+          <svg class="mb-glyph" viewBox="0 0 18 14" width="15" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
             <path d="M2.2 5.6a10 10 0 0 1 13.6 0"/>
             <path d="M4.5 8a6.5 6.5 0 0 1 9 0"/>
             <path d="M6.8 10.4a3 3 0 0 1 4.4 0"/>
             <circle cx="9" cy="12" r="0.9" fill="currentColor" stroke="none"/>
           </svg>
-          <svg class="mb-glyph mb-glyph-battery" viewBox="0 0 24 11" width="20" height="9" fill="none">
+          <svg class="mb-glyph mb-glyph-battery" viewBox="0 0 24 11" width="22" height="10" fill="none">
             <rect x="0.6" y="0.6" width="20" height="9.8" rx="2.2" stroke="currentColor" stroke-width="1.2" fill="none"/>
             <rect x="2" y="2" width="14" height="7" rx="1" fill="currentColor"/>
             <rect x="21.6" y="3.5" width="1.8" height="4" rx="0.8" fill="currentColor"/>
           </svg>
-          <svg class="mb-glyph mb-glyph-cc" viewBox="0 0 18 14" width="14" height="11" fill="none">
-            <rect x="0.6" y="1" width="16.8" height="4.2" rx="2.1" stroke="currentColor" stroke-width="1.2" fill="none"/>
-            <circle cx="13" cy="3.1" r="1.1" fill="currentColor"/>
-            <rect x="0.6" y="8.8" width="16.8" height="4.2" rx="2.1" stroke="currentColor" stroke-width="1.2" fill="none"/>
-            <circle cx="5" cy="10.9" r="1.1" fill="currentColor"/>
-          </svg>
-          <span class="hmac-time">Sun 26 Apr&nbsp;&nbsp;12:34</span>
+          <span class="mb-time">Sun 26 Apr&nbsp;&nbsp;12:34</span>
         </div>
 
-        <!-- the notch reacting to the cursor — already playing music at rest -->
-        <div class="hmac-notch" id="hoverNotch">
-          <!-- resting/teasing pill content: album art + live waveform -->
-          <div class="hmac-pill">
-            <div class="hmac-pill-art"><img src="assets/inbox/inbox-6.jpg" alt=""/></div>
-            <canvas class="wave-canvas" data-tint="#ff6b8a" width="44" height="28"></canvas>
+        <!-- THE NOTCH. Single element. GSAP morphs its width / height /
+             radius based on scroll progress. Inside, multiple state
+             contents stacked; opacity is driven by which beat we're in. -->
+        <div class="notch" id="notch" data-state="rest">
+          <!-- Resting "music" pill — 220×20 locked -->
+          <div class="notch-state notch-rest" data-state="rest">
+            <div class="rest-art"></div>
+            <canvas class="rest-wave" width="60" height="36"></canvas>
           </div>
-          <!-- opened: full music pane matching the real app -->
-          <div class="hmac-card">
-            <div class="hmac-card-top">
-              <div class="hmac-card-art"><img src="assets/inbox/inbox-6.jpg" alt=""/></div>
-              <div class="hmac-card-meta">
-                <div class="hmac-card-title">Closer</div>
-                <div class="hmac-card-artist">The Chainsmokers</div>
-                <div class="hmac-card-album">Closer</div>
+
+          <!-- Music slab — full panel content -->
+          <div class="notch-state notch-music" data-state="music">
+            <div class="panel-titlebar">
+              <span class="panel-title">nox</span>
+              <span class="panel-grow"></span>
+              <span class="panel-kbd">⌥&nbsp;Space</span>
+            </div>
+            <div class="panel-tabs">
+              <button class="is-active" aria-label="Music">
+                <svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor">
+                  <path d="M13 2.5a.5.5 0 0 0-.59-.49l-7 1.5A.5.5 0 0 0 5 4v8.05a2.5 2.5 0 1 0 1 2v-7.6l6-1.29v5.94a2.5 2.5 0 1 0 1 2z"/>
+                </svg>
+              </button>
+              <button aria-label="Notes">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                  <rect x="3" y="2.5" width="10" height="11" rx="1.5"/>
+                  <path d="M5.5 6h5M5.5 8.5h5M5.5 11h3"/>
+                </svg>
+              </button>
+              <button aria-label="Images">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="3" width="12" height="10" rx="1.5"/>
+                  <circle cx="6" cy="7" r="1" fill="currentColor"/>
+                  <path d="M3 12l3.5-3.5 2.5 2.5 2-2 2 2"/>
+                </svg>
+              </button>
+              <button aria-label="Videos">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+                  <rect x="2" y="3.5" width="12" height="9" rx="1.5"/>
+                  <path d="M7 6.5v3l3-1.5z" fill="currentColor"/>
+                </svg>
+              </button>
+              <button aria-label="Files">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+                  <path d="M2.5 4.5a1 1 0 0 1 1-1h2.5l1.5 1.5h5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/>
+                </svg>
+              </button>
+            </div>
+            <div class="panel-music">
+              <div class="m-card">
+                <div class="m-art"></div>
+                <div class="m-meta">
+                  <div class="m-title">Espresso</div>
+                  <div class="m-artist">Sabrina Carpenter</div>
+                  <div class="m-album">Short n' Sweet</div>
+                </div>
               </div>
-              <canvas class="sphere-viz" data-tint="232,196,124" width="120" height="120"></canvas>
-            </div>
-
-            <div class="hmac-card-progress">
-              <div class="hmac-card-bar"><div class="hmac-card-bar-fill"></div></div>
-              <div class="hmac-card-times">
-                <span>0:38</span>
-                <span>−3:26</span>
+              <div class="m-prog"><div class="m-prog-fill"></div></div>
+              <div class="m-times"><span>0:38</span><span>−3:26</span></div>
+              <div class="m-transport">
+                <div class="m-flank"></div>
+                <div class="m-controls">
+                  <button class="m-prev"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 5v14M19 5v14L8 12z"/></svg></button>
+                  <button class="m-pp"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M8 5h3v14H8zM13 5h3v14h-3z"/></svg></button>
+                  <button class="m-next"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M18 5v14M5 5v14l11-7z"/></svg></button>
+                </div>
+                <div class="m-flank-r">
+                  <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor"><path d="M3 6v4h2l3 3V3L5 6H3zm8 0a2 2 0 0 1 0 4"/></svg>
+                  <div class="m-vol"><div class="m-vol-fill"></div></div>
+                </div>
               </div>
             </div>
-
-            <div class="hmac-card-transport">
-              <button>
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 5v14M19 5v14L8 12z"/></svg>
-              </button>
-              <button class="play">
-                <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M9 5v14l11-7z"/></svg>
-              </button>
-              <button>
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M18 5v14M5 5v14l11-7z"/></svg>
-              </button>
-            </div>
-
-            <div class="hmac-card-source">
-              <svg viewBox="0 0 16 16" width="10" height="10" fill="currentColor"><path d="M3 6v4h2l3 3V3L5 6H3z"/></svg>
-              Playing in Spotify
-            </div>
           </div>
         </div>
 
-        <!-- path + cursor inside the screen -->
-        <svg class="hmac-svg" viewBox="0 0 800 500" preserveAspectRatio="none">
-          <defs>
-            <filter id="cursorGlow" x="-100%" y="-100%" width="300%" height="300%">
-              <feGaussianBlur stdDeviation="5" result="b"/>
-              <feFlood flood-color="#fff" flood-opacity="0.6"/>
-              <feComposite in2="b" operator="in" result="glow"/>
-              <feMerge>
-                <feMergeNode in="glow"/>
-                <feMergeNode in="SourceGraphic"/>
-              </feMerge>
-            </filter>
-          </defs>
-          <path id="hoverPath"
-                d="M 400 470 C 360 360, 440 200, 400 80"
-                fill="none"
-                stroke="rgba(244,243,238,0.32)"
-                stroke-width="1.6"
-                stroke-linecap="round"
-                stroke-linejoin="round"/>
-          <!-- macOS arrow cursor — chunky scale + thick effective outline -->
-          <g id="hoverCursor">
-            <g transform="scale(2.2)">
-              <!-- soft drop shadow for lift -->
-              <path d="M 0 0 L 0 16 L 4.5 12.5 L 7 18 L 9.5 17 L 7 11.5 L 12 11.5 Z"
-                    fill="rgba(0,0,0,0.4)"
-                    transform="translate(0.4, 0.8)"/>
-              <!-- main: thick black outline, white fill -->
-              <path d="M 0 0 L 0 16 L 4.5 12.5 L 7 18 L 9.5 17 L 7 11.5 L 12 11.5 Z"
-                    fill="#ffffff" stroke="#000000" stroke-width="1.6"
-                    stroke-linejoin="round"
-                    paint-order="stroke fill"/>
-            </g>
-          </g>
-        </svg>
+        <!-- macOS Dock. Visible only in the rest beat; fades out for music slab. -->
+        <div class="mbp-dock">
+          <div class="dock-icon"><img src="assets/dock/finder.png" alt=""/></div>
+          <div class="dock-icon"><img src="assets/dock/safari.png" alt=""/></div>
+          <div class="dock-icon"><img src="assets/dock/mail.png" alt=""/></div>
+          <div class="dock-icon"><img src="assets/dock/messages.png" alt=""/></div>
+          <div class="dock-icon"><img src="assets/dock/music.png" alt=""/></div>
+          <div class="dock-icon"><img src="assets/dock/photos.png" alt=""/></div>
+          <div class="dock-icon"><img src="assets/dock/notes.png" alt=""/></div>
+          <div class="dock-icon"><img src="assets/dock/calendar.png" alt=""/></div>
+          <div class="dock-icon"><img src="assets/dock/appstore.png" alt=""/></div>
+          <div class="dock-divider"></div>
+          <div class="dock-icon active"><img src="assets/app-icon-256.png" alt=""/></div>
+        </div>
 
-        <!-- caption that appears when the notch opens -->
-        <p class="hmac-caption" id="hoverCaption">that&apos;s&nbsp;it.</p>
       </div>
-      <div class="hmac-base"></div>
+      <div class="mbp-base"></div>
     </div>
+  </div>
 
+  <!-- Beat text overlays. All three live inside the pin, absolutely
+       positioned, opacity-toggled by GSAP based on scroll progress. -->
+
+  <!-- BEAT 1 — Hero -->
+  <div class="beat-text beat-hero-text" data-beat="hero">
+    <h1 class="hero-title">
+      <span class="word">It's</span>
+      <span class="word">there.</span>
+    </h1>
+    <p class="hero-sub">Music. Notes. Files. In the notch you already own.</p>
+    <div class="hero-cta">
+      <a href="#download" class="btn-primary">Download for Mac</a>
+      <p class="hero-foot">macOS 14 or later · No subscriptions</p>
+    </div>
+  </div>
+
+  <!-- BEAT 2 — The pillar line -->
+  <div class="beat-text beat-pillar-text" data-beat="pillar">
+    <h2 class="pillar-line">
+      Built for the&nbsp;notch.<br/>From the&nbsp;pixel&nbsp;up.
+    </h2>
+  </div>
+
+  <!-- BEAT 3 — Music side text -->
+  <div class="beat-text beat-music-text" data-beat="music">
+    <h2 class="beat-title">Now Playing.<br/>Always glanceable.</h2>
+    <p class="beat-sub">Album art on the left wing. Waveform on the right. The slab opens for full controls when you need them — every other moment, it gets out of the way.</p>
+  </div>
+
+  </div><!-- /cinema-pin -->
+
+</div>
+
+
+<!-- =====================================================================
+     STATIC SECTIONS — normal scroll from here on.
+     ===================================================================== -->
+
+<section id="privacy" class="static-section privacy">
+  <div class="static-inner">
+    <h2>No cloud.<br/>No accounts.<br/>No telemetry.</h2>
+    <p>Your notes, screenshots, downloads — everything nox holds — lives in <code>~/Library/Application&nbsp;Support/nox</code>. Nothing leaves the machine. Drag the <code>.app</code> to Trash. Gone.</p>
+    <p class="muted">No backend. No analytics. No "allow notifications" popup. Optional Gemini key (for chat-screenshot OCR) talks to Google directly — we never see it.</p>
   </div>
 </section>
 
 
-<!-- Pull + animated capture demo. -->
-<section class="pull" data-anim="capture">
-  <p class="pull-line">
-    Catches what you copy.
-    <span class="dim"><br/>Lands in Notes.</span>
-  </p>
-
-  <div class="capture-demo" aria-hidden="true">
-    <!-- LEFT: source — a fake browser article — -->
-    <div class="cd-source">
-      <div class="cd-chrome">
-        <span class="cd-dot"></span><span class="cd-dot"></span><span class="cd-dot"></span>
-        <div class="cd-url">news.ycombinator.com</div>
+<section id="compare" class="static-section compare">
+  <div class="static-inner">
+    <h2>Other notch apps do one&nbsp;thing.<br/><span class="muted">nox does the rest.</span></h2>
+    <div class="compare-table">
+      <div class="ct-row ct-head">
+        <div class="ct-feat"></div>
+        <div class="ct-col ct-self">nox</div>
+        <div class="ct-col">Alcove</div>
+        <div class="ct-col">NotchNook</div>
+        <div class="ct-col">Boring Notch</div>
       </div>
-      <div class="cd-body">
-        <div class="cd-h">Show HN: a notch app</div>
-        <div class="cd-p">
-          <span class="cd-sel">I built a notch app for my Mac so I'd stop reaching for Notes, Photos, and yt-dlp separately.</span>
-        </div>
-        <div class="cd-keys">
-          <kbd>⌘</kbd><kbd>C</kbd>
-        </div>
-      </div>
+      <div class="ct-row"><div class="ct-feat">Music HUD</div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="y">●</span></div></div>
+      <div class="ct-row"><div class="ct-feat">File shelf</div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="y">●</span></div></div>
+      <div class="ct-row"><div class="ct-feat">Notes capture</div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div></div>
+      <div class="ct-row"><div class="ct-feat">Video grab (yt-dlp)</div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div></div>
+      <div class="ct-row"><div class="ct-feat">Voice → text dictation</div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div></div>
+      <div class="ct-row"><div class="ct-feat">AI chat-screenshot OCR</div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div></div>
+      <div class="ct-row"><div class="ct-feat">AirDrop reveal pill</div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div></div>
+      <div class="ct-row"><div class="ct-feat">Lock-screen card</div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div></div>
     </div>
-
-    <!-- middle: a path the copy travels along -->
-    <svg class="cd-path" viewBox="0 0 200 60" preserveAspectRatio="none">
-      <path d="M 4 30 C 60 30, 80 30, 196 30" fill="none" stroke="rgba(244,243,238,0.35)" stroke-width="1.5" stroke-dasharray="4 4"/>
-      <circle class="cd-bead" cx="0" cy="0" r="3" fill="var(--warm)"/>
-    </svg>
-
-    <!-- RIGHT: target — Notetaker Notes with a new row appearing -->
-    <div class="cd-target">
-      <div class="cd-target-head">
-        <div class="cd-tab is-active">Notes</div>
-        <div class="cd-tab">Images</div>
-        <div class="cd-tab">Videos</div>
-      </div>
-      <div class="cd-row cd-row-new">
-        <div class="cd-row-t">Show HN. A notch app.</div>
-        <div class="cd-row-b">I built a notch app for my Mac so I'd stop reaching for Notes, Photos, yt-dlp.</div>
-      </div>
-      <div class="cd-row">
-        <div class="cd-row-t">Tomorrow&apos;s standup</div>
-        <div class="cd-row-b">Demo the pill. Talk about Whisper bundling.</div>
-      </div>
-      <div class="cd-row">
-        <div class="cd-row-t">Quote</div>
-        <div class="cd-row-b">&ldquo;The best interface is no interface. Until you need&nbsp;one.&rdquo;</div>
-      </div>
-    </div>
+    <p class="static-foot">Built solo. Native Swift. No Electron, no telemetry, no subscription.</p>
   </div>
 </section>
 
 
-<!-- The one real visual: an honest screenshot inbox -->
-<section class="ribbon">
-  <div class="ribbon-words">
-    <h2>Your screenshots have a home.</h2>
-    <p class="body">
-      Take one. It expires in a few hours.<br/>
-      Take two in three seconds. Both stay.
-    </p>
-  </div>
-
-  <!-- Panel mock: matches the real Notetaker Images tab -->
-  <div class="ribbon-panel" aria-hidden="true">
-    <!-- title bar -->
-    <div class="rib-title">
-      <button class="rib-edit" aria-label="New">
-        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 14h12M11 2l3 3-8 8H3v-3z"/></svg>
-      </button>
-      <span class="rib-name">Notetaker</span>
-      <span class="rib-grow"></span>
-      <span class="rib-kbd">⌥</span>
-      <span class="rib-kbd-text">Space</span>
-      <button class="rib-gear" aria-label="Settings">
-        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.4"/><path d="M8 1.2v1.8M8 13v1.8M14.8 8H13M3 8H1.2M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3M12.6 12.6l-1.3-1.3M4.7 4.7L3.4 3.4"/></svg>
-      </button>
-    </div>
-
-    <!-- tab row, Images active -->
-    <div class="rib-tabs">
-      <button class="rib-tab is-icon" aria-label="Music">
-        <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M13 2.5a.5.5 0 0 0-.59-.49l-7 1.5A.5.5 0 0 0 5 4v8.05a2.5 2.5 0 1 0 1 2v-7.6l6-1.29v5.94a2.5 2.5 0 1 0 1 2z"/></svg>
-      </button>
-      <button class="rib-tab">Notes</button>
-      <button class="rib-tab is-active">Images</button>
-      <button class="rib-tab">Videos</button>
-      <button class="rib-tab">Files</button>
-    </div>
-
-    <!-- count strip -->
-    <div class="rib-count">
-      <span class="rib-count-n">6 images</span>
-      <span class="rib-grow"></span>
-      <button class="rib-clear">Clear</button>
-    </div>
-
-    <!-- copy-or-drag stack widget -->
-    <div class="rib-stack">
-      <div class="rib-stack-imgs">
-        <div class="rib-stack-img"><img src="assets/inbox/inbox-3.jpg" alt=""/></div>
-        <div class="rib-stack-img"><img src="assets/inbox/inbox-1.jpg" alt=""/></div>
-        <div class="rib-stack-img"><img src="assets/inbox/inbox-6.jpg" alt=""/></div>
-      </div>
-      <div class="rib-stack-meta">
-        <div class="rib-stack-title">6 images</div>
-        <div class="rib-stack-sub">Copy or drag the stack</div>
-      </div>
-      <button class="rib-copy-all">Copy all</button>
-    </div>
-
-    <!-- 2-col thumbnail grid -->
-    <div class="shot-grid">
-      <div class="shot-card kept">
-        <button class="shot-del" aria-label="Delete"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h10M6 5V3h4v2M5 5v9h6V5"/></svg></button>
-        <img src="assets/inbox/inbox-1.jpg" alt=""/>
-        <span class="shot-tag">kept</span>
-      </div>
-      <div class="shot-card kept">
-        <button class="shot-del" aria-label="Delete"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h10M6 5V3h4v2M5 5v9h6V5"/></svg></button>
-        <img src="assets/inbox/inbox-3.jpg" alt=""/>
-        <span class="shot-tag">kept</span>
-      </div>
-      <div class="shot-card kept">
-        <button class="shot-del" aria-label="Delete"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h10M6 5V3h4v2M5 5v9h6V5"/></svg></button>
-        <img src="assets/inbox/inbox-5.jpg" alt=""/>
-        <span class="shot-tag">kept</span>
-      </div>
-      <div class="shot-card kept">
-        <button class="shot-del" aria-label="Delete"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h10M6 5V3h4v2M5 5v9h6V5"/></svg></button>
-        <img src="assets/inbox/inbox-6.jpg" alt=""/>
-        <span class="shot-tag">kept</span>
-      </div>
-      <div class="shot-card fade">
-        <button class="shot-del" aria-label="Delete"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h10M6 5V3h4v2M5 5v9h6V5"/></svg></button>
-        <img src="assets/inbox/inbox-4.jpg" alt=""/>
-        <span class="shot-tag dim">3h&nbsp;left</span>
-      </div>
-      <div class="shot-card fade">
-        <button class="shot-del" aria-label="Delete"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h10M6 5V3h4v2M5 5v9h6V5"/></svg></button>
-        <img src="assets/inbox/inbox-2.jpg" alt=""/>
-        <span class="shot-tag dim">1h&nbsp;left</span>
-      </div>
+<section id="faq" class="static-section faq">
+  <div class="static-inner">
+    <h2>Questions everyone asks.</h2>
+    <div class="faq-list">
+      <details>
+        <summary>Does it work on Macs without a notch?</summary>
+        <p>Yes. On non-notched MacBooks and external displays, the halo sits at top-center fused with the menu bar. Same gestures, same behavior. The notch hardware is a nice landmark, not a requirement.</p>
+      </details>
+      <details>
+        <summary>How is this different from Alcove?</summary>
+        <p>Alcove is a music HUD. nox is the same idea, plus a notes app, plus an image inbox, plus a video downloader, plus a file shelf, plus AI summarisation, plus an AirDrop pill, plus a calendar pill. If you only want music, Alcove is great. If you want one quiet place for everything, that's us.</p>
+      </details>
+      <details>
+        <summary>Will it slow my Mac down?</summary>
+        <p>No. Pure Swift, native AppKit, tiny binary. Zero CPU when idle — no background polling above 4&nbsp;Hz, no telemetry calls, no Electron runtime.</p>
+      </details>
+      <details>
+        <summary>Where does my data go?</summary>
+        <p>Your Mac. That's it. Notes, screenshots, videos, files all live in <code>~/Library/Application&nbsp;Support/nox</code>. No cloud, no account, no analytics.</p>
+      </details>
+      <details>
+        <summary>What does it cost?</summary>
+        <p>Free during beta. One-time price at v1.0 — we'll email beta users the number first. No subscription, no in-app upgrades, no "pro" tier. Buy it once, own it forever.</p>
+      </details>
     </div>
   </div>
 </section>
 
 
-<!-- Big keystroke + animated video demo. -->
-<section class="keystroke" data-anim="video">
-  <div class="keystroke-keys">
-    <kbd>⌥</kbd><kbd>⌘</kbd><kbd>V</kbd>
+<section id="download" class="static-section download">
+  <div class="static-inner download-inner">
+    <span class="end-icon"><svg viewBox="0 0 32 32" width="84" height="84"><use href="#noxGlyph"/></svg></span>
+    <h2>Get nox</h2>
+    <p class="download-sub">For macOS 14 and later. Native Swift. No sign-up.</p>
+    <a href="mailto:aritra13.debnath@gmail.com?subject=nox%20beta%20access" class="btn-primary big">Download for Mac</a>
+    <p class="download-pricing">Free during beta · One-time price at v1.0 · No subscriptions, ever</p>
   </div>
-  <p class="keystroke-line">
-    on any video. Lands in&nbsp;Videos.
-  </p>
-
-  <div class="video-demo" aria-hidden="true">
-    <!-- a tiny faux browser frame with the video playing -->
-    <div class="vd-browser">
-      <div class="vd-bar">
-        <span class="vd-dot"></span><span class="vd-dot"></span><span class="vd-dot"></span>
-        <div class="vd-url">youtube.com/watch?v=…</div>
-      </div>
-      <div class="vd-page">
-        <video src="assets/videos/video-2.mp4" muted autoplay loop playsinline preload="metadata"></video>
-      </div>
-    </div>
-
-    <!-- arrow path the URL travels along -->
-    <svg class="vd-path" viewBox="0 0 200 60" preserveAspectRatio="none">
-      <path d="M 4 30 C 60 30, 80 30, 196 30" fill="none" stroke="rgba(244,243,238,0.35)" stroke-width="1.5" stroke-dasharray="4 4"/>
-      <circle class="vd-bead" cx="0" cy="0" r="3" fill="var(--warm)"/>
-    </svg>
-
-    <!-- the result inside Notetaker -->
-    <div class="vd-result">
-      <div class="vd-result-tab">Videos</div>
-      <div class="vd-card">
-        <div class="vd-card-thumb">
-          <video src="assets/videos/video-2.mp4" muted autoplay loop playsinline preload="metadata"></video>
-        </div>
-        <div class="vd-card-meta">
-          <div class="vd-card-name">A short demo clip</div>
-          <div class="vd-card-prog"><div class="vd-card-prog-fill"></div></div>
-          <div class="vd-card-status">
-            <span class="vd-pct">0%</span>
-            <span>14.2 MB</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-
-<!-- Visual montage — auto-cycles through the rest of the features. Glance, get it, move on. -->
-<section class="montage" id="montage">
-  <h2 class="montage-h">Small things you&apos;ll&nbsp;feel.</h2>
-
-  <div class="montage-stage" id="montageStage">
-
-    <!-- DRAG -->
-    <div class="mc is-active" data-mc="drag">
-      <div class="mc-vis mc-vis-drag">
-        <div class="mc-img"></div>
-        <div class="mc-tabs">
-          <span>Notes</span>
-          <span class="hot">Images</span>
-          <span>Videos</span>
-        </div>
-      </div>
-      <div class="mc-label">Drag an image. Panel opens to&nbsp;Images.</div>
-
-    </div>
-
-    <!-- AI SUMMARY -->
-    <div class="mc" data-mc="ai">
-      <div class="mc-vis mc-vis-ai">
-        <div class="mc-note-long">
-          <span></span><span></span><span></span><span></span><span></span>
-        </div>
-        <div class="mc-spark">✦</div>
-        <div class="mc-note-short">
-          <span></span><span></span>
-        </div>
-      </div>
-      <div class="mc-label">Long note. Quick summary. Your Gemini&nbsp;key.</div>
-    </div>
-
-    <!-- SELF-CLEANING -->
-    <div class="mc" data-mc="clean">
-      <div class="mc-vis mc-vis-clean">
-        <div class="mc-stamp s1">2d</div>
-        <div class="mc-arrow">→</div>
-        <div class="mc-stamp s2">7d</div>
-        <div class="mc-arrow">→</div>
-        <div class="mc-stamp s3">⊘</div>
-      </div>
-      <div class="mc-label">Auto-trash in 2&nbsp;days. Auto-delete in a&nbsp;week.</div>
-    </div>
-
-    <!-- CHARGING -->
-    <div class="mc" data-mc="charge">
-      <div class="mc-vis mc-vis-charge">
-        <div class="mc-pill">
-          <span class="mc-bolt">⚡</span>
-          <span class="mc-pct">100%</span>
-        </div>
-      </div>
-      <div class="mc-label">Plug in. The notch confirms, then&nbsp;leaves.</div>
-    </div>
-
-    <!-- NATIVE -->
-    <div class="mc" data-mc="native">
-      <div class="mc-vis mc-vis-native">
-        <div class="mc-num">4.5<span>MB</span></div>
-        <div class="mc-vs">vs Electron apps starting at <b>200&nbsp;MB</b></div>
-      </div>
-      <div class="mc-label">Pure Swift. Instant launch. Real Mac&nbsp;app.</div>
-    </div>
-
-  </div>
-
-  <div class="montage-dots" id="montageDots" aria-hidden="true">
-    <span class="is-active"></span>
-    <span></span>
-    <span></span>
-    <span></span>
-    <span></span>
-  </div>
-</section>
-
-
-<!-- =========================================================
-     KEYS — minimal table of hotkeys
-     ========================================================= -->
-<section id="keys" class="keys">
-  <h2>Two hotkeys.<br/>Everything else just happens.</h2>
-  <div class="keys-table">
-    <div class="key-row">
-      <div class="key-do">Open the panel</div>
-      <div class="key-press">
-        <kbd>⌥</kbd><kbd>Space</kbd>
-      </div>
-    </div>
-    <div class="key-row">
-      <div class="key-do">Grab front tab as video</div>
-      <div class="key-press">
-        <kbd>⌥</kbd><kbd>⌘</kbd><kbd>V</kbd>
-      </div>
-    </div>
-    <div class="key-row">
-      <div class="key-do">Take a screenshot</div>
-      <div class="key-press">
-        <kbd>⇧</kbd><kbd>⌘</kbd><kbd>4</kbd>
-      </div>
-    </div>
-    <div class="key-row">
-      <div class="key-do">Copy a note</div>
-      <div class="key-press">
-        <kbd>⌘</kbd><kbd>C</kbd>
-      </div>
-    </div>
-    <div class="key-row">
-      <div class="key-do">Dismiss</div>
-      <div class="key-press"><kbd>esc</kbd></div>
-    </div>
-  </div>
-</section>
-
-
-<!-- =========================================================
-     PRIVACY — single sentence, no card grid
-     ========================================================= -->
-<section class="quiet">
-  <h2>
-    No cloud. No accounts. No telemetry.<br/>
-    <span class="muted">Your notes live in
-      <code>~/Library/Application&nbsp;Support/Notetaker</code>.
-    </span>
-  </h2>
-  <p class="body">
-    No backend. No analytics. No sign&#8209;in. No &ldquo;allow notifications&rdquo; popup.
-    Drag the <code>.app</code> to Trash. Gone.
-  </p>
-</section>
-
-
-<!-- =========================================================
-     DOWNLOAD
-     ========================================================= -->
-<section id="download" class="end">
-  <img src="assets/app-icon-256.png" alt="Notetaker" class="end-icon" />
-  <h2>Notetaker 1.0</h2>
-  <p>For macOS 13 and later. 4.5&nbsp;MB. No sign-up.</p>
-  <a href="#" class="btn-primary big">
-    Download for Mac
-  </a>
-  <p class="end-foot">
-    Universal binary. Ad-hoc signed.
-    <a href="#">Checksums.</a> <a href="#">Source on GitHub.</a>
-  </p>
 </section>
 
 </main>
@@ -842,13 +309,15 @@
 
 <footer>
   <div class="foot-line">
-    <span>© 2026 Aritra Debnath</span>
-    <a href="https://github.com" rel="noopener">Source</a>
+    <span>© 2026 Aritra Debnath · nox.app</span>
     <a href="mailto:aritra13.debnath@gmail.com">Mail</a>
   </div>
 </footer>
 
-<script src="https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js"></script>
+<!-- Smooth-scroll inertia (Lenis) and scroll-driven timelines (GSAP). -->
+<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

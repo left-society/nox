@@ -62,27 +62,139 @@ struct MusicPanelView: View {
     /// so the visualizer is on out-of-the-box.
     @AppStorage("sphereVisualizerEnabled") private var sphereEnabled: Bool = true
 
+    /// 3D-tilt swap phase for the artwork. -1 = exiting (tilted away
+    /// from viewer + faded), 0 = at rest, +1 = entering (tilted
+    /// from below toward viewer). Animated by `triggerArtworkSwap`
+    /// on track changes AND immediately on `dispatch(.next/.previous)`
+    /// — the eager trigger means the artwork starts moving the moment
+    /// the user clicks the button, not after the source app finally
+    /// reports the new track. That's what makes Alcove's transitions
+    /// feel zero-latency: the animation runs in PARALLEL with the
+    /// underlying track change, so the new artwork lands at the end
+    /// of the in-flight tilt rather than after a lag.
+    @State private var artworkSwapPhase: Double = 0
+    /// Cumulative Y-axis flip angle for the new (DynamicNotch-style)
+    /// swap animation. Each track change does `+= 180`; the cosineSign
+    /// modifier mirrors the X scale on the back face so the artwork
+    /// is never visually mirrored. Reference: jackson-storm/DynamicNotch
+    /// `Features/NowPlaying/Components/ArtworkView.swift` —
+    /// `AlbumArtFlipModifier`. Single rotation + sign-flip is the
+    /// cleanest possible "vinyl card flip" — replaces the previous
+    /// 5-axis stack (offset + blur + scale + 3D rotate + opacity)
+    /// the user described as "weird tilted."
+    @State private var artworkFlipAngle: Double = 0
+    /// Direction of the swap: -1 = previous (tilt toward right edge),
+    /// +1 = next (tilt toward left edge). Determines the rotation
+    /// axis sign so the artwork visually moves in the direction
+    /// matching the user's intent.
+    @State private var artworkSwapDirection: Double = 1
+    /// Stable identity for the currently-displayed track, used to
+    /// detect actual track changes vs. content-only refreshes.
+    @State private var displayedTrackKey: String = ""
+    /// The artwork data we're CURRENTLY displaying. Decoupled from
+    /// `presenter.nowPlaying.artworkData` so that during a swap-out,
+    /// we can keep showing the OLD artwork until the swap-in phase
+    /// — preventing a frame where the new artwork appears at full
+    /// alpha before the entrance animation runs.
+    @State private var displayedArtworkData: Data? = nil
+    /// Title/artist/album we're currently displaying. Decoupled from
+    /// `presenter.nowPlaying` (just like `displayedArtworkData`) so
+    /// title/artist text fades through the swap animation in lockstep
+    /// with the artwork — without this, the text would SNAP to the
+    /// new values the moment Spotify's MediaRemote pushed them, while
+    /// the artwork was still tilting out. User saw the artwork
+    /// animate but the text snap, and reported "still laggy inside."
+    /// elapsedTime / isPlaying are NOT decoupled — those need to be
+    /// live (progress bar, waveform).
+    @State private var displayedTitle: String = ""
+    @State private var displayedArtist: String = ""
+    @State private var displayedAlbum: String = ""
+    /// Cached decoded NSImage for the slab artwork. Populated from
+    /// `ArtworkCache` synchronously on cache hit, asynchronously
+    /// on miss. Keeps the main thread off the NSImage(data:) decode
+    /// hot path and gives instant return-to-recent.
+    @State private var displayedArtworkImage: NSImage? = nil
+    /// Source-app sound volume on a 0-1 scale. Polled on track
+    /// change and dispatched on slider drag. Spotify and Apple Music
+    /// both expose `sound volume` (0-100) in AppleScript.
+    @State private var sourceVolume: Double = 0.7
+    /// While the user is actively dragging the volume slider, we
+    /// suppress polled-value updates so the slider doesn't jitter
+    /// between the user's intended value and the value we just
+    /// dispatched (round-trip latency is ~100ms). Released when the
+    /// slider's onEditingChanged ends.
+    @State private var isAdjustingVolume: Bool = false
+
     var body: some View {
         // Gradient lives at PanelRootView level now (so it covers
         // the actual TOP of the panel, behind the header / tabs)
         // — see `artworkTopGradient` there. This view just lays
         // out the music HUD content on top of the panel-level tint.
-        VStack(spacing: 10) {
-            infoRow
+        //
+        // Composition: the now-playing block (artwork + title/
+        // artist/album + waveform visualizer) is wrapped in an
+        // inset rounded card to give the "what's playing"
+        // identity a defined surface — pattern Apple uses on the
+        // Sonoma+ Music app's mini player and Settings detail
+        // cards. Progress / transport / volume stay flat on the
+        // slab below for the airy Apple Music transport-row look.
+        // 2026-04-29 layout: transport (prev/play/next) + volume
+        // moved INTO the now-playing card's right wing — see
+        // `inlineControlsCluster`. The bottom transport row is
+        // gone, removing ~58pt of vertical space and any chance
+        // of the play button clipping. `transportControls` is
+        // kept as a private helper for now (referenced internally
+        // by the dispatch chain) but isn't rendered.
+        VStack(spacing: 12) {
+            nowPlayingCard
             progressBar
-            transportControls
-            sourceBadge
-            // Bluetooth battery strip — only renders when an
-            // AirPods/headphones with battery info is connected.
-            // Hidden otherwise so the layout doesn't reserve empty
-            // space.
-            BluetoothBatteryRow()
+            // 2026-05-02 transport + inline mini-volume row.
+            // Volume is a small trim control on the right of the
+            // transport buttons (per user spec — "should be at
+            // the right side of the play button much smaller").
+            iosStyleTransportRow
+            // BluetoothBatteryRow removed at user request — the
+            // component file is still present (BluetoothBatteryRow.swift)
+            // but isn't rendered.
             Spacer(minLength: 0)
         }
         .padding(.horizontal, DS.Spacing.md)
         .padding(.top, DS.Spacing.md)
-        .padding(.bottom, DS.Spacing.sm)
+        // 2026-04-29: bumped bottom 6pt → 14pt so the progress
+        // bar's time labels clear the panel's bottom rounded
+        // corner. With 6pt the label descenders were getting
+        // sliced off by the silhouette's curved bottom edge —
+        // user reported "numbers are unvisible here." 14pt gives
+        // the 11pt-tall labels a comfortable 3pt safe area below.
+        .padding(.bottom, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Inset card wrapping the artwork + metadata + waveform row.
+    /// Gives the now-playing block a defined surface so it reads
+    /// as ONE cohesive "this is what's playing" element rather
+    /// than three orphans floating on the slab.
+    ///
+    /// Surface spec mirrors macOS Sonoma+ inset cards:
+    ///   • 14pt corner radius (`DS.Radius.card`)
+    ///   • 5% white fill — visible-but-quiet lift off the black
+    ///     slab; never competes with the artwork's saturation
+    ///   • 0.5pt hairline stroke at 7% white — defines the edge
+    ///     without screaming
+    ///   • 12pt internal padding so artwork + text breathe
+    ///     against the card walls
+    private var nowPlayingCard: some View {
+        infoRow
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                    .fill(DS.Color.bgCard)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                    .strokeBorder(DS.Color.strokeCard, lineWidth: 0.5)
+            )
     }
 
     /// Artwork-color tint that flows FROM THE TOP and dissolves
@@ -154,10 +266,40 @@ struct MusicPanelView: View {
         // hand it to ArtworkColor — the cache will short-circuit the
         // duplicate calls regardless, but this is clearer.
         let info = presenter.nowPlaying
-        let title = info?.title ?? "Nothing playing"
-        let artist = info?.artist ?? ""
-        let album = info?.album ?? ""
-        let tint = ArtworkColor.dominant(from: info?.artworkData) ?? .white
+        // Text snaps to new values directly from `presenter.nowPlaying`.
+        // We tried decoupled `displayedTitle/Artist/Album` state with
+        // a fade-and-slide modifier on the text block, but the user
+        // reported the transport row visibly JUMPING during a Next
+        // click — the modifier was the regression ("previous titling
+        // wasn't causing this"). Snapping the text removes any
+        // dependency between the text block's transform/opacity and
+        // the layout below it, which is what the user wants.
+        //
+        // EMPTY → PLAYING SMOOTHING (2026-04-29): bound the labels
+        // to the `displayed*` state vars (which update inside
+        // `applyDisplayed`, called from `runFullArtworkSwap` at
+        // the BOTTOM of the artwork tilt-out — the exact moment
+        // the artwork is invisible at phase=-1). With direct
+        // `info?.title` binding, the text snapped to the new value
+        // at t=0 while the artwork was still at the start of its
+        // 800ms tilt — a visible "text jumped, art is still
+        // animating" desync the user reported as "kind of jumps to
+        // the music part." Now text changes happen IN LOCKSTEP
+        // with the artwork swap: both update at the swap moment,
+        // both fade back in together. Critical: NO offset/transform
+        // on the text block — that was the layout-reflow bug from
+        // the previous decoupled attempt. Just synchronized content
+        // changes, layout stays nailed.
+        //
+        // Empty-state fallback: when `displayedTitle` is empty
+        // (nothing playing yet), show "Nothing playing" placeholder.
+        // Once a track lands, this flips to the real title at the
+        // synchronized swap moment.
+        let displayedTitleResolved = displayedTitle.isEmpty ? "Nothing playing" : displayedTitle
+        let title = displayedTitleResolved
+        let artist = displayedArtist
+        let album = displayedAlbum
+        let tint = ArtworkColor.dominant(from: displayedArtworkData ?? info?.artworkData) ?? .white
         // Stable per-track key for waveform pattern. Avoid empty
         // string when nothing is playing — falls through to the
         // default pattern in that case via WaveformPattern's guard.
@@ -175,29 +317,66 @@ struct MusicPanelView: View {
                 openSourceApp()
             } label: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .help(title)
-                    if !artist.isEmpty {
-                        Text(artist)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.85))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .help(artist)
-                    }
-                    if !album.isEmpty {
-                        Text(album)
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundStyle(.white.opacity(0.55))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .help(album)
-                    }
+                    // Title — always rendered.
+                    titleText(title)
+                    // Artist — ALWAYS rendered (non-conditional). Empty
+                    // value falls back to a single space char so the
+                    // Text view still reserves its line height. This is
+                    // what fixes the "transport row jumps" bug:
+                    // previously this line was wrapped in
+                    // `if !artist.isEmpty { ... }`, so a track with
+                    // missing artist had ZERO height for this row,
+                    // and any track change that flipped artist between
+                    // empty and non-empty (very common with Spotify's
+                    // two-stage emission — title arrives first, artist
+                    // ~100-200ms later) reflowed the whole VStack.
+                    // Reflow propagated through the parent VStack,
+                    // bumping the progress bar / transport row down
+                    // by ~22pt mid-animation. Locking the height to
+                    // 3 stable lines kills the reflow.
+                    // Artist line doubles as the empty-state subtitle.
+                    // When nothing is playing, this slot fills with a
+                    // helpful hint ("Open Spotify, Apple Music, or any
+                    // audio source") instead of sitting blank — the
+                    // user reported the empty state felt "empty" /
+                    // unintentional. The slot retains the same line
+                    // height in both states (13pt medium), so the
+                    // layout is locked and the empty→playing
+                    // transition is just a content swap (which fires
+                    // synchronously with the artwork tilt — see the
+                    // displayed* binding above).
+                    artistText(
+                        text: displayedTitle.isEmpty
+                            ? "Open Spotify, Apple Music, or any audio source"
+                            : (artist.isEmpty ? " " : artist),
+                        isHint: displayedTitle.isEmpty,
+                        artist: artist
+                    )
+                    // Album — same fix as artist. Hidden in empty
+                    // state (the subtitle above already conveys the
+                    // hint; a third dimmed line of placeholder text
+                    // would over-load the empty card).
+                    albumText(album)
                 }
+                // No fade or offset on the text block. Earlier this
+                // had `.opacity(1.0 - abs(artworkSwapPhase))` and
+                // `.offset(x: artworkSwapPhase * 4 * artworkSwapDirection)`
+                // to keep text in lockstep with the artwork tilt.
+                // The user reported visible JUMPS in the transport
+                // row beneath the text block when these modifiers
+                // were present ("previous titling wasn't causing
+                // this"). Removing them lets the text snap as before
+                // and isolates the swap animation to the artwork
+                // tile alone — which is what the user wants.
+                //
+                // What we DO animate: the opacity and color of the
+                // artist/album lines tied to `displayedTitle`
+                // emptiness. Going empty → playing or vice versa
+                // changes the hint/value, the hint dim 0.55, and the
+                // artist value brightness 0.85 — easing those
+                // crossfades in over ~0.35s removes the harsh snap
+                // without re-introducing the layout-reflow bug
+                // (no offset, no transform — just opacity/color).
                 // Cap title block at 280pt so the sphere
                 // visualizer sits visually adjacent to the title
                 // text. With the wider 530pt slab, the previous
@@ -207,8 +386,32 @@ struct MusicPanelView: View {
                 // card. 280pt is comfortable for typical track
                 // titles; longer ones still truncate via
                 // .lineLimit(1).
-                .frame(maxWidth: 280, alignment: .leading)
+                // Shrunk 280 → 200 so the inline controls cluster
+                // (transport + volume) sits visually near the
+                // CENTER of the card instead of pinned to the
+                // right edge. With balanced Spacers around the
+                // cluster, less title width = more room for the
+                // Spacers to flex, which moves the cluster
+                // leftward toward the geometric middle of the
+                // card. Long titles still truncate via lineLimit(1).
+                // 2026-05-02: was capped at 200pt to leave room for
+                // the inline-controls cluster on the right. With
+                // controls moved to a row below, the title block
+                // can grow to fill the remaining width — same way
+                // iOS lock-screen Now Playing widget does. Long
+                // titles still truncate via .lineLimit(1).
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
+                // Smooth crossfade for the opacity/color changes
+                // tied to empty↔playing. Doesn't animate text
+                // content (atomic on macOS 13), but the surrounding
+                // chrome eases — combined with the artwork tilt
+                // that's running in parallel, the empty→playing
+                // transition reads as one coordinated motion
+                // instead of a hard snap.
+                .animation(.smooth(duration: 0.35), value: displayedTitle.isEmpty)
+                .animation(.smooth(duration: 0.35), value: artist.isEmpty)
+                .animation(.smooth(duration: 0.35), value: album.isEmpty)
             }
             .buttonStyle(.plain)
             .help(sourceAppHelpText())
@@ -217,43 +420,385 @@ struct MusicPanelView: View {
                 title: title, artist: artist, album: album
             ))
 
-            // Spacer between title and sphere — modest gap, not the
-            // entire remaining width like before.
-            Spacer(minLength: 12)
+            // 2026-05-02 iOS-style restructure. Per the user's
+            // reference screenshot (iOS lock-screen Now Playing
+            // widget), transport controls move OUT of the title
+            // row and BELOW the progress bar — see `transportRow`.
+            // The title row is now just artwork + title VStack,
+            // with the title block expanding to fill the remaining
+            // width like Apple's lock-screen widget does. Volume
+            // slider removed entirely; user can use system volume
+            // (matches the iOS reference which has no inline
+            // volume slider in the compact widget).
+            Spacer(minLength: 0)
+        }
+    }
 
-            // Rotating particle sphere. Paused when:
-            //   • slab is closed (resting pill — invisible)
-            //   • a panel-frame morph is in flight
-            //
-            // Visibility: hidden (opacity 0) the instant a morph
-            // starts, fades back in over 280ms once the spring has
-            // settled. Without the fade you see a frozen sphere
-            // riding the morph's spring oscillation, which reads as
-            // a competing visual element fighting the panel's
-            // motion. Hiding cleanly during the morph + reappearing
-            // post-settle gives the morph the user's full attention.
-            // Settings → Music → Sphere visualizer toggle. When
-            // disabled, the .frame collapses the view to 0×0 so
-            // the surrounding HStack reclaims the space and the
-            // title/artist row reads as a normal music-card layout
-            // without the sphere reservation. The `isPaused` flag
-            // also stops the 60Hz timer for zero CPU cost.
-            SphereVisualizer(
-                isPlaying: info?.isPlaying ?? false,
-                isPaused: !presenter.isShown || presenter.isMorphing
-                          || !sphereEnabled,
-                size: sphereEnabled ? 40 : 0,
-                tint: tint
+    /// Inline prev / play / next / volume cluster that lives in
+    /// the right wing of the now-playing card. Replaces the
+    /// previous bottom transport row + waveform. Two-row stack:
+    ///   • Top: prev (28pt) — play (38pt) — next (28pt)
+    ///   • Bottom: speaker icon + compact volume slider (90pt)
+    ///
+    /// Vertical layout matches the artwork tile's 76pt height so
+    /// the card stays visually balanced (artwork left, controls
+    /// right, both 76pt tall).
+    @ViewBuilder
+    private func inlineControlsCluster(accent: Color) -> some View {
+        // 2026-05-01 v2 (evidence-based revert). The earlier swap to
+        // `presenter.isAudioFlowing` was based on the assumption that
+        // CoreAudio would drop the signal promptly when the user
+        // paused in the source app. /tmp/notetaker-mra.log proved
+        // otherwise — Chrome keeps its audio-helper IO procs alive
+        // through pause, so isAudioFlowing stays TRUE indefinitely
+        // for browser-sourced audio. The icon was therefore stuck
+        // on pause.fill forever for paused YouTube. Reverting to
+        // MediaRemote's isPlaying flag (or nil = paused) gives a
+        // ~2s lag (waiting for MR's pause-event emit) which is
+        // strictly better than infinite. For Spotify/Music both
+        // signals agree.
+        let isPlaying = presenter.nowPlaying?.isPlaying ?? false
+        VStack(alignment: .trailing, spacing: 8) {
+            HStack(spacing: 10) {
+                MusicControlButton(
+                    systemImage: "backward.fill",
+                    glyphSize: 12,
+                    buttonSize: 28,
+                    isPrimary: false,
+                    accent: accent,
+                    accessibility: "Previous track"
+                ) { dispatch(.previous) }
+                MusicControlButton(
+                    systemImage: isPlaying ? "pause.fill" : "play.fill",
+                    glyphSize: 16,
+                    buttonSize: 38,
+                    isPrimary: true,
+                    accent: accent,
+                    accessibility: isPlaying ? "Pause" : "Play"
+                ) { dispatch(.togglePlayPause) }
+                MusicControlButton(
+                    systemImage: "forward.fill",
+                    glyphSize: 12,
+                    buttonSize: 28,
+                    isPrimary: false,
+                    accent: accent,
+                    accessibility: "Next track"
+                ) { dispatch(.next) }
+            }
+            volumeControl
+                .frame(width: 130)
+        }
+    }
+
+    /// 2026-05-02 compact volume row.
+    ///
+    /// User feedback: full-width slider was too prominent —
+    /// dominated the bottom of the music card. Pulled in to a
+    /// fixed 160pt slider beside the speaker icon, centered
+    /// horizontally. Reads as a quiet trim control rather than
+    /// the focal element. Same underlying state binding as the
+    /// original `volumeControl`. Disabled / dimmed when the
+    /// source app doesn't support remote-volume AppleScript
+    /// (anything other than Spotify or Music).
+    private var iosStyleVolumeRow: some View {
+        let bundleID = presenter.nowPlaying?.sourceBundleID
+        let supported = bundleID == "com.spotify.client" || bundleID == "com.apple.Music"
+        return HStack(spacing: 10) {
+            Spacer(minLength: 0)
+            Image(systemName: volumeIcon)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(supported ? 0.55 : 0.25))
+                .frame(width: 16, alignment: .center)
+            Slider(
+                value: Binding(
+                    get: { sourceVolume },
+                    set: { newValue in
+                        sourceVolume = newValue
+                        setSourceVolume(newValue)
+                    }
+                ),
+                in: 0...1,
+                onEditingChanged: { editing in
+                    isAdjustingVolume = editing
+                }
             )
-            // Explicit frame because NSViewRepresentable doesn't
-            // propagate the inner size param as a SwiftUI layout
-            // constraint — without this, the sphere fills whatever
-            // space the HStack proposes, and the disabled-toggle
-            // path wouldn't actually reclaim its row space.
-            .frame(width: sphereEnabled ? 40 : 0,
-                   height: sphereEnabled ? 40 : 0)
-            .opacity(presenter.isMorphing ? 0 : 1)
-            .animation(.easeOut(duration: 0.28), value: presenter.isMorphing)
+            .controlSize(.mini)
+            .frame(width: 160)
+            .tint(Color.white.opacity(0.75))
+            .disabled(!supported)
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// 2026-05-02 transport + inline mini-volume row.
+    ///
+    /// Layout (left → right):
+    ///   [── balance spacer ──]  [⏪ ⏸ ⏩]  [🔊─slider]
+    ///
+    /// The transport cluster (prev/play/next) is the visual focal
+    /// point and stays HORIZONTALLY CENTERED via a balance spacer
+    /// on the left equal in width to the volume control on the
+    /// right. Volume is a quiet 70pt mini-slider with a small
+    /// speaker icon — reads as a trim control, not a primary
+    /// element.
+    private var iosStyleTransportRow: some View {
+        let isPlaying = presenter.nowPlaying?.isPlaying ?? false
+        let accent = ArtworkColor.dominant(from: presenter.nowPlaying?.artworkData) ?? .white
+        let bundleID = presenter.nowPlaying?.sourceBundleID
+        let volumeSupported = bundleID == "com.spotify.client" || bundleID == "com.apple.Music"
+        // Both flanks are 100pt wide so the transport buttons
+        // stay centered on the panel midline.
+        let flankWidth: CGFloat = 100
+
+        return HStack(spacing: 0) {
+            // LEFT: balance spacer — same width as the right-flank
+            // volume cluster so the play button lands on center.
+            Color.clear
+                .frame(width: flankWidth, height: 1)
+
+            Spacer(minLength: 0)
+
+            // CENTER: transport cluster
+            HStack(spacing: 28) {
+                MusicControlButton(
+                    systemImage: "backward.fill",
+                    glyphSize: 16,
+                    buttonSize: 36,
+                    isPrimary: false,
+                    accent: accent,
+                    accessibility: "Previous track"
+                ) { dispatch(.previous) }
+                MusicControlButton(
+                    systemImage: isPlaying ? "pause.fill" : "play.fill",
+                    glyphSize: 22,
+                    buttonSize: 50,
+                    isPrimary: true,
+                    accent: accent,
+                    accessibility: isPlaying ? "Pause" : "Play"
+                ) { dispatch(.togglePlayPause) }
+                MusicControlButton(
+                    systemImage: "forward.fill",
+                    glyphSize: 16,
+                    buttonSize: 36,
+                    isPrimary: false,
+                    accent: accent,
+                    accessibility: "Next track"
+                ) { dispatch(.next) }
+            }
+
+            Spacer(minLength: 0)
+
+            // RIGHT: mini-volume — speaker icon + 70pt slider.
+            // Quiet trim control, not the focal element.
+            HStack(spacing: 5) {
+                Image(systemName: volumeIcon)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white.opacity(volumeSupported ? 0.55 : 0.25))
+                    .frame(width: 12, alignment: .center)
+                Slider(
+                    value: Binding(
+                        get: { sourceVolume },
+                        set: { newValue in
+                            sourceVolume = newValue
+                            setSourceVolume(newValue)
+                        }
+                    ),
+                    in: 0...1,
+                    onEditingChanged: { editing in
+                        isAdjustingVolume = editing
+                    }
+                )
+                .controlSize(.mini)
+                .frame(width: 70)
+                .tint(Color.white.opacity(0.65))
+                .disabled(!volumeSupported)
+            }
+            .frame(width: flankWidth, alignment: .trailing)
+        }
+    }
+
+    // MARK: - Text helpers (with macOS 14+ content crossfade)
+    //
+    // Wraps Text views for the title/artist/album so the actual
+    // string content crossfades on changes (macOS 14's
+    // `.contentTransition(.opacity)`). On macOS 13 the call is a
+    // no-op and the text snaps as before — but the surrounding
+    // chrome (color, opacity) still eases via the `.animation`
+    // modifier on the parent VStack, so the empty→playing
+    // transition is much softer than the old hard snap.
+
+    @ViewBuilder
+    private func titleText(_ value: String) -> some View {
+        let base = Text(value)
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .help(value)
+        if #available(macOS 14.0, *) {
+            base.contentTransition(.opacity)
+        } else {
+            base
+        }
+    }
+
+    @ViewBuilder
+    private func artistText(text: String, isHint: Bool, artist: String) -> some View {
+        let base = Text(text)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(.white.opacity(isHint ? 0.55 : 0.85))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .help(artist)
+            .opacity(isHint || !artist.isEmpty ? 1 : 0)
+        if #available(macOS 14.0, *) {
+            base.contentTransition(.opacity)
+        } else {
+            base
+        }
+    }
+
+    @ViewBuilder
+    private func albumText(_ value: String) -> some View {
+        let base = Text(value.isEmpty ? " " : value)
+            .font(.system(size: 11, weight: .regular))
+            .foregroundStyle(.white.opacity(0.55))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .help(value)
+            .opacity(value.isEmpty ? 0 : 1)
+        if #available(macOS 14.0, *) {
+            base.contentTransition(.opacity)
+        } else {
+            base
+        }
+    }
+
+    // MARK: - Volume control
+
+    /// Compact horizontal slider with a state-aware speaker glyph
+    /// on the leading edge. Drag dispatches the new volume to the
+    /// source app via `set sound volume to N` AppleScript. While
+    /// the user is dragging, the polled value (refreshed on every
+    /// track change + 2s) is suppressed so the slider doesn't
+    /// fight the user's input.
+    @ViewBuilder
+    private var volumeControl: some View {
+        let bundleID = presenter.nowPlaying?.sourceBundleID
+        let supported = bundleID == "com.spotify.client" || bundleID == "com.apple.Music"
+        HStack(spacing: 6) {
+            Image(systemName: volumeIcon)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(supported ? 0.65 : 0.30))
+                .frame(width: 16, alignment: .center)
+                // Symbol-effect replace transitions are macOS 14+.
+                // We target 13.0, so the icon swap is just a hard
+                // re-render on state change. Visually fine — the
+                // surrounding scale + opacity already give the
+                // toggle plenty of feedback.
+            Slider(
+                value: Binding(
+                    get: { sourceVolume },
+                    set: { newValue in
+                        sourceVolume = newValue
+                        setSourceVolume(newValue)
+                    }
+                ),
+                in: 0...1,
+                onEditingChanged: { editing in
+                    isAdjustingVolume = editing
+                }
+            )
+            .controlSize(.mini)
+            .frame(width: 78)
+            .tint(Color.white.opacity(0.88))
+            .disabled(!supported)
+        }
+        .help(supported
+              ? "Adjust \(bundleID == "com.spotify.client" ? "Spotify" : "Apple Music") volume"
+              : "Volume control supported for Spotify and Apple Music")
+    }
+
+    /// State-driven SF Symbol — slash when muted, ramps up through
+    /// "wave.1" / "wave.2" as volume increases. Reads at a glance
+    /// without needing to look at the slider knob.
+    private var volumeIcon: String {
+        if sourceVolume <= 0.001 { return "speaker.slash.fill" }
+        if sourceVolume < 0.34 { return "speaker.fill" }
+        if sourceVolume < 0.67 { return "speaker.wave.1.fill" }
+        return "speaker.wave.2.fill"
+    }
+
+    // toggleLike() and saveToSpotifyLikedSongs() removed — the
+    // heart button was removed per user request because Spotify's
+    // AppleScript dictionary doesn't expose a saved-tracks flag,
+    // so the only Spotify path was a Cmd+S keystroke through
+    // System Events that needs Accessibility permission. Without
+    // that grant the heart filled but the song never actually
+    // got saved ("UI lies"). With the button gone, this whole
+    // branch is dead code.
+
+    /// Push a new volume to the source app. 0-1 range gets scaled
+    /// to AppleScript's 0-100 integer range.
+    private func setSourceVolume(_ value: Double) {
+        guard let bundleID = presenter.nowPlaying?.sourceBundleID else { return }
+        let v = max(0, min(100, Int((value * 100).rounded())))
+        let appName: String
+        switch bundleID {
+        case "com.apple.Music": appName = "Music"
+        case "com.spotify.client": appName = "Spotify"
+        default: return
+        }
+        let script = "tell application \"\(appName)\" to set sound volume to \(v)"
+        runAppleScriptAsync(script)
+    }
+
+    /// Read the source app's current volume and reflect it into
+    /// our @State. Called on track change so the volume slider
+    /// stays accurate when the user changed Spotify / Music's
+    /// volume from elsewhere while the slab was closed.
+    ///
+    /// Was `refreshLikedAndVolume` — the liked-state poll was
+    /// removed when the heart button was removed (Spotify's
+    /// AppleScript dictionary doesn't expose a saved-tracks flag,
+    /// and without the heart there's no UI to drive).
+    private func refreshVolume() {
+        guard let bundleID = presenter.nowPlaying?.sourceBundleID else { return }
+        let appName: String
+        switch bundleID {
+        case "com.apple.Music": appName = "Music"
+        case "com.spotify.client": appName = "Spotify"
+        default: return
+        }
+
+        let volScript = "tell application \"\(appName)\" to get sound volume"
+        DispatchQueue.global(qos: .userInitiated).async {
+            var error: NSDictionary?
+            guard let scriptObj = NSAppleScript(source: volScript) else { return }
+            let descriptor = scriptObj.executeAndReturnError(&error)
+            if error != nil { return }
+            let raw = descriptor.int32Value
+            let normalized = Double(raw) / 100.0
+            DispatchQueue.main.async {
+                guard !isAdjustingVolume else { return }
+                sourceVolume = max(0, min(1, normalized))
+            }
+        }
+    }
+
+    /// Background-queue dispatch wrapper for fire-and-forget
+    /// AppleScript. Errors logged to the console so silent
+    /// permission-denied / app-not-running cases are still
+    /// diagnosable from a Console.app filter.
+    private func runAppleScriptAsync(_ script: String) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            var error: NSDictionary?
+            if let scriptObj = NSAppleScript(source: script) {
+                _ = scriptObj.executeAndReturnError(&error)
+                if let error = error {
+                    NSLog("[MusicPanel] AppleScript failed: \(error)")
+                }
+            }
         }
     }
 
@@ -282,20 +827,40 @@ struct MusicPanelView: View {
             openSourceApp()
         } label: {
             Group {
-                if let data = presenter.nowPlaying?.artworkData,
-                   let image = NSImage(data: data) {
+                // Use the cached/decoded NSImage directly. The
+                // cache lookup happens off the render hot path
+                // (in onAppear and onChange handlers), so this
+                // branch just reads the cached image without
+                // re-decoding.
+                if let image = displayedArtworkImage {
                     Image(nsImage: image)
                         .resizable()
                         .interpolation(.high)
                         .aspectRatio(contentMode: .fill)
-                } else if let icon = sourceAppIcon() {
-                    // No track artwork (WhatsApp audio, some YouTube
-                    // tabs, podcasts, etc.) → fall back to the source
-                    // app's icon so the panel still has a visual
-                    // anchor identifying WHERE the audio is coming
-                    // from. User: "in any other software or window
-                    // where we use any kind of sounds ... it should
-                    // register as that."
+                } else if let icon = sourceAppIcon(),
+                          !isMusicAppSource(presenter.nowPlaying?.sourceBundleID) {
+                    // Source-app-icon fallback ONLY for non-music
+                    // sources — WhatsApp audio, some YouTube tabs,
+                    // podcasts, browser-tab audio, etc. — where
+                    // there's never going to be track art and the
+                    // user benefits from the visual anchor: "in any
+                    // other software or window where we use any
+                    // kind of sounds ... it should register as that."
+                    //
+                    // For Spotify and Apple Music we deliberately
+                    // skip this branch and fall through to
+                    // `placeholderArt` instead. Reason: those
+                    // sources DO have artwork, but the bytes can
+                    // briefly be nil during the window between a
+                    // notification firing (with title/artist only)
+                    // and the iTunes Search / cache fetch
+                    // completing. With this fallback enabled, that
+                    // ~500ms window read as the album art
+                    // "disappearing into a Spotify logo" — exactly
+                    // what the user reported. Showing the neutral
+                    // music-note placeholder instead means the
+                    // brief artwork gap is invisible: the eye reads
+                    // "art still loading" rather than "art gone."
                     Image(nsImage: icon)
                         .resizable()
                         .interpolation(.high)
@@ -318,11 +883,250 @@ struct MusicPanelView: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
             )
+            // Flatten artwork+border+shadow into a single rasterized
+            // layer BEFORE the 3D rotation transform below. Without
+            // compositingGroup, SwiftUI re-rasterizes the bordered
+            // image + shadow on EVERY frame of the rotation as a
+            // separate layer per child — that's the visible jitter
+            // during track-change flips. With it, Core Animation
+            // applies the 3D transform to a single flat texture.
+            .compositingGroup()
             .shadow(color: Color.black.opacity(0.4), radius: 8, x: 0, y: 4)
             .contentShape(RoundedRectangle(cornerRadius: 12))
+            // Full layered 3D-tumble swap. The user reported the
+            // previous version's tilt was "not taking effect" —
+            // two things were strangling it:
+            //   1. ±32° at perspective 0.6 is subtle on a 76pt
+            //      tile. Apple's docs: perspective < 1.0 = LESS
+            //      foreshortening; default is 1.0; we need MORE.
+            //   2. The opacity fade was linear in phase, so by
+            //      the time rotation reached its peak (phase=±1),
+            //      opacity was already 0 — the dramatic tilt was
+            //      INVISIBLE.
+            //
+            // Fixed both:
+            //   • Bumped angle to ±72° at perspective 1.0 → real
+            //     foreshortening, the right edge clearly recedes
+            //     on a Next press, left edge on a Previous.
+            //   • Quadratic opacity (`1 - phase²`) keeps opacity
+            //     near 1.0 through the early/middle of the tilt,
+            //     dropping to 0 only in the final ~25% of the
+            //     swap. The full rotation is now visible.
+            //   • Slight x-axis component (0.15) adds a top-edge
+            //     tip during the tumble — reads as a real 3D
+            //     tumbling card, not just a y-axis flip.
+            //
+            // Direction-sensitive: `artworkSwapDirection` is +1
+            // for next, -1 for previous. Set in `dispatch(_:)`,
+            // NOT overwritten in `runFullArtworkSwap`, so back
+            // button reverses the rotation axis as the user asked.
+            //
+            // All transform-only — no layout impact, transport
+            // row stays nailed in place.
+            // Clean Y-axis flip — single rotation + cosineSign-based
+            // X-scale mirror so the back face of the rotation never
+            // appears as a mirrored image. Replaces the previous
+            // 5-axis transform stack (user feedback 2026-04-29:
+            // "weird tilted"). Pattern lifted verbatim from
+            // jackson-storm/DynamicNotch's AlbumArtFlipModifier.
+            //
+            // The image data swap (in `runFullArtworkSwap`) lands at
+            // the mid-flip moment when the card is exactly edge-on
+            // (angle ≡ 90° mod 180°), so the user never sees the
+            // crossfade — same visual signature as Alcove and Sleeve.
+            .rotation3DEffect(
+                .degrees(artworkFlipAngle),
+                axis: (x: 0, y: 1, z: 0),
+                anchor: .center,
+                anchorZ: 0,
+                perspective: 0.5
+            )
+            .scaleEffect(x: artworkFlipCosineSign, y: 1)
         }
         .buttonStyle(.plain)
         .help(sourceAppHelpText())
+        .onAppear {
+            // Seed displayed state from current snapshot so the
+            // first track that mounts doesn't trigger a phantom
+            // swap animation.
+            applyDisplayed(from: presenter.nowPlaying)
+            // Pull the source app's current liked + volume so the
+            // heart and slider reflect reality on first paint.
+            refreshVolume()
+        }
+        .onChange(of: presenter.nowPlaying) { newInfo in
+            let newKey = newInfo.map { "\($0.title)|\($0.artist)" } ?? ""
+            // Same-track artwork refresh (async artwork arrived for
+            // a track whose title/artist already landed). Critical:
+            // ALSO trigger a cache lookup so the decoded NSImage is
+            // populated. Without this, we'd update raw data but
+            // never the displayed image — exactly the "next song's
+            // thumbnail not appearing" bug. Spotify regularly pushes
+            // metadata in two-stage emissions: title/artist first,
+            // artwork ~100-300ms later as a same-track refresh.
+            if newKey == displayedTrackKey {
+                displayedArtworkData = newInfo?.artworkData
+                if let info = newInfo, let data = info.artworkData {
+                    let key = "\(info.title)|\(info.artist)"
+                    // Per BUG-012 fix: ArtworkCache.image() no longer
+                    // takes an onReady closure (it was documented as
+                    // never firing). Just consume the synchronous
+                    // return value.
+                    if let img = ArtworkCache.shared.image(data: data, key: key) {
+                        displayedArtworkImage = img
+                    }
+                }
+                return
+            }
+            // Real track change → run the flip. The cumulative
+            // `artworkFlipAngle += 180` pattern naturally handles
+            // mid-flight consecutive clicks — every track change
+            // just adds another 180° to the rotation, so a fast
+            // double-tap ends at 360° (back at the start) with
+            // both intermediate swaps visible. No more "teleport
+            // from -1 → +1" bug the old artworkSwapPhase had.
+            if false {
+                // (placeholder branch kept to preserve history; see
+                // git for the previous swap-phase implementation)
+            } else {
+                // Cold change: full sequence.
+                runFullArtworkSwap(newInfo: newInfo, newKey: newKey)
+            }
+            // New track → re-poll source-app state. Liked status
+            // is per-track, so a skip can flip the heart between
+            // filled and empty. Volume is global to the source so
+            // it doesn't strictly need re-polling per track, but
+            // doing it here is the cheapest hook we have and keeps
+            // a long-lived slab in sync if the user changed Spotify
+            // / Music's volume from somewhere else.
+            refreshVolume()
+        }
+    }
+
+    /// Snapshot the displayed text fields + artwork from a
+    /// NowPlayingInfo. Called from onAppear and at the bottom of
+    /// each swap so the text fades + tilts in lockstep with the
+    /// artwork rather than snapping ahead of the animation.
+    ///
+    /// Artwork goes through `ArtworkCache` for instant return-to-
+    /// recent + off-main-thread decode for fresh tracks.
+    private func applyDisplayed(from info: NowPlayingInfo?) {
+        displayedArtworkData = info?.artworkData
+        displayedTitle = info?.title ?? ""
+        displayedArtist = info?.artist ?? ""
+        displayedAlbum = info?.album ?? ""
+        // Resolve the decoded NSImage via the cache. Hit returns
+        // synchronously; miss schedules a background decode and
+        // refreshes when ready. Either way, no main-thread block
+        // on `NSImage(data:)`.
+        guard let info = info else {
+            displayedArtworkImage = nil
+            return
+        }
+        let key = "\(info.title)|\(info.artist)"
+        // Per BUG-012 fix: ArtworkCache.image() no longer takes
+        // a stale-decode-rejection closure (it never fired anyway).
+        // The synchronous decode either returns the image now or
+        // returns nil (which we propagate below).
+        let img = ArtworkCache.shared.image(data: info.artworkData, key: key)
+        // ALWAYS update displayedArtworkImage — including when img
+        // is nil (cache miss, decode in flight). Setting to nil
+        // here clears any stale image from a previous track so the
+        // slab shows the placeholder source-app icon during the
+        // decode window. Without this clear, the OLD track's
+        // artwork would camp on screen while the new track's
+        // metadata (title, artist, album) was already displayed —
+        // exactly the "thumbnail is not changing" bug the user
+        // reported. The decode-completion closure replaces this
+        // nil with the decoded image once ready.
+        displayedArtworkImage = img
+    }
+
+    /// Full out-and-in artwork swap. Now the only swap path —
+    /// dispatch no longer kicks an eager tilt because that caused
+    /// the new artwork to briefly appear at phase=-1 (tilted +
+    /// faded ~9% opacity) before the spring brought it back to
+    /// center, which read as a jump.
+    ///
+    /// Timing chosen so the data swap happens AFTER the tilt-out
+    /// completes (phase fully at -1, opacity exactly 0):
+    ///   • tilt-out runs 0.24s with .smooth (a hair longer than
+    ///     the swap deadline below so phase has actually reached
+    ///     -1 by the time we swap)
+    ///   • 0.24s later: swap data at phase=-1 (opacity=0,
+    ///     completely invisible — swap is imperceptible)
+    ///   • spring back to phase=0 with .spring(0.45, 0.85) —
+    ///     critically-damped, no overshoot
+    /// X-axis scale value that compensates for the back face of the
+    /// Y-axis rotation. `cos(angle) > 0` → 1.0 (front face, normal),
+    /// `cos(angle) < 0` → -1.0 (back face, mirror). The exact 90°/270°
+    /// boundaries pick a side based on the rotation direction sign so
+    /// the transition is smooth even at the singularity.
+    private var artworkFlipCosineSign: CGFloat {
+        let cosine = cos(artworkFlipAngle * .pi / 180)
+        if cosine > 0.001 { return 1 }
+        if cosine < -0.001 { return -1 }
+        // Exactly edge-on. Pick the side based on rotation direction.
+        return artworkFlipAngle.truncatingRemainder(dividingBy: 360) >= 0 ? -1 : 1
+    }
+
+    private func runFullArtworkSwap(newInfo: NowPlayingInfo?, newKey: String) {
+        // CRITICAL: do NOT overwrite `artworkSwapDirection` here.
+        // The previous version unconditionally set it to 1 (next-
+        // direction), which made the back button animate IDENTICAL
+        // to next — the user reported "do reverse animation for
+        // when someone do the back button." `dispatch(.previous)`
+        // already set direction = -1 BEFORE this function runs;
+        // overwriting clobbered that intent. If this is called
+        // from natural queue advancement (no user click), direction
+        // stays at its last user-set value, which is the right
+        // intuition.
+        // GATE THE FLIP. Per 2026-04-29 user feedback ("it's
+        // rotating too much without actual thumbnail"), the
+        // 180° flip is only visually meaningful when there's
+        // REAL artwork on BOTH sides of the swap. Placeholder→
+        // placeholder rotation looks like motion for motion's
+        // sake — Apple's Music.app and the open-source flip
+        // implementations (DynamicNotch, Alcove) all guard
+        // against this case.
+        //
+        // Decision matrix:
+        //   • old has art + new has art   → flip (the whole point)
+        //   • old has art + new has none  → crossfade (track is
+        //     loading; flipping reveals an empty placeholder which
+        //     looks broken)
+        //   • old has none + new has art  → crossfade (artwork
+        //     just landed for an existing track)
+        //   • neither has art             → snap, no animation
+        //     (nothing visible would change anyway)
+        let oldHasArt = displayedArtworkImage != nil
+        let newHasArt = (newInfo?.artworkData?.isEmpty == false)
+        let shouldFlip = oldHasArt && newHasArt
+
+        if shouldFlip {
+            // Full vinyl-card flip. Image data swaps at the
+            // edge-on moment (89% of the flip) so the new
+            // artwork rides the front face into view.
+            let flipDuration: TimeInterval = 0.45
+            let swapDelay: TimeInterval = 0.40
+            withAnimation(.easeInOut(duration: flipDuration)) {
+                artworkFlipAngle += 180
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + swapDelay) {
+                withAnimation(.smooth(duration: 0.20)) {
+                    applyDisplayed(from: newInfo)
+                    displayedTrackKey = newKey
+                }
+            }
+        } else {
+            // Quiet crossfade — no rotation. Mirrors Apple Music's
+            // own mini-player swap behaviour for placeholder
+            // states, and stops the "rotating too much" feel.
+            withAnimation(.easeInOut(duration: 0.30)) {
+                applyDisplayed(from: newInfo)
+                displayedTrackKey = newKey
+            }
+        }
     }
 
     /// Pull the source app's NSImage icon by bundleID. Used as a
@@ -333,6 +1137,20 @@ struct MusicPanelView: View {
               let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
         else { return nil }
         return NSWorkspace.shared.icon(forFile: url.path)
+    }
+
+    /// True for sources that ALWAYS provide track artwork once the
+    /// metadata fully lands — Spotify and Apple Music. Used to gate
+    /// the source-app-icon fallback so the user doesn't see a
+    /// transient "Spotify logo" flash during the brief window
+    /// between a notification firing (title/artist only) and the
+    /// artwork bytes arriving via iTunes Search / cache. For these
+    /// sources we prefer to show the neutral music-note placeholder
+    /// instead, which reads as "art still loading" rather than
+    /// "art replaced with app logo."
+    private func isMusicAppSource(_ bundleID: String?) -> Bool {
+        guard let bundleID = bundleID else { return false }
+        return bundleID == "com.spotify.client" || bundleID == "com.apple.Music"
     }
 
     /// Hover help text for the artwork tile — tells the user
@@ -452,7 +1270,13 @@ struct MusicPanelView: View {
             let rawTotal = info.duration ?? 0
             let total = (rawTotal.isFinite && rawTotal > 0) ? rawTotal : 0
             let hasTiming = total > 0 && info.elapsedTime != nil
-            TimelineView(.periodic(from: .now, by: 0.25)) { context in
+            // 2026-04-29 jitter pass: dropped tick rate 0.25s → 0.5s
+            // (4 Hz → 2 Hz). The progress bar's pixel position only
+            // visibly moves once per second at typical track lengths
+            // (a 4-min track / 1000pt-wide bar = 0.27px/sec), so a
+            // 2 Hz refresh is still smooth enough to look continuous
+            // while halving the re-eval cost during music playback.
+            TimelineView(.periodic(from: .now, by: 0.5)) { context in
                 let position = hasTiming ? (info.currentPosition(at: context.date) ?? 0) : 0
                 let clamped = hasTiming ? min(max(position, 0), total) : 0
                 // While the user is actively scrubbing, render the
@@ -582,6 +1406,17 @@ struct MusicPanelView: View {
                                 .monospacedDigit()
                                 .foregroundStyle(.white.opacity(0.6))
                         }
+                        // 2026-04-29: 10pt horizontal inset so the
+                        // time labels don't crash into the rounded
+                        // corners of the panel silhouette. The panel
+                        // bottom corners curve inward — without this
+                        // padding the labels sat hard against the
+                        // edges and read as clipped or invisible
+                        // (user: "numbers are unvisible here"). The
+                        // progress bar above stays edge-to-edge for
+                        // the gradient effect; only the text needs
+                        // safe-area inset.
+                        .padding(.horizontal, 10)
                         // Hide the time labels from VoiceOver — the
                         // bar's own accessibilityValue already
                         // announces position/total, so reading these
@@ -683,6 +1518,10 @@ struct MusicPanelView: View {
     /// the focal point; clustering the three buttons closer would make
     /// the row feel cramped against the progress bar above it.
     private var transportControls: some View {
+        // See `inlineControlsCluster` for the evidence-based revert
+        // away from isAudioFlowing — Chrome doesn't drop CoreAudio's
+        // IO-running flag on pause, so that signal is stuck-on for
+        // browser audio.
         let isPlaying = presenter.nowPlaying?.isPlaying ?? false
         // Pull the artwork's dominant color and use it as the accent
         // tint on the transport-button backgrounds. Same color as
@@ -691,43 +1530,69 @@ struct MusicPanelView: View {
         // white so the previous monochrome look returns when no
         // artwork is available.
         let accent = ArtworkColor.dominant(from: presenter.nowPlaying?.artworkData) ?? .white
-        return HStack(spacing: 24) {
-            MusicControlButton(
-                systemImage: "backward.fill",
-                glyphSize: 16,
-                buttonSize: 38,
-                isPrimary: false,
-                accent: accent,
-                accessibility: "Previous track"
-            ) {
-                dispatch(.previous)
+        // Symmetric 3-zone layout for the transport row: heart on
+        // the LEFT edge, prev/play/next centered, volume on the
+        // RIGHT edge. The two outer Spacers + .frame on each zone
+        // pin the center cluster to the visual middle of the slab,
+        // and the heart's left edge mirrors the slider's right
+        // edge — what the user asked for when they said "this design
+        // can be more symmetrical."
+        return HStack(spacing: 0) {
+            // LEFT zone: empty 110pt placeholder, mirrors the
+            // right-zone volume slider's width so the center
+            // cluster (prev/play/next) stays at the panel's true
+            // visual center. Heart/like button used to live here
+            // but was removed per user request — Spotify's
+            // AppleScript dictionary doesn't expose the saved-
+            // tracks flag, so the button required a Cmd+S
+            // keystroke route that needs Accessibility permission;
+            // without that grant the heart filled but the song
+            // never actually got saved ("UI lies"). Removing the
+            // control eliminates the broken-state UX entirely.
+            Color.clear
+                .frame(width: 110, height: 1)
+            Spacer(minLength: 0)
+            // CENTER zone: the three transport buttons. Same
+            // glyph sizes, same spacing, same haptic dispatch
+            // as before — only the wrapping HStack moved.
+            HStack(spacing: 24) {
+                MusicControlButton(
+                    systemImage: "backward.fill",
+                    glyphSize: 16,
+                    buttonSize: 38,
+                    isPrimary: false,
+                    accent: accent,
+                    accessibility: "Previous track"
+                ) {
+                    dispatch(.previous)
+                }
+                MusicControlButton(
+                    systemImage: isPlaying ? "pause.fill" : "play.fill",
+                    glyphSize: 22,
+                    buttonSize: 50,
+                    isPrimary: true,
+                    accent: accent,
+                    accessibility: isPlaying ? "Pause" : "Play"
+                ) {
+                    dispatch(.togglePlayPause)
+                }
+                MusicControlButton(
+                    systemImage: "forward.fill",
+                    glyphSize: 16,
+                    buttonSize: 38,
+                    isPrimary: false,
+                    accent: accent,
+                    accessibility: "Next track"
+                ) {
+                    dispatch(.next)
+                }
             }
-
-            // Primary play/pause button — slightly larger, with the
-            // artwork-color accent fill that gives it visual weight
-            // as the focal action. Same color language as the
-            // timeline so the surface reads as one unified accent.
-            MusicControlButton(
-                systemImage: isPlaying ? "pause.fill" : "play.fill",
-                glyphSize: 22,
-                buttonSize: 50,
-                isPrimary: true,
-                accent: accent,
-                accessibility: isPlaying ? "Pause" : "Play"
-            ) {
-                dispatch(.togglePlayPause)
-            }
-
-            MusicControlButton(
-                systemImage: "forward.fill",
-                glyphSize: 16,
-                buttonSize: 38,
-                isPrimary: false,
-                accent: accent,
-                accessibility: "Next track"
-            ) {
-                dispatch(.next)
-            }
+            Spacer(minLength: 0)
+            // RIGHT zone: volume control. Width matches the LEFT
+            // zone exactly so the middle cluster lands on the
+            // panel's centerline.
+            volumeControl
+                .frame(width: 110, alignment: .trailing)
         }
         .frame(maxWidth: .infinity)
     }
@@ -752,6 +1617,30 @@ struct MusicPanelView: View {
         // serves as a haptic anti-spam guard, mirroring Alcove's
         // `hasRecentlyTriggeredHaptic` flag pattern.
         HapticFeedback.generic()
+
+        // No eager tilt-out. Earlier this kicked off a tilt
+        // animation IMMEDIATELY on click so the response felt
+        // zero-latency, but the swap point at the bottom of the
+        // tilt (where displayed data updates) caused visible
+        // glitches — the new artwork would briefly appear at
+        // phase=-1 (rotated + faded) before the spring brought
+        // it back to center, which read as a jump/flicker on the
+        // user's screen. Now: dispatch only sends the command;
+        // the full swap animation runs once when nowPlaying
+        // actually changes (handled in the `.onChange(of:)` of
+        // the artwork view via `runFullArtworkSwap`). Trade-off:
+        // ~200-400ms of "nothing happens visually" between click
+        // and animation start, but no glitch — which is what the
+        // user prioritized.
+        switch command {
+        case .next:
+            artworkSwapDirection = 1
+        case .previous:
+            artworkSwapDirection = -1
+        default:
+            break
+        }
+
         presenter.onMediaCommand?(command)
     }
 
@@ -893,9 +1782,29 @@ private struct MusicControlButton: View {
                                 .strokeBorder(accent.opacity(0.35), lineWidth: 0.5)
                         )
                 } else {
+                    // Resting state for prev/next: subtle white
+                    // halo at 6% opacity so the buttons read as
+                    // buttons even before hover. On hover/press
+                    // the halo brightens AND picks up the artwork
+                    // accent tint — same chromatic language as
+                    // the play button. Per user feedback that the
+                    // transport row felt "flat / not Apple-grade":
+                    // visible-at-rest backgrounds are how Apple
+                    // Music's macOS small player and Sonoma+
+                    // Settings rows distinguish controls from
+                    // chrome.
                     Circle()
-                        .fill(accent.opacity(isPressed ? 0.22 : 0.14))
-                        .opacity(isHovered || isPressed ? 1 : 0)
+                        .fill(
+                            isPressed
+                                ? accent.opacity(0.28)
+                                : isHovered
+                                    ? accent.opacity(0.18)
+                                    : Color.white.opacity(0.06)
+                        )
+                        .overlay(
+                            Circle()
+                                .strokeBorder(Color.white.opacity(isHovered ? 0.10 : 0.05), lineWidth: 0.5)
+                        )
                 }
 
                 Image(systemName: systemImage)

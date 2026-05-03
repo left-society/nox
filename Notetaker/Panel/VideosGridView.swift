@@ -5,10 +5,18 @@ import UniformTypeIdentifiers
 
 struct VideosGridView: View {
     @EnvironmentObject var videoStore: VideoStore
+    @EnvironmentObject var presenter: PanelPresenter
     @State private var showClearConfirm = false
     /// The video currently being played inline at the top of the tab. nil
     /// means the panel is back in its normal "grid of thumbnails" mode.
     @State private var playingRecord: VideoRecord?
+
+    /// Multi-select state. Same pattern as Notes/Images: ⌘-click
+    /// toggles, ⇧-click does smart range toggle, plain click in
+    /// selection mode also toggles. Outside selection mode, plain
+    /// click PLAYS the video (existing behavior).
+    @State private var selectedIds: Set<String> = []
+    @State private var lastClickedId: String? = nil
 
     private let columns = [
         GridItem(.flexible(), spacing: 6),
@@ -45,24 +53,17 @@ struct VideosGridView: View {
                     } else if !videoStore.videos.isEmpty {
                         LazyVGrid(columns: columns, spacing: 6) {
                             ForEach(videoStore.videos) { record in
-                                VideoCell(record: record)
+                                VideoCell(
+                                    record: record,
+                                    isSelected: selectedIds.contains(record.id)
+                                )
                                     .overlay(playingBadge(for: record))
                                     .overlay(
                                         MultiFileDragSource(
                                             fileURLs: [videoStore.fullURL(for: record)],
                                             dragImageURLs: [videoStore.thumbURL(for: record)],
                                             onClick: {
-                                                // Tapping the cell that's already playing
-                                                // collapses the player — saves a trip to
-                                                // the close button when you just want to
-                                                // back out.
-                                                withAnimation(.selection) {
-                                                    if playingRecord?.id == record.id {
-                                                        playingRecord = nil
-                                                    } else {
-                                                        playingRecord = record
-                                                    }
-                                                }
+                                                handleCellClick(record)
                                             }
                                         )
                                     )
@@ -73,12 +74,13 @@ struct VideosGridView: View {
                                     .overlay(alignment: .topLeading) {
                                         videoTrashButton(for: record)
                                     }
-                                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                                    .transition(.dropLanding)
+                                    .celebrateIfRecent(record.createdAt)
                             }
                         }
                         .padding(.horizontal, DS.Spacing.sm)
                         .padding(.bottom, DS.Spacing.sm)
-                        .animation(.selection, value: videoStore.videos.map(\.id))
+                        .animation(.dropSpring, value: videoStore.videos.map(\.id))
                     }
                 }
                 .padding(.top, DS.Spacing.xs)
@@ -105,6 +107,76 @@ struct VideosGridView: View {
         }
     }
 
+    // MARK: - Multi-select helpers (mirror Notes/Images pattern)
+
+    /// Click handler for video cells. In selection mode, all clicks
+    /// toggle selection. Outside selection mode, ⌘-click enters
+    /// selection mode by toggling, ⇧-click does range toggle, plain
+    /// click PLAYS the video (existing behavior preserved).
+    private func handleCellClick(_ record: VideoRecord) {
+        let mods = NSEvent.modifierFlags
+        if mods.contains(.shift) {
+            shiftRangeToggle(to: record.id)
+            return
+        }
+        if mods.contains(.command) {
+            toggleSelection(record.id)
+            return
+        }
+        // In selection mode, plain click toggles (no play).
+        if !selectedIds.isEmpty {
+            toggleSelection(record.id)
+            return
+        }
+        // Default: play / pause inline.
+        withAnimation(.selection) {
+            if playingRecord?.id == record.id {
+                playingRecord = nil
+            } else {
+                playingRecord = record
+            }
+        }
+    }
+
+    private func toggleSelection(_ id: String) {
+        if selectedIds.contains(id) {
+            selectedIds.remove(id)
+        } else {
+            selectedIds.insert(id)
+        }
+        lastClickedId = id
+    }
+
+    private func shiftRangeToggle(to id: String) {
+        let visible = videoStore.videos.map(\.id)
+        guard let endIdx = visible.firstIndex(of: id) else { return }
+        let anchorId = lastClickedId ?? selectedIds.first
+        guard let anchor = anchorId,
+              let anchorIdx = visible.firstIndex(of: anchor)
+        else {
+            toggleSelection(id)
+            return
+        }
+        let lo = min(anchorIdx, endIdx)
+        let hi = max(anchorIdx, endIdx)
+        let shouldDeselect = selectedIds.contains(id)
+        for idx in lo...hi {
+            if shouldDeselect {
+                selectedIds.remove(visible[idx])
+            } else {
+                selectedIds.insert(visible[idx])
+            }
+        }
+        lastClickedId = id
+    }
+
+    private func deleteSelected() {
+        for id in selectedIds {
+            try? videoStore.trash(id: id)
+        }
+        selectedIds.removeAll()
+    }
+
     private func videoTrashButton(for record: VideoRecord) -> some View {
         Button {
             try? videoStore.trash(id: record.id)
@@ -123,6 +195,23 @@ struct VideosGridView: View {
     }
 
     private var toolbar: some View {
+        // Two states: when items are selected, the toolbar
+        // becomes a SELECTION toolbar with bulk actions. Otherwise
+        // it's the count label + Clear-all action. Mirrors how
+        // Notes' toolbar swaps in selection mode.
+        Group {
+            if !selectedIds.isEmpty {
+                selectionToolbar
+            } else {
+                defaultToolbar
+            }
+        }
+        .padding(.horizontal, DS.Spacing.sm)
+        .padding(.top, DS.Spacing.xs)
+        .padding(.bottom, DS.Spacing.xxs)
+    }
+
+    private var defaultToolbar: some View {
         HStack(spacing: DS.Spacing.sm) {
             Text("\(videoStore.videos.count) video\(videoStore.videos.count == 1 ? "" : "s")")
                 .font(.nkMeta)
@@ -149,9 +238,73 @@ struct VideosGridView: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, DS.Spacing.sm)
-        .padding(.top, DS.Spacing.xs)
-        .padding(.bottom, DS.Spacing.xxs)
+    }
+
+    private var selectionToolbar: some View {
+        HStack(spacing: DS.Spacing.sm) {
+            Text("\(selectedIds.count) selected")
+                .font(.nkLabel.weight(.semibold))
+                .foregroundStyle(DS.Color.textPrimary)
+
+            Button {
+                let allSelected = selectedIds.count == videoStore.videos.count
+                if allSelected {
+                    selectedIds.removeAll()
+                } else {
+                    selectedIds = Set(videoStore.videos.map(\.id))
+                }
+            } label: {
+                Text(selectedIds.count == videoStore.videos.count ? "Deselect All" : "Select All")
+                    .font(.nkMeta)
+                    .foregroundStyle(DS.Color.textSecondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(DS.Color.bgSubtle.opacity(0.7))
+                    )
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("a", modifiers: .command)
+
+            Spacer()
+
+            Button {
+                deleteSelected()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 10, weight: .medium))
+                    Text("Delete")
+                        .font(.nkMeta)
+                }
+                .foregroundStyle(.red)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.red.opacity(0.12))
+                )
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.delete, modifiers: [])
+
+            Button {
+                selectedIds.removeAll()
+            } label: {
+                Text("Done")
+                    .font(.nkMeta.weight(.semibold))
+                    .foregroundStyle(DS.Color.textPrimary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(DS.Color.bgSubtle.opacity(0.7))
+                    )
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.escape, modifiers: [])
+        }
     }
 
     private var jobsSection: some View {
@@ -191,21 +344,14 @@ struct VideosGridView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: DS.Spacing.sm) {
-            Image(systemName: "film.stack")
-                .font(.system(size: 32, weight: .light))
-                .foregroundStyle(DS.Color.textTertiary)
-            Text("No videos yet")
-                .font(.nkBody.weight(.medium))
-                .foregroundStyle(DS.Color.textSecondary)
-            Text("Drag a video link (Instagram, YouTube, TikTok, X) or a video file here.")
-                .font(.nkMeta)
-                .foregroundStyle(DS.Color.textTertiary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 72)
-        .padding(.horizontal, 32)
+        // Shared empty-state family — see DesignSystem/EmptyDropState.swift.
+        EmptyDropState(
+            icon: "film.stack",
+            title: "Drop videos here",
+            subtitle: "Drag a video link (Instagram, YouTube, TikTok, X) or a video file.",
+            keyHint: ("⌘V", "to paste a link"),
+            accent: Color(red: 0.95, green: 0.40, blue: 0.55)
+        )
     }
 
     private var shortcuts: some View {
@@ -220,7 +366,11 @@ struct VideosGridView: View {
         guard let text = NSPasteboard.general.string(forType: .string),
               let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
               url.scheme == "http" || url.scheme == "https" else { return }
-        videoStore.startDownload(url: url.absoluteString)
+        // ⌘V on the videos tab: surface the URL via the pending-
+        // video pill (with a Download button) rather than auto-
+        // downloading. Per the user's spec: NOTHING downloads
+        // until they click Download on the pill.
+        presenter.setPendingVideo(url)
     }
 
     /// Draws an accent ring around whichever thumbnail is currently playing
@@ -412,6 +562,10 @@ struct DownloadJobRow: View {
 
 struct VideoCell: View {
     let record: VideoRecord
+    /// True when this cell is part of the multi-select set.
+    /// Drives the selection-state visual (accent ring + check
+    /// badge), matching the Notes/Images selection vocabulary.
+    var isSelected: Bool = false
     @EnvironmentObject var videoStore: VideoStore
     @State private var isHovered = false
 
@@ -455,8 +609,31 @@ struct VideoCell: View {
         }
         .overlay(
             RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous)
-                .strokeBorder(isHovered ? Color.white.opacity(0.18) : Color.clear, lineWidth: 1)
+                .strokeBorder(
+                    isSelected ? Color.accentColor
+                        : (isHovered ? Color.white.opacity(0.18) : Color.clear),
+                    lineWidth: isSelected ? 2.5 : 1
+                )
         )
+        .overlay(alignment: .topLeading) {
+            // Animated check badge when selected — same visual
+            // vocabulary as Notes' selection state. Sits in the
+            // top-left where the trash button isn't (trash is
+            // typically top-leading too — when in selection mode,
+            // the trash hides per the parent's gating).
+            if isSelected {
+                ZStack {
+                    Circle()
+                        .fill(Color.accentColor)
+                        .frame(width: 22, height: 22)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .heavy))
+                        .foregroundStyle(.white)
+                }
+                .padding(8)
+                .transition(.scale(scale: 0.5).combined(with: .opacity))
+            }
+        }
         .overlay(alignment: .topTrailing) {
             if let title = record.title {
                 Text(title)

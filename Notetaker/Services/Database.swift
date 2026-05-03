@@ -13,6 +13,22 @@ final class Database {
             config.foreignKeysEnabled = true
             config.prepareDatabase { db in
                 try db.execute(sql: "PRAGMA journal_mode = WAL")
+                // Per BUG-049 fix: NORMAL is 5-10× faster on small
+                // writes than the default FULL and is still safe
+                // when WAL is enabled (durability is preserved
+                // across crashes; only an OS-level kernel panic in
+                // a sub-millisecond window can lose a transaction).
+                // Every note save, screenshot save, and summary
+                // backfill goes through this — the FULL cost was
+                // measurable and unnecessary.
+                try db.execute(sql: "PRAGMA synchronous = NORMAL")
+                // Per BUG-050 fix: with no busy_timeout, an external
+                // SQLite reader (Xcode DB browser, dev tools)
+                // briefly holding a lock causes our writes to
+                // throw `SQLITE_BUSY`. 5s gives plenty of headroom
+                // for transient lock contention while still
+                // surfacing genuinely stuck states as errors.
+                try db.execute(sql: "PRAGMA busy_timeout = 5000")
             }
             dbQueue = try DatabaseQueue(path: url.path, configuration: config)
         }
@@ -162,6 +178,45 @@ final class Database {
             // when a note is opened or saved.
             try db.alter(table: "notes") { t in
                 t.add(column: "summary", .text)
+            }
+        }
+
+        m.registerMigration("v6_note_kind") { db in
+            // Tag each note with what KIND of capture it was — either
+            // 'handwritten' (user typed in the editor) or 'clipboard'
+            // (auto-saved from a copy event). User asked for this
+            // separation so the Notes list doesn't drown intentional
+            // captures under copied URLs and snippets.
+            //
+            // Default 'handwritten' for legacy rows: at the time these
+            // were created the auto-save feature funneled clipboard
+            // captures into the same Note table without flagging them,
+            // so we genuinely can't distinguish historically. Treating
+            // them all as handwritten keeps the All / Notes filters
+            // showing the same content the user is used to seeing,
+            // and only NEW clipboard captures get the new tag.
+            try db.alter(table: "notes") { t in
+                t.add(column: "kind", .text).notNull().defaults(to: "handwritten")
+            }
+            // Lookup index — list filtering ("show only clipboard")
+            // and the active-note query both ORDER BY updated_at DESC
+            // and now also FILTER by kind. Index covers both.
+            try db.create(
+                index: "notes_kind_status_updated_idx",
+                on: "notes",
+                columns: ["kind", "status", "updated_at"],
+                ifNotExists: true
+            )
+        }
+
+        m.registerMigration("v7_note_video_url") { db in
+            // Optional companion-video URL per note. When set, opening
+            // the note in the editor also pops a side-panel WKWebView
+            // loading this URL — for taking notes alongside a tutorial,
+            // lecture, podcast, etc. Nullable; vast majority of notes
+            // never set it, so the column cost is a single byte each.
+            try db.alter(table: "notes") { t in
+                t.add(column: "video_url", .text)
             }
         }
 

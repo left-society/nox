@@ -59,7 +59,7 @@ struct ImagesGridView: View {
                             // rather than popping the cell in from nowhere.
                             ForEach(imageStore.inflight) { upload in
                                 InflightImageCell(upload: upload)
-                                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                                    .transition(.dropLanding)
                             }
                             ForEach(imageStore.images) { record in
                                 ImageCell(
@@ -78,12 +78,13 @@ struct ImagesGridView: View {
                                 // drag source on top — see the overlay below.
                                 .onDrag { dragProvider(for: record) }
                                 .overlay(multiSelectDragOverlay(for: record))
-                                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                                .transition(.dropLanding)
+                                .celebrateIfRecent(record.createdAt)
                             }
                         }
                         .padding(DS.Spacing.sm)
-                        .animation(.selection, value: imageStore.images.map(\.id))
-                        .animation(.selection, value: imageStore.inflight.map(\.id))
+                        .animation(.dropSpring, value: imageStore.images.map(\.id))
+                        .animation(.dropSpring, value: imageStore.inflight.map(\.id))
                     }
                 }
             }
@@ -134,6 +135,32 @@ struct ImagesGridView: View {
             Spacer()
 
             if !selected.isEmpty {
+                // Delete just the selected items. Distinct from
+                // "Clear" (which trashes ALL images) — this only
+                // removes the highlighted ones. Red treatment to
+                // signal destructiveness; no confirmation dialog
+                // (Trash is recoverable).
+                Button {
+                    deleteSelected()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 10, weight: .medium))
+                        Text("Delete")
+                            .font(.nkMeta)
+                    }
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .fill(Color.red.opacity(0.12))
+                    )
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.delete, modifiers: [])
+                .help("Move selected images to Trash")
+
                 Button {
                     selected.removeAll()
                 } label: {
@@ -299,48 +326,19 @@ struct ImagesGridView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: DS.Spacing.md) {
-            // Soft accent blob behind the icon — the empty state used
-            // to be a flat icon + two lines of text on a dark void,
-            // which read as "feature broken" more than "ready for
-            // your stuff". The radial gives the illusion of warmth
-            // even when the panel is empty.
-            ZStack {
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                dynamicAccent.opacity(0.32),
-                                dynamicAccent.opacity(0.08),
-                                Color.clear
-                            ],
-                            center: .center,
-                            startRadius: 0,
-                            endRadius: 56
-                        )
-                    )
-                    .frame(width: 112, height: 112)
-                    .blur(radius: 8)
-
-                Image(systemName: "photo.on.rectangle.angled")
-                    .font(.system(size: 36, weight: .light))
-                    .foregroundStyle(DS.Color.textSecondary)
-                    .shadow(color: DS.Color.accent.opacity(0.4), radius: 6, y: 1)
-            }
-
-            VStack(spacing: 4) {
-                Text("Nothing here yet")
-                    .font(.nkBody.weight(.semibold))
-                    .foregroundStyle(DS.Color.textPrimary)
-                Text("Paste with ⌘V, drop here, or take a screenshot.")
-                    .font(.nkMeta)
-                    .foregroundStyle(DS.Color.textTertiary)
-                    .multilineTextAlignment(.center)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 60)
-        .padding(.horizontal, 40)
+        // Switched to shared `EmptyDropState` so Images / Videos /
+        // Files / Notes all read as one visual family (per user
+        // feedback "this thing still looks weird" on Files —
+        // problem was lack of common identity, plus the icon was
+        // 26pt thin / no halo). Now: 38pt regular glyph, layered
+        // breathing halo, strong title hierarchy.
+        EmptyDropState(
+            icon: "photo.on.rectangle.angled",
+            title: "Drop images here",
+            subtitle: "Paste with ⌘V, drop a file, or take a screenshot.",
+            keyHint: ("⌘V", "to paste"),
+            accent: dynamicAccent
+        )
     }
 
     // MARK: - Keyboard shortcuts (hidden buttons)
@@ -378,13 +376,58 @@ struct ImagesGridView: View {
     /// actually hostile here — it meant clicking a second image
     /// SILENTLY threw away the first one's selection, which is the
     /// opposite of what a user trying to "pick a few" expects.
+    /// Click handler for image cells. Plain click and ⌘-click both
+    /// toggle this image's membership in the selection. ⇧-click does
+    /// a smart range toggle: if the clicked image is currently
+    /// selected, the entire range from anchor to clicked gets
+    /// deselected; if not selected, the range gets selected.
+    /// Mirrors Notes' multi-select pattern so the user can
+    /// "deselect multiple at once" with a single ⇧-click.
     private func toggleSelection(_ id: String, command: Bool) {
-        _ = command  // semantic hook retained for future shift-range support
+        _ = command  // both plain click and ⌘-click toggle
+        let mods = NSEvent.modifierFlags
+        if mods.contains(.shift) {
+            shiftRangeToggle(to: id)
+            return
+        }
         if selected.contains(id) {
             selected.remove(id)
         } else {
             selected.insert(id)
         }
+        lastClickedId = id
+    }
+
+    /// Smart range toggle for ⇧-click. Determines select-or-deselect
+    /// based on the clicked target's state — if already selected,
+    /// the entire range is removed; otherwise the range is added.
+    /// Anchor is the most recently clicked image, falling back to
+    /// the first selected, then no-op if neither exists.
+    @State private var lastClickedId: String? = nil
+    private func shiftRangeToggle(to id: String) {
+        let visible = imageStore.images.map(\.id)
+        guard let endIdx = visible.firstIndex(of: id) else { return }
+        let anchorId = lastClickedId ?? selected.first
+        guard let anchor = anchorId,
+              let anchorIdx = visible.firstIndex(of: anchor)
+        else {
+            // No anchor — fall back to single toggle.
+            if selected.contains(id) { selected.remove(id) }
+            else { selected.insert(id) }
+            lastClickedId = id
+            return
+        }
+        let lo = min(anchorIdx, endIdx)
+        let hi = max(anchorIdx, endIdx)
+        let shouldDeselect = selected.contains(id)
+        for idx in lo...hi {
+            if shouldDeselect {
+                selected.remove(visible[idx])
+            } else {
+                selected.insert(visible[idx])
+            }
+        }
+        lastClickedId = id
     }
 
     private func selectAll() {
@@ -442,7 +485,13 @@ struct ImagesGridView: View {
 
     private func dragProvider(for record: ImageRecord) -> NSItemProvider {
         let url = imageStore.fullURL(for: record)
-        return NSItemProvider(contentsOf: url) ?? NSItemProvider()
+        // See FilesGridView.onDrag for the full rationale. Short
+        // version: NSItemProvider(contentsOf:) makes the receiver
+        // materialize a temp copy with a random name. Registering
+        // the URL itself (NSURL conforms to NSItemProviderWriting)
+        // gives receivers a public.file-url they can read directly
+        // from the original path — preserves the real filename.
+        return NSItemProvider(object: url as NSURL)
     }
 
     /// When 2+ images are selected and the user drags one of them,
@@ -714,7 +763,7 @@ struct ImageCell: View {
     private func promptForGeminiKey() {
         let alert = NSAlert()
         alert.messageText = "Gemini API key required"
-        alert.informativeText = "Add a key in Notetaker Settings to extract chat messages from screenshots."
+        alert.informativeText = "Add a key in nox Settings to extract chat messages from screenshots."
         alert.addButton(withTitle: "Open Settings")
         alert.addButton(withTitle: "Cancel")
         let response = alert.runModal()
@@ -856,8 +905,11 @@ struct ImageCell: View {
         Task {
             // Step 1 — try Gemini if a key is configured. Skip
             // outright if no key so we don't pay the round-trip just
-            // to learn we don't have one.
-            let hasGeminiKey = !(UserDefaults.standard.string(forKey: GeminiOCRService.apiKeyDefaultsKey) ?? "").isEmpty
+            // to learn we don't have one. Read from Keychain (see
+            // SecureKeyStore for the security-audit rationale).
+            let hasGeminiKey = await MainActor.run {
+                !(SecureKeyStore.shared.load(.geminiApiKey) ?? "").isEmpty
+            }
 
             var extracted: String?
             if hasGeminiKey {

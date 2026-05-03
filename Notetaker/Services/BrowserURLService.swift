@@ -53,7 +53,17 @@ enum BrowserURLService {
         "com.zen-browser.zen"
     ]
 
-    static func currentTabURL() -> String? {
+    /// Per BUG-018 fix: this function is now `async`. It used to
+    /// block the main thread for up to 400ms in a `usleep`-driven
+    /// poll loop while waiting for the browser to copy the URL
+    /// to the clipboard — visible UI freeze and beach-ball when
+    /// the user hit ⌥⌘V, and a contributing factor to the
+    /// "Notetaker is laggy" reports. Replacing the inner busy-
+    /// wait with `Task.sleep` lets the UI paint during the
+    /// 400ms window. Callers must `await` the result; the only
+    /// caller (AppDelegate.grabCurrentBrowserTab) wraps the
+    /// invocation in `Task { @MainActor in ... }`.
+    static func currentTabURL() async -> String? {
         guard let app = NSWorkspace.shared.frontmostApplication,
               let bundleID = app.bundleIdentifier
         else {
@@ -107,15 +117,18 @@ enum BrowserURLService {
         // major browser; ⌘C copies the selection.
         postCmd(keyCode: kVK_ANSI_L)
         // Browsers need a tick to finish the selection before ⌘C.
-        usleep(30_000)
+        // 30ms via Task.sleep, NOT usleep — usleep blocked the main
+        // thread, which the user reported as a visible freeze.
+        try? await Task.sleep(nanoseconds: 30_000_000)
         postCmd(keyCode: kVK_ANSI_C)
 
         // Wait for the pasteboard changeCount to tick — that means ⌘C has
         // landed and written a new item. Cap at 400ms so a stuck browser
-        // doesn't hang the hotkey.
+        // doesn't hang the hotkey. `Task.sleep` yields the main thread
+        // back to the runloop between polls instead of blocking it.
         let deadline = Date().addingTimeInterval(0.4)
         while pb.changeCount == startCount && Date() < deadline {
-            usleep(15_000)
+            try? await Task.sleep(nanoseconds: 15_000_000)
         }
 
         let raw = pb.string(forType: .string)?

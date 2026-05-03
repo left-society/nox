@@ -118,13 +118,21 @@ final class HoverActivator {
     }
 
     deinit {
-        // We can't touch `@MainActor` state from deinit, but the AppKit
-        // APIs below are safe to call from any thread and idempotent
-        // against nil — so do best-effort cleanup if `stop()` was missed.
-        if let monitor {
-            NSEvent.removeMonitor(monitor)
+        // Per BUG-017 fix: `NSEvent.removeMonitor` is documented as
+        // being called from the same thread the monitor was added
+        // on (main, since this class is `@MainActor`). deinit can
+        // run on ANY thread — calling removeMonitor directly here
+        // is undefined behavior and produced occasional crashes
+        // during process shutdown. Dispatch the removal to the
+        // main queue: the monitor reference is captured by value
+        // (it's an opaque pointer NSEvent owns), so it's safe to
+        // call after `self` is freed.
+        if let monitor = monitor {
+            DispatchQueue.main.async {
+                NSEvent.removeMonitor(monitor)
+            }
         }
-        if let screenChangeObserver {
+        if let screenChangeObserver = screenChangeObserver {
             NotificationCenter.default.removeObserver(screenChangeObserver)
         }
     }
@@ -168,13 +176,19 @@ final class HoverActivator {
         // event arrives until they wiggle, and the activator never
         // detects "the cursor is sitting inside, fire the tease."
         // User reported: "cursor stay there for a good amount of
-        // time isn't registering and the thing is not opening." A
-        // 0.15s tick polls `NSEvent.mouseLocation` directly, catching
-        // the stationary-cursor case. Cost is trivially small —
-        // mouseLocation is a syscall that returns immediately, and
-        // handleMouseMoved is idempotent.
+        // time isn't registering and the thing is not opening."
+        //
+        // Per BUG-016 fix: bumped from 60ms (~17Hz, ~1.4M wakeups
+        // per day) to 250ms (4Hz, 345K wakeups per day) — about
+        // a 4× drop in polling cost. 250ms is still well below
+        // the perceptual threshold for "cursor stayed there a
+        // moment, why isn't the panel opening?" (humans don't
+        // notice sub-quarter-second response delay on hover-
+        // triggered UI). mouseLocation is a cheap syscall but
+        // 17Hz forever-on-laptop is a real battery cost; 4Hz is
+        // the sweet spot between battery and responsiveness.
         pollTimer?.invalidate()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.handleMouseMoved()
             }
@@ -356,8 +370,20 @@ final class HoverActivator {
         }
 
         let width = min(hotZoneWidth, frame.width)
+        // Anchor on the actual notch midX, not screen.midX. On
+        // some hardware these differ by 0.5–1pt, and on a future
+        // off-center notch revision we'd want the hover trigger
+        // to follow the cutout regardless. Falls back to
+        // `frame.midX` for non-notched displays.
+        let cx: CGFloat
+        if let leftArea = screen.auxiliaryTopLeftArea,
+           let rightArea = screen.auxiliaryTopRightArea {
+            cx = (leftArea.maxX + rightArea.minX) / 2
+        } else {
+            cx = frame.midX
+        }
         let zone = CGRect(
-            x: frame.midX - width / 2,
+            x: cx - width / 2,
             y: stripBottom,
             width: width,
             height: stripTop - stripBottom

@@ -27,7 +27,20 @@ final class AirDropWatcher: NSObject {
     var onArrival: ((URL) -> Void)?
 
     private var streams: [FSEventStreamRef] = []
+    /// Bounded set of paths we've already processed. Backed by a
+    /// Set for O(1) lookup and a parallel ring-buffer order list
+    /// so we can FIFO-evict the oldest entries once we hit the
+    /// cap. Per BUG-013: previously this was an unbounded
+    /// `Set<String>` that would grow forever as new files
+    /// appeared in Downloads / Desktop — over months of uptime
+    /// it would balloon into thousands of entries (~50-100 bytes
+    /// each), a slow memory leak. The cap is sized generously
+    /// (2000) so even heavy AirDrop / Downloads churn doesn't
+    /// evict an entry that's still in the FSEvents flush
+    /// pipeline.
     private var seenPaths: Set<String> = []
+    private var seenPathsOrder: [String] = []
+    private let seenPathsLimit = 2000
     /// Files that have arrived but haven't yet had their quarantine
     /// xattr set (AirDrop sometimes writes the quarantine flag
     /// after the initial file appearance). We retry these for a
@@ -65,17 +78,40 @@ final class AirDropWatcher: NSObject {
         for dir in watchedDirectories {
             if let existing = try? FileManager.default.contentsOfDirectory(atPath: dir.path) {
                 for name in existing {
-                    seenPaths.insert((dir.path as NSString).appendingPathComponent(name))
+                    markSeen((dir.path as NSString).appendingPathComponent(name))
                 }
             }
         }
         NSLog("Notetaker: AirDropWatcher watching \(watchedDirectories.count) dirs, seeded \(seenPaths.count) existing files")
 
+        // Per BUG-001 fix: FSEventStreamContext now uses proper
+        // retain/release callbacks so FSEventStream holds a
+        // strong reference to `self` for the stream's entire
+        // lifetime. The previous version used
+        // `Unmanaged.passUnretained` with nil retain/release
+        // callbacks — if `AirDropWatcher` was deallocated while
+        // the stream was still flushing pending events, the C
+        // callback would dereference freed memory. The
+        // retain/release pair below uses Unmanaged.retain /
+        // .release to balance correctly: FSEventStream calls
+        // `retain` immediately when the stream is created (one
+        // strong ref out), and `release` when the stream is
+        // invalidated in `stop()` / `deinit` (one strong ref
+        // back). Until then, even if the owner drops their
+        // reference, FSEventStream's retain keeps `self` alive.
         var context = FSEventStreamContext(
             version: 0,
             info: Unmanaged.passUnretained(self).toOpaque(),
-            retain: nil,
-            release: nil,
+            retain: { ptr in
+                guard let ptr else { return nil }
+                return UnsafeRawPointer(
+                    Unmanaged<AirDropWatcher>.fromOpaque(ptr).retain().toOpaque()
+                )
+            },
+            release: { ptr in
+                guard let ptr else { return }
+                Unmanaged<AirDropWatcher>.fromOpaque(ptr).release()
+            },
             copyDescription: nil
         )
 
@@ -93,7 +129,18 @@ final class AirDropWatcher: NSObject {
                 let isRenamed = (flags & UInt32(kFSEventStreamEventFlagItemRenamed)) != 0
                 let isModified = (flags & UInt32(kFSEventStreamEventFlagItemModified)) != 0
                 if isFile && (isCreated || isRenamed || isModified) {
-                    DispatchQueue.main.async {
+                    // Per BUG-002 fix: hop into the main actor's
+                    // isolation domain via `Task { @MainActor in }`.
+                    // Same pattern used in MediaRemoteService for
+                    // BUG-010 — keeps the actor-isolation story
+                    // consistent across the watcher fleet. There's
+                    // a small async-scheduling cost vs the prior
+                    // `DispatchQueue.main.async` (or the
+                    // alternative `MainActor.assumeIsolated`), but
+                    // for FSEvents file-arrival events the rate
+                    // is low (<10/s in any realistic scenario), so
+                    // ordering and overhead are non-issues here.
+                    Task { @MainActor in
                         watcher.handleEvent(path: path)
                     }
                 }
@@ -150,12 +197,45 @@ final class AirDropWatcher: NSObject {
             // re-check if we previously failed to identify it AS an
             // AirDrop file (still in pendingChecks).
             if pendingChecks[path] != nil {
+                NSLog("Notetaker: AirDropWatcher re-checking pending file \(basename)")
                 checkAirDrop(path: path)
             }
             return
         }
-        seenPaths.insert(path)
+        NSLog("Notetaker: AirDropWatcher new file \(basename)")
+        markSeen(path)
         checkAirDrop(path: path)
+    }
+
+    /// Insert `path` into the bounded `seenPaths` set with LRU
+    /// eviction once the cap is reached. Per BUG-013 fix.
+    ///
+    /// LRU (not FIFO): re-seeing an already-known path moves it
+    /// to the END of `seenPathsOrder`, marking it as "recently
+    /// touched." Only paths that haven't been seen in a long
+    /// time get evicted. The earlier FIFO version had a behavior
+    /// quirk where a path that arrived 2000 events ago and is
+    /// being modified continuously (e.g. a long-lived sync
+    /// folder) could still be evicted, then re-fire as "new
+    /// AirDrop" on the next FSEvent. LRU avoids that — the
+    /// ongoing-touch keeps it warm.
+    private func markSeen(_ path: String) {
+        if seenPaths.contains(path) {
+            // Already known — promote to most-recently-used.
+            // Cheap because in practice we only re-see a tiny
+            // working set of paths per second.
+            if let idx = seenPathsOrder.firstIndex(of: path) {
+                seenPathsOrder.remove(at: idx)
+                seenPathsOrder.append(path)
+            }
+            return
+        }
+        seenPaths.insert(path)
+        seenPathsOrder.append(path)
+        while seenPathsOrder.count > seenPathsLimit {
+            let oldest = seenPathsOrder.removeFirst()
+            seenPaths.remove(oldest)
+        }
     }
 
     /// Read the file's quarantine xattr and decide whether it's an
@@ -163,6 +243,7 @@ final class AirDropWatcher: NSObject {
     /// sometimes writes file content first and quarantine second),
     /// schedule a couple of retries before giving up.
     private func checkAirDrop(path: String) {
+        let basename = (path as NSString).lastPathComponent
         guard let quarantine = Self.quarantineString(forPath: path) else {
             // No quarantine xattr — could be a non-AirDrop file
             // (a Finder copy from another folder won't have one),
@@ -170,6 +251,7 @@ final class AirDropWatcher: NSObject {
             // to 3 times at 0.5s intervals before giving up.
             let attempts = pendingChecks[path] ?? 0
             if attempts >= 3 {
+                NSLog("Notetaker: AirDropWatcher giving up on \(basename) — no quarantine after 3 retries")
                 pendingChecks.removeValue(forKey: path)
                 return
             }
@@ -181,16 +263,20 @@ final class AirDropWatcher: NSObject {
         }
 
         pendingChecks.removeValue(forKey: path)
+        NSLog("Notetaker: AirDropWatcher quarantine for \(basename): \(quarantine)")
 
-        // Quarantine format: 0181;hex_timestamp;Agent;UUID
-        // AirDrop sets Agent to "Sharingd" (which is also used for
-        // Bluetooth file transfer and iPhone "Send to Mac" — all
-        // fine to surface with the same pill).
+        // Quarantine format: FLAGS;hex_timestamp;Agent;UUID
+        // Confirmed on macOS 26 (Tahoe): "0081;...;sharingd;UUID"
+        // for AirDrop (note: lowercase "sharingd"). Same agent is
+        // used for iPhone "Send to Mac" — fine to surface either
+        // with the same pill.
         let lower = quarantine.lowercased()
         guard lower.contains("sharingd") || lower.contains("airdrop") else {
+            NSLog("Notetaker: AirDropWatcher \(basename) not from AirDrop, ignoring")
             return
         }
 
+        NSLog("Notetaker: AirDropWatcher firing pill for \(basename)")
         let url = URL(fileURLWithPath: path)
         onArrival?(url)
     }

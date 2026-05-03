@@ -301,9 +301,20 @@ final class NotchHUDWindowController {
         removeHoverMonitor()
         state.isShown = false
 
+        // Per BUG-115 fix: the work item closure mutates @MainActor
+        // state (`panel.orderOut`, `state.presentation = nil`).
+        // DispatchWorkItem closures are NOT in the actor's
+        // isolation domain even when dispatched to .main queue —
+        // same pattern BUG-010 / BUG-111 / BUG-112 / BUG-113 hit.
+        // Wrap the body in `Task { @MainActor in ... }` to hop
+        // properly into the actor before touching its state.
+        // Strict-concurrency build will flag the old form; future
+        // Swift may turn it into a runtime crash.
         let item = DispatchWorkItem { [weak self] in
-            self?.panel.orderOut(nil)
-            self?.state.presentation = nil
+            Task { @MainActor in
+                self?.panel.orderOut(nil)
+                self?.state.presentation = nil
+            }
         }
         orderOutWorkItem = item
         DispatchQueue.main.asyncAfter(
@@ -433,8 +444,15 @@ final class NotchHUDWindowController {
     /// hiding instantly).
     private func installHoverMonitor() {
         removeHoverMonitor()
+        // Per BUG-010 follow-up: matches the same fix MediaRemoteService
+        // got — `MainActor.assumeIsolated` only asserts that we're on the
+        // main thread, NOT that we're in the main actor's isolation
+        // domain. Global NSEvent monitors deliver on the main thread but
+        // outside any actor context, so the prior code was lying to the
+        // compiler. `Task { @MainActor in ... }` properly hops into the
+        // actor and is safe under strict concurrency.
         let monitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 self?.checkHoverState()
             }
         }

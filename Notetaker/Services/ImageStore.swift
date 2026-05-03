@@ -282,7 +282,26 @@ final class ImageStore: ObservableObject {
             expiresAt: expiresAt,
             sha256: sha256
         )
-        try db.dbQueue.write { try record.insert($0) }
+        // Per BUG-024 fix: previously the file + thumbnail were
+        // written FIRST and the DB row inserted second. If the DB
+        // insert threw (disk full, locked DB, GRDB throws on
+        // constraint violation, etc.), the file and thumbnail
+        // remained on disk forever — orphans with no scrubber
+        // sweep to clean them up. Now we wrap the insert in a
+        // do/try/catch and clean up the disk side on any failure.
+        // Cleanup uses `try?` because if the file delete itself
+        // fails (rare — same disk pressure that caused the DB
+        // failure could also block FS), we want to surface the
+        // ORIGINAL DB error to the caller, not a follow-on FS
+        // error.
+        do {
+            try db.dbQueue.write { try record.insert($0) }
+        } catch {
+            try? FileManager.default.removeItem(at: fileURL)
+            try? FileManager.default.removeItem(at: thumbURL)
+            NSLog("ImageStore.performSave DB insert failed; cleaned up orphan files at \(fileRel): \(error)")
+            throw error
+        }
         return record
     }
 
@@ -414,6 +433,15 @@ final class ImageStore: ObservableObject {
         case "image/jpeg": return "jpg"
         case "image/gif": return "gif"
         case "image/webp": return "webp"
+        // TIFF added to support the perf fix that pushes the
+        // pasteboard TIFF decode off the main thread — the drop
+        // pipeline now hands raw TIFF bytes to the deferred save
+        // path, which writes them as `.tiff` and lets the
+        // CGImageSource thumbnail/dimensions helpers (which
+        // handle TIFF natively) decode off-main.
+        case "image/tiff": return "tiff"
+        case "image/heic": return "heic"
+        case "image/bmp": return "bmp"
         default: return "bin"
         }
     }

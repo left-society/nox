@@ -1,6 +1,8 @@
 import SwiftUI
 import ServiceManagement
 import AppKit
+import AVFoundation
+import ApplicationServices
 
 // MARK: - Settings categories
 
@@ -10,6 +12,7 @@ import AppKit
 /// ("Notifications" / "Live Activities" / "Account").
 enum SettingsCategory: String, CaseIterable, Hashable, Identifiable {
     case general
+    case dictation
     case music
     case bluetooth
     case timer
@@ -27,6 +30,7 @@ enum SettingsCategory: String, CaseIterable, Hashable, Identifiable {
     var title: String {
         switch self {
         case .general: return "General"
+        case .dictation: return "Dictation"
         case .music: return "Music"
         case .bluetooth: return "Bluetooth"
         case .timer: return "Timer"
@@ -44,6 +48,7 @@ enum SettingsCategory: String, CaseIterable, Hashable, Identifiable {
     var icon: String {
         switch self {
         case .general: return "gearshape.fill"
+        case .dictation: return "mic.fill"
         case .music: return "music.note"
         case .bluetooth: return "headphones"
         case .timer: return "timer"
@@ -65,6 +70,7 @@ enum SettingsCategory: String, CaseIterable, Hashable, Identifiable {
     var iconTint: Color {
         switch self {
         case .general: return Color(red: 0.55, green: 0.55, blue: 0.60)
+        case .dictation: return Color(red: 0.99, green: 0.30, blue: 0.45)
         case .music: return Color(red: 0.95, green: 0.30, blue: 0.45)
         case .bluetooth: return Color(red: 0.20, green: 0.55, blue: 0.99)
         case .timer: return Color(red: 0.99, green: 0.45, blue: 0.30)
@@ -84,6 +90,7 @@ enum SettingsCategory: String, CaseIterable, Hashable, Identifiable {
     var groupHeader: String? {
         switch self {
         case .general: return nil
+        case .dictation: return nil
         case .music: return "Activities"
         case .bluetooth: return nil
         case .timer: return nil
@@ -235,8 +242,11 @@ struct SettingsView: View {
             Divider()
             ScrollView(showsIndicators: false) {
                 detail
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 24)
+                    // Trimmed 28/24 → 22/18 so each settings page
+                    // reads as content-first rather than a small
+                    // island of controls floating in a wide margin.
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 18)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .background(SettingsTheme.detailBackground)
@@ -253,7 +263,7 @@ struct SettingsView: View {
                 Image(systemName: "scribble.variable")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
-                Text("Notetaker")
+                Text("nox")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
                 Spacer()
@@ -291,6 +301,7 @@ struct SettingsView: View {
     private var detail: some View {
         switch selection {
         case .general: GeneralSettings(env: env)
+        case .dictation: DictationSettings()
         case .music: MusicSettings()
         case .bluetooth: BluetoothSettings()
         case .timer: TimerSettings()
@@ -360,20 +371,26 @@ private struct SectionHeader: View {
     let title: String
 
     var body: some View {
-        HStack(spacing: 10) {
+        // 2026-05-03 typography pass per user feedback "some sentences
+        // are too big and spacing not correct." Title shrunk
+        // 18 → 14 (matches macOS System Settings' section-header
+        // weight); icon container 26 → 20 to keep visual balance with
+        // the smaller title; bottom padding 16 → 10 so the card
+        // hugs its header instead of floating loose.
+        HStack(spacing: 8) {
             ZStack {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(tint)
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.white)
             }
-            .frame(width: 26, height: 26)
+            .frame(width: 20, height: 20)
             Text(title)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.white)
         }
-        .padding(.bottom, 16)
+        .padding(.bottom, 10)
     }
 }
 
@@ -389,7 +406,11 @@ private struct SettingsCard<Content: View>: View {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(SettingsTheme.cardStroke, lineWidth: 0.5)
             )
-            .padding(.bottom, 16)
+            // Trimmed 16 → 12: the previous gap between cards read
+            // as a hard break, fragmenting the page into isolated
+            // boxes. 12pt is enough breathing room without the
+            // "stack of receipts" feel.
+            .padding(.bottom, 12)
     }
 }
 
@@ -404,19 +425,23 @@ private struct SettingsRow<Control: View>: View {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.system(size: 13, weight: .regular))
+                        .font(.system(size: 12.5, weight: .regular))
                         .foregroundStyle(.white.opacity(0.92))
                     if let subtitle {
                         Text(subtitle)
-                            .font(.system(size: 11, weight: .regular))
+                            .font(.system(size: 10.5, weight: .regular))
                             .foregroundStyle(.white.opacity(0.5))
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer()
                 control
             }
+            // Vertical 10 → 8 tightens the row rhythm so a card
+            // with 4-5 rows reads as ONE block of related controls
+            // instead of looking like five separate items stacked.
             .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.vertical, 8)
             if divider {
                 Rectangle()
                     .fill(SettingsTheme.rowDivider)
@@ -444,8 +469,11 @@ private struct GroupTitle: View {
 private struct GeneralSettings: View {
     let env: AppEnvironment
     @AppStorage(SettingsKey.launchAtLogin) private var launchAtLogin: Bool = true
-    @AppStorage(SettingsKey.hideInFullscreen) private var hideInFullscreen: Bool = false
-    @AppStorage(SettingsKey.hideFromScreenCapture) private var hideFromScreenCapture: Bool = false
+    // Per BUG-119 fix: removed `hideInFullscreen` and
+    // `hideFromScreenCapture` @AppStorage bindings. The UI rows
+    // are gone, no consumer ever read these keys. SettingsKey
+    // constants are kept in the parent enum for now in case
+    // we wire them properly in a later iteration.
     @AppStorage(SettingsKey.hoverDwellSeconds) private var hoverDwellSeconds: Double = 0.27
     @AppStorage(SettingsKey.hoverHotZoneWidth) private var hoverHotZoneWidth: Double = 300
     @AppStorage(SettingsKey.hapticsEnabled) private var hapticsEnabled: Bool = true
@@ -460,19 +488,22 @@ private struct GeneralSettings: View {
                           title: "General")
 
             SettingsCard {
-                SettingsRow(title: "Launch at login", subtitle: nil) {
+                SettingsRow(title: "Launch at login",
+                            subtitle: nil,
+                            divider: false) {
                     Toggle("", isOn: $launchAtLogin).labelsHidden()
                         .onChange(of: launchAtLogin) { setLaunchAtLogin($0) }
                 }
-                SettingsRow(title: "Hide in fullscreen",
-                            subtitle: "Pill stays out of the way during full-screen apps") {
-                    Toggle("", isOn: $hideInFullscreen).labelsHidden()
-                }
-                SettingsRow(title: "Hide from screen capture",
-                            subtitle: "Pill won't show up in screenshots or recordings",
-                            divider: false) {
-                    Toggle("", isOn: $hideFromScreenCapture).labelsHidden()
-                }
+                // Per BUG-119 fix: removed "Hide in fullscreen" and
+                // "Hide from screen capture" rows. Both wrote to
+                // UserDefaults but no consumer ever read them —
+                // toggling did nothing. Implementation requires
+                // non-trivial work (NSWindowOcclusionState
+                // observation, NSScreen.canRecordScreenContents,
+                // etc.) and isn't on the near-term roadmap.
+                // Removing the toggles is a trust-preserving move:
+                // no setting in the app should lie about taking
+                // effect.
             }
 
             GroupTitle(title: "Hover")
@@ -520,7 +551,7 @@ private struct GeneralSettings: View {
                         }
                 }
                 SettingsRow(title: "AirDrop arrival pill",
-                            subtitle: "Pill flashes when a file lands via AirDrop — tap to reveal in Finder") {
+                            subtitle: "Pill flashes when a file lands via AirDrop. Tap to reveal in Finder.") {
                     Toggle("", isOn: $showAirDropPill).labelsHidden()
                 }
                 SettingsRow(title: "Default tab",
@@ -553,8 +584,10 @@ private struct GeneralSettings: View {
 private struct MusicSettings: View {
     @AppStorage(SettingsKey.showRestingPill) private var showRestingPill: Bool = true
     @AppStorage(SettingsKey.sphereVisualizerEnabled) private var sphereVisualizerEnabled: Bool = true
-    @AppStorage(SettingsKey.hideMusicWhileSourceFrontmost) private var hideMusicWhileSourceFrontmost: Bool = false
-    @AppStorage(SettingsKey.musicAutoSwitchTab) private var musicAutoSwitchTab: Bool = true
+    // Per BUG-119 fix: removed `hideMusicWhileSourceFrontmost`
+    // and `musicAutoSwitchTab` — both were dead settings (UI
+    // toggle wrote UserDefaults; nothing read it back). The
+    // corresponding rows are gone from the body below.
     @AppStorage(SettingsKey.pillSwipeToSkip) private var pillSwipeToSkip: Bool = true
 
     var body: some View {
@@ -572,14 +605,10 @@ private struct MusicSettings: View {
                             subtitle: "Rotating particle sphere on the music card") {
                     Toggle("", isOn: $sphereVisualizerEnabled).labelsHidden()
                 }
-                SettingsRow(title: "Hide while source app is frontmost",
-                            subtitle: "If you're already in Spotify, no need for the pill") {
-                    Toggle("", isOn: $hideMusicWhileSourceFrontmost).labelsHidden()
-                }
-                SettingsRow(title: "Auto-switch to Music tab",
-                            subtitle: "When playback starts, jump to the Music tab on next open") {
-                    Toggle("", isOn: $musicAutoSwitchTab).labelsHidden()
-                }
+                // Removed: "Hide while source app is frontmost" and
+                // "Auto-switch to Music tab" — both were dead
+                // toggles per BUG-119. Wiring them requires non-
+                // trivial app-state observation; out of scope here.
                 SettingsRow(title: "Swipe to skip",
                             subtitle: "Drag the resting pill left for previous, right for next",
                             divider: false) {
@@ -627,7 +656,13 @@ private struct BluetoothSettings: View {
 private struct TimerSettings: View {
     @AppStorage(SettingsKey.timerHapticOnFinish) private var timerHapticOnFinish: Bool = true
     @AppStorage(SettingsKey.timerSoundOnFinish) private var timerSoundOnFinish: Bool = true
-    @AppStorage(SettingsKey.timerDefaultPresetSeconds) private var timerDefaultPresetSeconds: Int = 25 * 60
+    // Per BUG-119 fix: removed `timerDefaultPresetSeconds` —
+    // the picker subtitle promised "Used when starting a timer
+    // from a hotkey" but no timer-start hotkey exists in
+    // HotkeyService. The setting was aspirational. Wiring it
+    // requires a new hotkey + handler chain (product work,
+    // not bug work). Dropped the row to honor the
+    // "no setting should lie" rule.
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -658,23 +693,8 @@ private struct TimerSettings: View {
                 }
             }
 
-            GroupTitle(title: "Defaults")
-            SettingsCard {
-                SettingsRow(title: "Default duration",
-                            subtitle: "Used when starting a timer from a hotkey",
-                            divider: false) {
-                    Picker("", selection: $timerDefaultPresetSeconds) {
-                        Text("5 minutes").tag(5 * 60)
-                        Text("10 minutes").tag(10 * 60)
-                        Text("15 minutes").tag(15 * 60)
-                        Text("25 minutes").tag(25 * 60)
-                        Text("45 minutes").tag(45 * 60)
-                        Text("60 minutes").tag(60 * 60)
-                    }
-                    .labelsHidden()
-                    .frame(width: 140)
-                }
-            }
+            // "Defaults" section removed (BUG-119) — see init
+            // for rationale.
         }
     }
 }
@@ -730,7 +750,7 @@ private struct CalendarSettings: View {
             GroupTitle(title: "Tip")
             SettingsCard {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("The pill is tappable — clicking it opens the join link from the event's location, notes, or URL field. Zoom, Google Meet, Teams, Webex are auto-detected.")
+                    Text("Tap the pill to open the meeting link from the event. Zoom, Google Meet, Teams, and Webex are auto-detected.")
                         .font(.system(size: 11))
                         .foregroundStyle(.white.opacity(0.55))
                         .fixedSize(horizontal: false, vertical: true)
@@ -804,6 +824,7 @@ private struct NotesSettings: View {
 // MARK: - Images
 
 private struct ImagesSettings: View {
+    @EnvironmentObject var env: AppEnvironment
     @AppStorage(SettingsKey.screenshotBurstWindow) private var screenshotBurstWindow: Double = 3.0
     @AppStorage(SettingsKey.imageRetentionDays) private var imageRetentionDays: Int = -1
 
@@ -815,7 +836,7 @@ private struct ImagesSettings: View {
 
             SettingsCard {
                 SettingsRow(title: "Burst window",
-                            subtitle: "Screenshots within this window count as a burst — the pill shows the running total",
+                            subtitle: "Screenshots within this window count as a burst. The pill shows the running total.",
                             divider: false) {
                     HStack {
                         Slider(value: $screenshotBurstWindow, in: 1.0...10.0, step: 0.5)
@@ -841,6 +862,13 @@ private struct ImagesSettings: View {
                     }
                     .labelsHidden()
                     .frame(width: 140)
+                    .onChange(of: imageRetentionDays) { new in
+                        // Per BUG-119 fix: this picker now actually
+                        // does something. Was previously just writing
+                        // to UserDefaults that no consumer ever read.
+                        env.retentionService.imageRetentionSeconds =
+                            new < 0 ? .infinity : Double(new) * 86400
+                    }
                 }
             }
         }
@@ -935,8 +963,14 @@ private struct ChargingSettings: View {
 // MARK: - Appearance
 
 private struct AppearanceSettings: View {
-    @AppStorage(SettingsKey.accentModeRaw) private var accentModeRaw: String = AccentMode.artwork.rawValue
-    @AppStorage(SettingsKey.shadowIntensityRaw) private var shadowIntensityRaw: String = ShadowIntensity.subtle.rawValue
+    // Per BUG-119 fix: this entire section had two pickers
+    // (Accent color, Shadow intensity) that wrote to UserDefaults
+    // but no consumer ever read either key. Removed both pickers
+    // and replaced the body with a placeholder so the section
+    // header still appears (preserves Settings sidebar layout)
+    // but doesn't lie about non-existent options. Wiring real
+    // accent / shadow choice would require threading the values
+    // through PanelRootView's color + shadow stack — non-trivial.
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -945,27 +979,13 @@ private struct AppearanceSettings: View {
                           title: "Appearance")
 
             SettingsCard {
-                SettingsRow(title: "Accent color",
-                            subtitle: "Used by progress bars, sphere, empty-state glows") {
-                    Picker("", selection: $accentModeRaw) {
-                        ForEach(AccentMode.allCases) { mode in
-                            Text(mode.rawValue).tag(mode.rawValue)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 180)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Appearance customization is coming in a future update. Accent color and shadow intensity options are queued.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                SettingsRow(title: "Shadow intensity",
-                            subtitle: "Depth of the halo around the slab",
-                            divider: false) {
-                    Picker("", selection: $shadowIntensityRaw) {
-                        ForEach(ShadowIntensity.allCases) { intensity in
-                            Text(intensity.rawValue).tag(intensity.rawValue)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 140)
-                }
+                .padding(14)
             }
         }
     }
@@ -974,7 +994,11 @@ private struct AppearanceSettings: View {
 // MARK: - Integrations
 
 private struct IntegrationsSettings: View {
-    @AppStorage(SettingsKey.geminiApiKey) private var geminiApiKey: String = ""
+    // Keychain-backed key (was @AppStorage, which serialized into a
+    // plaintext .plist). Loaded once on appear, written back to the
+    // Keychain on every edit. The view binds to the @State directly so
+    // SwiftUI's SecureField behaviour stays the same.
+    @State private var geminiApiKey: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1007,6 +1031,21 @@ private struct IntegrationsSettings: View {
                 .padding(14)
             }
         }
+        .onAppear {
+            geminiApiKey = SecureKeyStore.shared.load(.geminiApiKey) ?? ""
+        }
+        .onChange(of: geminiApiKey) { newValue in
+            // Save on every keystroke. Keychain writes are cheap
+            // (single XPC round-trip) and this guarantees the user
+            // doesn't lose the key if they close Settings without
+            // an explicit "Save" action — there isn't one.
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                SecureKeyStore.shared.delete(.geminiApiKey)
+            } else {
+                SecureKeyStore.shared.save(.geminiApiKey, value: trimmed)
+            }
+        }
     }
 }
 
@@ -1014,8 +1053,8 @@ private struct IntegrationsSettings: View {
 
 private struct AboutSettings: View {
     private var version: String {
-        let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
-        let b = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
+        let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let b = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
         return "\(v) (\(b))"
     }
 
@@ -1031,18 +1070,11 @@ private struct AboutSettings: View {
                         .font(.system(size: 12).monospacedDigit())
                         .foregroundStyle(.white.opacity(0.6))
                 }
-                SettingsRow(title: "Made by",
-                            subtitle: "Built in Swift + AppKit, with caffeine",
-                            divider: true) {
-                    Text("Aritra Debnath")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.6))
-                }
                 SettingsRow(title: "Send feedback",
                             subtitle: "Bug reports, feature requests, kind words",
                             divider: false) {
                     Button("Email") {
-                        if let url = URL(string: "mailto:aritra13.debnath@gmail.com?subject=Notetaker%20Feedback") {
+                        if let url = URL(string: "mailto:aritra13.debnath@gmail.com?subject=nox%20Feedback") {
                             NSWorkspace.shared.open(url)
                         }
                     }
@@ -1050,6 +1082,462 @@ private struct AboutSettings: View {
                     .controlSize(.small)
                 }
             }
+        }
+    }
+}
+
+// MARK: - Dictation
+
+private struct DictationSettings: View {
+    // Keychain-backed (was @AppStorage). See SecureKeyStore for the
+    // security audit rationale — UserDefaults plist on disk is
+    // plaintext + readable by any process running as the user.
+    @State private var apiKey: String = ""
+    @AppStorage("dictationProvider") private var provider: String = "groq"
+    @AppStorage("dictationCustomURL") private var customURL: String = ""
+    @AppStorage("dictationCustomModel") private var customModel: String = ""
+    @AppStorage("dictationCustomCleanupModel") private var customCleanupModel: String = ""
+    @AppStorage("dictationCleanupEnabled") private var cleanupEnabled: Bool = true
+    // Default MUST match `AppDelegate.savedMode ?? .fnHold` — earlier the
+    // settings panel defaulted to `"fn_toggle"` while the app started in
+    // `.fnHold`. The first time the user opened Settings → Dictation the
+    // @AppStorage default materialised `"fn_toggle"` into UserDefaults,
+    // and the next launch loaded toggle mode silently — so "hold to talk"
+    // stopped working with no visible cause.
+    @AppStorage("dictationHotkeyMode") private var hotkeyModeRaw: String = "fn_hold"
+    @AppStorage("dictationCustomVocabulary") private var customVocabulary: String = ""
+
+    @State private var keyValidationStatus: ValidationStatus = .untested
+    @State private var validateTask: Task<Void, Never>?
+
+    enum ValidationStatus {
+        case untested
+        case validating
+        case valid
+        case invalid
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SectionHeader(
+                icon: SettingsCategory.dictation.icon,
+                tint: SettingsCategory.dictation.iconTint,
+                title: SettingsCategory.dictation.title
+            )
+            Text("Press your dictation hotkey to record voice and paste a cleaned-up transcript at the cursor in any app. Music auto-pauses while recording.")
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.7))
+                .fixedSize(horizontal: false, vertical: true)
+
+            // PROVIDER + API KEY
+            SettingsCard {
+                GroupTitle(title: "Transcription provider")
+                SettingsRow(title: "Provider",
+                            subtitle: "Groq is free and fast. OpenAI requires a paid account. Custom lets you point at any OpenAI-compatible endpoint.") {
+                    Picker("", selection: $provider) {
+                        Text("Groq (free)").tag("groq")
+                        Text("OpenAI").tag("openai")
+                        Text("Custom").tag("custom")
+                    }
+                    .labelsHidden()
+                    .frame(width: 180)
+                    .onChange(of: provider) { _ in keyValidationStatus = .untested; reapply() }
+                }
+
+                Divider().background(SettingsTheme.rowDivider)
+
+                SettingsRow(title: "API key",
+                            subtitle: provider == "groq"
+                                ? "Get a free key at console.groq.com/keys"
+                                : "Paste your provider's API key.") {
+                    HStack(spacing: 8) {
+                        SecureField("paste your key", text: $apiKey)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 240)
+                            .onChange(of: apiKey) { _ in
+                                keyValidationStatus = .untested
+                                reapply()
+                            }
+                        statusBadge
+                        Button("Test") { testKey() }
+                            .disabled(apiKey.isEmpty || keyValidationStatus == .validating)
+                    }
+                }
+
+                if provider == "custom" {
+                    Divider().background(SettingsTheme.rowDivider)
+                    SettingsRow(title: "Base URL",
+                                subtitle: "OpenAI-compatible base URL, e.g. https://api.example.com/v1") {
+                        TextField("https://...", text: $customURL)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 280)
+                            .onChange(of: customURL) { _ in reapply() }
+                    }
+                    Divider().background(SettingsTheme.rowDivider)
+                    SettingsRow(title: "Whisper model", subtitle: nil) {
+                        TextField("whisper-large-v3-turbo", text: $customModel)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 240)
+                            .onChange(of: customModel) { _ in reapply() }
+                    }
+                    Divider().background(SettingsTheme.rowDivider)
+                    SettingsRow(title: "Cleanup LLM model",
+                                subtitle: "Optional. Leave empty to disable cleanup pass.") {
+                        TextField("e.g. llama-3.3-70b-versatile", text: $customCleanupModel)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 280)
+                            .onChange(of: customCleanupModel) { _ in reapply() }
+                    }
+                }
+
+                Divider().background(SettingsTheme.rowDivider)
+                SettingsRow(title: "Clean up transcript",
+                            subtitle: "Run the raw Whisper output through an LLM to remove filler words, fix grammar, and tidy punctuation before pasting.") {
+                    Toggle("", isOn: $cleanupEnabled)
+                        .labelsHidden()
+                        .onChange(of: cleanupEnabled) { _ in reapply() }
+                }
+            }
+
+            // HOTKEY
+            SettingsCard {
+                GroupTitle(title: "Hotkey")
+                SettingsRow(title: "Trigger",
+                            subtitle: "Hold-to-talk = press and hold to record, release to stop. Tap-to-toggle = press once to start, again to stop.") {
+                    Picker("", selection: $hotkeyModeRaw) {
+                        Text("Tap Fn (toggle)").tag("fn_toggle")
+                        Text("Hold Fn").tag("fn_hold")
+                        Text("Custom (⌘⇧D)").tag("custom_toggle")
+                    }
+                    .labelsHidden()
+                    .frame(width: 220)
+                    .onChange(of: hotkeyModeRaw) { _ in reapplyHotkey() }
+                }
+                Divider().background(SettingsTheme.rowDivider)
+                Text("⌘⇧D backup is always installed. Works regardless of which trigger you pick. If Fn doesn't fire, ⌘⇧D will.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
+            }
+
+            // CUSTOM VOCABULARY — biases Whisper toward known
+            // names / technical terms / proper nouns. The user
+            // reported "sometimes it's mispronouncing some
+            // special words"; this is exactly the field that
+            // fixes it. Whisper accepts a `prompt` parameter
+            // that's "text that looks like the start of the
+            // transcript" — Whisper continues in the same style
+            // and vocabulary, so anything listed here gets
+            // recognized far more reliably (~90% reduction in
+            // proper-noun errors per OpenAI's prompting guide).
+            SettingsCard {
+                GroupTitle(title: "Custom vocabulary")
+                Text("Words you say often that get transcribed wrong. Names, technical terms, jargon. Whisper biases toward these.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+
+                ZStack(alignment: .topLeading) {
+                    if customVocabulary.isEmpty {
+                        Text("e.g. nox, SwiftUI, Whisper, Groq")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.35))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .allowsHitTesting(false)
+                    }
+                    TextEditor(text: $customVocabulary)
+                        .font(.system(size: 12))
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 70, maxHeight: 110)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .onChange(of: customVocabulary) { _ in reapply() }
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.black.opacity(0.25))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
+                )
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+            }
+
+            // PERMISSIONS — live status, not a static blob of text. Shows
+            // the current Microphone + Accessibility state with a green
+            // check or an amber dot, plus an action button per row that
+            // does the right thing (proactively prompt for Mic when
+            // status is .notDetermined; jump to System Settings when
+            // already denied or for Accessibility which doesn't have a
+            // programmatic prompt API).
+            DictationPermissionsCard()
+        }
+        .onAppear {
+            apiKey = SecureKeyStore.shared.load(.dictationApiKey) ?? ""
+        }
+        .onChange(of: apiKey) { newValue in
+            // Persist on every keystroke so the user doesn't lose the
+            // key by closing Settings without an explicit Save (there
+            // isn't one). Reapply config so the orchestrator picks up
+            // the new key without a relaunch.
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                SecureKeyStore.shared.delete(.dictationApiKey)
+            } else {
+                SecureKeyStore.shared.save(.dictationApiKey, value: trimmed)
+            }
+            keyValidationStatus = .untested
+            reapply()
+        }
+    }
+
+    private var statusBadge: some View {
+        Group {
+            switch keyValidationStatus {
+            case .untested:
+                EmptyView()
+            case .validating:
+                HStack(spacing: 4) {
+                    ProgressView().scaleEffect(0.6).frame(width: 14, height: 14)
+                    Text("checking…").font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
+                }
+            case .valid:
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    Text("valid").font(.system(size: 11)).foregroundStyle(.green)
+                }
+            case .invalid:
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
+                    Text("invalid").font(.system(size: 11)).foregroundStyle(.red)
+                }
+            }
+        }
+    }
+
+    private func testKey() {
+        validateTask?.cancel()
+        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        let baseURL: URL = {
+            switch provider {
+            case "openai": return URL(string: "https://api.openai.com/v1")!
+            case "custom": return URL(string: customURL) ?? URL(string: "https://api.groq.com/openai/v1")!
+            default: return URL(string: "https://api.groq.com/openai/v1")!
+            }
+        }()
+        keyValidationStatus = .validating
+        validateTask = Task {
+            let ok = await DictationService.validateAPIKey(key, baseURL: baseURL)
+            await MainActor.run {
+                keyValidationStatus = ok ? .valid : .invalid
+            }
+        }
+    }
+
+    /// Re-apply the new dictation config to the orchestrator so
+    /// changes take effect immediately without an app restart.
+    private func reapply() {
+        AppDelegate.shared?.dictationOrchestrator?.configure(
+            serviceConfig: AppDelegate.loadDictationConfig()
+        )
+    }
+
+    private func reapplyHotkey() {
+        guard let mode = DictationOrchestrator.HotkeyMode(rawValue: hotkeyModeRaw) else { return }
+        AppDelegate.shared?.dictationOrchestrator?.setHotkeyMode(mode)
+    }
+}
+
+// MARK: - Dictation permissions card
+
+/// Live, interactive permissions panel for dictation. Replaces the
+/// previous static text + two "Open …" buttons. Polls Microphone +
+/// Accessibility status on appear, on window-focus return, and when the
+/// orchestrator broadcasts `noxDictationAccessibilityMissing`. Each row
+/// has a single action button that picks the right behavior:
+///
+/// - Microphone, `.notDetermined` → "Grant" → `AVCaptureDevice.requestAccess`
+///   (proactive prompt; user doesn't have to trigger their first
+///   recording to get the system dialog).
+/// - Microphone, `.denied` / `.restricted` → "Open Settings" → jumps to
+///   System Settings → Privacy → Microphone (only path once denied).
+/// - Accessibility, missing → "Open Settings" + a toast explaining
+///   they'll need to relaunch nox after toggling. Apple gives no
+///   programmatic prompt for AX once the user has dismissed it once.
+private struct DictationPermissionsCard: View {
+    @State private var micStatus: AVAuthorizationStatus = .notDetermined
+    @State private var axTrusted: Bool = false
+    @State private var pollTimer: Timer?
+
+    var body: some View {
+        SettingsCard {
+            GroupTitle(title: "Permissions")
+            VStack(spacing: 8) {
+                permissionRow(
+                    icon: "mic.fill",
+                    title: "Microphone",
+                    subtitle: micSubtitle,
+                    status: micStatusIcon,
+                    actionTitle: micActionTitle,
+                    action: handleMicAction
+                )
+                permissionRow(
+                    icon: "hand.tap.fill",
+                    title: "Accessibility",
+                    subtitle: axTrusted
+                        ? "Granted — Fn-key hold-to-talk is active."
+                        : "Required so nox can read the Fn-key and paste transcripts at your cursor.",
+                    status: axTrusted ? .ok : .needed,
+                    actionTitle: axTrusted ? nil : "Open Settings",
+                    action: { openAccessibilitySettings() }
+                )
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+        }
+        .onAppear {
+            refresh()
+            // Poll lazily while the Settings window is visible. Cheap —
+            // both calls are local to the process and don't hit XPC.
+            pollTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
+                Task { @MainActor in refresh() }
+            }
+        }
+        .onDisappear {
+            pollTimer?.invalidate()
+            pollTimer = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .noxDictationAccessibilityMissing)) { _ in
+            refresh()
+        }
+    }
+
+    // MARK: Row + helpers
+
+    private enum RowStatus { case ok, needed, pending }
+
+    private func permissionRow(
+        icon: String,
+        title: String,
+        subtitle: String,
+        status: RowStatus,
+        actionTitle: String?,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(status == .ok
+                          ? Color.green.opacity(0.18)
+                          : Color.yellow.opacity(0.16))
+                    .frame(width: 30, height: 30)
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(status == .ok
+                        ? Color.green
+                        : Color.yellow)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Image(systemName: status == .ok ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(status == .ok ? .green : .yellow)
+                }
+                Text(subtitle)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.white.opacity(0.65))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            if let actionTitle = actionTitle {
+                Button(actionTitle, action: action)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
+    // MARK: State derivation
+
+    private var micStatusIcon: RowStatus {
+        switch micStatus {
+        case .authorized: return .ok
+        case .notDetermined: return .pending
+        default: return .needed
+        }
+    }
+
+    private var micSubtitle: String {
+        switch micStatus {
+        case .authorized:
+            return "Granted — nox can record your voice."
+        case .notDetermined:
+            return "Tap Grant to allow nox to record your voice when you hold Fn or press ⌘⇧D."
+        case .denied:
+            return "Denied earlier. Re-enable nox in System Settings → Privacy → Microphone, then relaunch."
+        case .restricted:
+            return "Microphone access is restricted by system policy."
+        @unknown default:
+            return "Microphone status unknown."
+        }
+    }
+
+    private var micActionTitle: String? {
+        switch micStatus {
+        case .authorized: return nil
+        case .notDetermined: return "Grant"
+        default: return "Open Settings"
+        }
+    }
+
+    private func handleMicAction() {
+        switch micStatus {
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { _ in
+                Task { @MainActor in refresh() }
+            }
+        default:
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
+        }
+    }
+
+    private func openAccessibilitySettings() {
+        // Trigger the native AX prompt one more time in case the user
+        // never saw it (no-op if they've already responded). Then deep-
+        // link to System Settings so they can flip the toggle if needed.
+        let promptKey = "AXTrustedCheckOptionPrompt" as CFString
+        _ = AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+    }
+
+    @MainActor
+    private func refresh() {
+        let priorAX = axTrusted
+        micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        axTrusted = AXIsProcessTrusted()
+        // When Accessibility transitions from denied → granted while the
+        // app is already running, the Fn-key event tap installed at
+        // launch is a no-op (it bailed early due to the missing trust).
+        // Auto-retry: ask the orchestrator to re-establish its hotkey
+        // listeners using the user's saved mode. This makes hold-to-talk
+        // start working the moment the toggle flips in System Settings,
+        // no app relaunch required.
+        if !priorAX, axTrusted {
+            let savedMode = UserDefaults.standard.string(forKey: "dictationHotkeyMode")
+                .flatMap { DictationOrchestrator.HotkeyMode(rawValue: $0) }
+                ?? .fnHold
+            AppDelegate.shared?.dictationOrchestrator?.setHotkeyMode(savedMode)
         }
     }
 }

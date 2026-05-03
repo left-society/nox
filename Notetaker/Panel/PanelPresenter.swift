@@ -1,9 +1,22 @@
 import SwiftUI
+import AppKit
 
 @MainActor
 final class PanelPresenter: ObservableObject {
     @Published var isShown: Bool = false
     @Published var activeTab: PanelTab = .notes
+
+    /// CoreAudio-driven "is any user-facing app actually outputting
+    /// audio right now?" signal. Sourced from
+    /// `SystemAudioWatcher.isAudioFlowing` via NotchOrchestrator.
+    /// Drives the waveform animation as the AUTHORITATIVE
+    /// "playing" state — more reliable than `nowPlaying.isPlaying`
+    /// because it can't lie. CoreAudio only reports `true` if
+    /// bytes are actually flowing to the output device this tick.
+    /// When the user pauses Spotify, this drops to false within
+    /// ~1 second (CoreAudio sample window) regardless of whether
+    /// MediaRemote got around to flipping its `isPlaying` flag.
+    @Published var isAudioFlowing: Bool = false
 
     /// True while a panel-frame morph is in flight (~0.5–1s
     /// window). Set by PanelWindowController right before its
@@ -18,6 +31,22 @@ final class PanelPresenter: ObservableObject {
     /// Driven by PanelDropContainer (the contentView wrapper) when a drag
     /// hovers over the panel. Used by PanelRootView to draw an accent ring.
     @Published var isDropTargeted: Bool = false
+
+    /// Two-zone drop picker state. While `dropPickerActive == true`,
+    /// the panel renders a `DropPickerView` overlay with two large
+    /// zones (Save / AirDrop), and the panel frame morphs to a wider
+    /// "picker" silhouette so the zones have room to breathe.
+    /// `dropPickerHoveredZone` mirrors which zone the cursor is over
+    /// during the drag, so the SwiftUI overlay can highlight it.
+    /// Both flip via `PanelDropContainer.draggingEntered/Updated/
+    /// Exited` — the AppKit drop layer is the source of truth.
+    @Published var dropPickerActive: Bool = false
+    @Published var dropPickerHoveredZone: DropDestination? = nil
+    /// File count for the in-flight drag, computed in
+    /// `VideoDropCatcher.draggingEntered`. Drives the AirDrop
+    /// zone's "✈ N" badge so the user sees the batch was
+    /// recognized before they release. Resets to 0 on drag exit.
+    @Published var dropPickerFileCount: Int = 0
 
     /// True while the system session is locked. Driven by
     /// `LockScreenWatcher`'s `com.apple.screenIsLocked` /
@@ -69,6 +98,17 @@ final class PanelPresenter: ObservableObject {
     /// nothing is playing — when this flips from non-nil to nil, the
     /// segmented bar drops the .music tab and the active tab auto-
     /// rotates back to .notes if it was .music.
+    /// Per BUG-082 fix: stays as `@Published` so the projected
+    /// `$nowPlaying` publisher is preserved for Combine consumers
+    /// (LockMusicCardWindow, etc.). The performance concern from
+    /// the bug review — redundant SwiftUI re-renders on byte-
+    /// identical re-emissions — is substantially mitigated by:
+    /// (a) MediaRemoteService publishing the equality-deduplicated
+    /// snapshot already (`publish(_:)` checks `lastInfo != info`
+    /// before forwarding), and (b) SwiftUI's view diffing eliding
+    /// the actual UI updates when body output is identical.
+    /// Combine subscribers that need stricter dedup can chain
+    /// `.removeDuplicates()` on `$nowPlaying`.
     @Published var nowPlaying: NowPlayingInfo? {
         didSet {
             // Auto-collapse: if music stops mid-session and we were
@@ -109,6 +149,28 @@ final class PanelPresenter: ObservableObject {
     /// the pill reverts to whatever it was showing before (music or
     /// system audio).
     @Published var pendingVideoCandidate: URL? = nil
+
+    // MARK: - Dictation state (FreeFlow-style voice-to-text)
+
+    /// Current phase of the dictation pipeline. Set by
+    /// `DictationOrchestrator` via the wiring in AppDelegate.
+    /// Drives the resting pill's content swap: when `.recording`
+    /// the pill replaces music artwork+waveform with a mic icon +
+    /// 9-bar audio level waveform; when `.transcribing` it shows
+    /// a processing indicator. `.idle` returns to the normal
+    /// music HUD content.
+    enum DictationPhase: Equatable {
+        case idle
+        case recording
+        case transcribing
+        case error(String)
+    }
+    @Published var dictationPhase: DictationPhase = .idle
+
+    /// Live microphone RMS level in [0, 1]. Updated 30Hz from the
+    /// recorder's audio queue when `.recording` is the current
+    /// dictation phase. Drives waveform-bar amplitudes.
+    @Published var dictationLevel: Float = 0
 
     /// Closure that the AppDelegate installs to handle "user clicked
     /// Download on the video preview pill." Lifts the actual download
@@ -186,6 +248,16 @@ final class PanelPresenter: ObservableObject {
     }
     @Published var pendingSystemEvent: SystemEvent? = nil
     private var pendingSystemEventTimer: Task<Void, Never>?
+
+    /// Fires after a transient pendingSystemEvent's auto-dismiss
+    /// timer expires and the slot is cleared. AppDelegate hooks
+    /// this to call `panelController.exitRestingMode()` when there
+    /// is no music to anchor the pill — without it, a transient
+    /// charging / timer / Bluetooth / AirDrop pill would leave the
+    /// resting overlay on screen forever showing an empty silhouette.
+    /// Not fired when the event is replaced by a new one (only when
+    /// it actually expires through inactivity).
+    var onTransientEventCleared: (() -> Void)?
 
     /// Latest join URL for the calendar pill, kept out-of-band from
     /// the SystemEvent enum so the enum's Equatable conformance stays
@@ -323,6 +395,12 @@ final class PanelPresenter: ObservableObject {
             // And the AirDrop URL — once the pill is gone the
             // tap target it would have routed to is also gone.
             self.lastAirDropURL = nil
+            // Notify the panel controller that this transient event
+            // is fully done. AppDelegate routes this to
+            // `exitRestingMode()` when no music is anchoring the
+            // resting pill — otherwise the empty pill silhouette
+            // would camp on screen forever.
+            self.onTransientEventCleared?()
         }
     }
 
@@ -372,4 +450,20 @@ final class PanelPresenter: ObservableObject {
         tabs.append(contentsOf: [.notes, .images, .videos, .files])
         return tabs
     }
+}
+
+/// Where a file dropped on the notch should go.
+///
+/// The drop picker presents these as side-by-side zones during a
+/// drag; the user releases over the zone they want.
+///
+///   • `.save` → existing auto-routing (videos→Videos store,
+///     images→Images store, generic→Files staging). No behavior
+///     change vs the pre-picker drop flow.
+///   • `.airDrop` → macOS native AirDrop sheet via
+///     `NSSharingService(named: .sendViaAirDrop)`. The user picks
+///     the receiver from macOS's UI.
+enum DropDestination: Equatable {
+    case save
+    case airDrop
 }

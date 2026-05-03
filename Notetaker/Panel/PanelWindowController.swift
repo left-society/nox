@@ -472,6 +472,15 @@ final class PanelWindowController {
                     presenter?.activeTab = .files
                     self.show(mode: .hover)
                 }
+            },
+            onZoneHover: { [weak presenter] zone in
+                presenter?.dropPickerHoveredZone = zone
+            },
+            onAirDrop: { [weak self] urls in
+                self?.performAirDrop(urls: urls)
+            },
+            onFileCount: { [weak presenter] count in
+                presenter?.dropPickerFileCount = count
             }
         )
         container.frame = contentRect
@@ -1357,6 +1366,25 @@ final class PanelWindowController {
     ///   PanelRootView's pill overlay.
     /// - Panel already shown (user has music slab open via hotkey or
     ///   hover) → just flip isResting=true. The next hide()/animateClose
+    /// Drive an AirDrop send via NSSharingService. We initially
+    /// tried wiring success/failure pills via NSSharingServiceDelegate
+    /// callbacks, but Apple's AirDrop service is unreliable —
+    /// `didShareItems` sometimes fires on cancel, and
+    /// `didFailToShareItems` often DOESN'T fire on cancel — so any
+    /// pill we showed could lie to the user. The system's own AirDrop
+    /// sheet already labels each recipient card with "Sent" /
+    /// "Declined" / "Sending…", so duplicating that in-app isn't
+    /// worth the false-positive risk.
+    private func performAirDrop(urls: [URL]) {
+        guard let service = NSSharingService(named: .sendViaAirDrop) else {
+            DictationOrchestrator.dlog("    ⚠️ AirDrop service unavailable")
+            return
+        }
+        DictationOrchestrator.dlog("    → AirDrop service.perform(\(urls.count) URL(s))")
+        service.perform(withItems: urls)
+        HapticFeedback.levelChange()
+    }
+
     ///   will land at closedFrame and stay there instead of orderOut'ing.
     /// - Panel teasing → flip isResting=true. Either dismissTease (cursor
     ///   left) keeps the pill, or activate (dwell completed) opens the

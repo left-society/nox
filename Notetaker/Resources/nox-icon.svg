@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- nox brand icon. See DesignSystem/NoxIcon.swift for the SwiftUI
+       version used in-app. This SVG is the authoritative reference
+       for the icon at 1024×1024 — export to PNG for use in
+       Assets.xcassets / app icon, marketing assets, and the
+       nox.app landing page. -->
+  <defs>
+    <clipPath id="squircleClip">
+      <rect width="1024" height="1024" rx="230" ry="230"/>
+    </clipPath>
+    <radialGradient id="bgDepth" cx="0.5" cy="0.5" r="0.75">
+      <stop offset="0%"   stop-color="#0A0612"/>
+      <stop offset="55%"  stop-color="#040108"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </radialGradient>
+    <radialGradient id="innerCorona" cx="0.5" cy="0.5" r="0.36">
+      <stop offset="0%"   stop-color="#C5A3FF" stop-opacity="0.10"/>
+      <stop offset="60%"  stop-color="#C5A3FF" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#C5A3FF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ringFill" x1="0.3" y1="0.05" x2="0.75" y2="0.98">
+      <stop offset="0%"   stop-color="#EFDEFF"/>
+      <stop offset="25%"  stop-color="#D9BCFF"/>
+      <stop offset="55%"  stop-color="#C5A3FF"/>
+      <stop offset="80%"  stop-color="#A688E8"/>
+      <stop offset="100%" stop-color="#8064C8"/>
+    </linearGradient>
+    <filter id="outerHalo" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="22"/>
+    </filter>
+    <mask id="notchMask" maskUnits="userSpaceOnUse">
+      <rect width="1024" height="1024" fill="white"/>
+      <rect x="484" y="200" width="56" height="36" fill="black"/>
+    </mask>
+  </defs>
+  <g clip-path="url(#squircleClip)">
+    <rect width="1024" height="1024" fill="url(#bgDepth)"/>
+    <rect width="1024" height="1024" fill="url(#innerCorona)"/>
+    <g mask="url(#notchMask)">
+      <circle cx="512" cy="512" r="290" fill="none" stroke="#C5A3FF" stroke-width="46" opacity="0.42" filter="url(#outerHalo)"/>
+      <circle cx="512" cy="512" r="290" fill="none" stroke="url(#ringFill)" stroke-width="20"/>
+    </g>
+  </g>
+</svg>

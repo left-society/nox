@@ -129,7 +129,9 @@ final class BluetoothDeviceService: ObservableObject {
     /// state, so it's safe to run off-main.
     nonisolated private static func fetchAndParse() -> [Device] {
         let task = Process()
-        task.launchPath = "/usr/sbin/system_profiler"
+        // Per BUG-068: prefer the modern `executableURL` API.
+        // `launchPath` is deprecated as of macOS 10.13.
+        task.executableURL = URL(fileURLWithPath: "/usr/sbin/system_profiler")
         // No `-detailLevel basic` — basic mode strips the
         // battery fields. Default detail level surfaces them
         // for AirPods (other devices may not report battery
@@ -144,11 +146,29 @@ final class BluetoothDeviceService: ObservableObject {
         task.standardError = FileHandle.nullDevice
         do {
             try task.run()
-            task.waitUntilExit()
         } catch {
             NSLog("BluetoothDeviceService: process failed: \(error)")
             return []
         }
+        // Per BUG-033 fix: hard timeout instead of an unbounded
+        // `waitUntilExit()`. system_profiler can hang for tens of
+        // seconds in certain Bluetooth driver states (corrupted
+        // pairing records, scanning hung-up between sleep cycles)
+        // — the old code would block the utility-queue worker
+        // thread forever, eventually exhausting the pool if
+        // multiple polls stacked up. 10s is comfortably above the
+        // 1-2s normal completion time for system_profiler with
+        // SPBluetoothDataType but well below the human notice
+        // threshold for "the pill froze."
+        let watchdog = DispatchWorkItem {
+            if task.isRunning {
+                NSLog("BluetoothDeviceService: system_profiler exceeded 10s, terminating")
+                task.terminate()
+            }
+        }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 10, execute: watchdog)
+        task.waitUntilExit()
+        watchdog.cancel()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         guard !data.isEmpty,
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

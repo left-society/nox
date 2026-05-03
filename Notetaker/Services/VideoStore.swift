@@ -258,10 +258,16 @@ final class VideoStore: ObservableObject {
     /// the error and decide whether to retry.
     private func scheduleAutoDismissIfDone(jobID: UUID) {
         guard let job = jobs.first(where: { $0.id == jobID }) else { return }
+        // Trimmed dwell times per user feedback "the downloading
+        // button is staying there way too long". 5s and 3s both
+        // overstayed — a finished download is signalled enough by
+        // the row landing as a real video card immediately above,
+        // so 1.5s is plenty for the eye to register "Saved" before
+        // the row sweeps.
         let delay: UInt64
         switch job.state {
-        case .finished: delay = 5_000_000_000 // 5s — long enough to read "Saved"
-        case .cancelled: delay = 3_000_000_000 // 3s — less to read, sweep faster
+        case .finished: delay = 1_500_000_000 // 1.5s — flash "Saved" then sweep
+        case .cancelled: delay = 1_200_000_000 // 1.2s — same idea, slightly faster
         default: return
         }
         Task { @MainActor [weak self] in
@@ -314,6 +320,87 @@ final class VideoStore: ObservableObject {
         try db.dbQueue.write { try record.insert($0) }
         videos.insert(record, at: 0)
         updateJob(job.id) { $0.state = .finished(recordId: id) }
+
+        // Per BUG-114 fix: also copy the finished video into the
+        // user's chosen "Save location" if they configured one in
+        // Settings. The app-managed file at `destFile` remains for
+        // in-app browsing / playback / trash lifecycle; the user
+        // gets a parallel copy in their chosen folder for external
+        // use (Finder, sharing, AirDrop, etc.).
+        //
+        // Previously this UserDefaults key was written by the
+        // Settings UI but NEVER read by VideoStore or
+        // VideoDownloader — the user could pick a folder, see the
+        // path stick, but every download silently went only into
+        // ApplicationSupport. Settings UI lying about taking
+        // effect is a trust violation; wire-or-remove was the
+        // shipping decision and we wired.
+        //
+        // Failure modes are swallowed via `try?` because the
+        // primary save path (DB row + app-managed file) has
+        // already succeeded by this point — a copy failure (user
+        // moved their chosen folder, permissions changed, disk
+        // full at the new location, etc.) shouldn't roll back the
+        // successful download. Logged for diagnostics.
+        let saveLocation = UserDefaults.standard.string(forKey: "videoSaveLocation") ?? ""
+        if !saveLocation.isEmpty {
+            let userDestDir = URL(fileURLWithPath: saveLocation).standardizedFileURL
+            // Per BUG-117 fix: harden filename sanitization beyond
+            // just `/`, `:`, `\`. yt-dlp's `result.title` comes
+            // from the upstream video's metadata, which is
+            // attacker-controlled — anyone can upload a YouTube /
+            // TikTok / etc. video with a title like
+            // `../../Library/LaunchAgents/payload`. The previous
+            // sanitizer only stripped path separators; `..`
+            // segments and leading dots passed through, and
+            // `URL.appendingPathComponent` does NOT block parent-
+            // directory traversal. Result: a malicious title
+            // could write a .mp4 OUTSIDE the user's chosen folder
+            // — a path-traversal vulnerability.
+            //
+            // The sanitizer below:
+            //  1. Drops every char that's not safe for filenames
+            //     across HFS+/APFS/SMB (control chars, path seps,
+            //     shell metacharacters).
+            //  2. Collapses `..` to `_` so traversal is impossible.
+            //  3. Strips leading dots so the file isn't hidden.
+            //  4. Caps at 200 chars (filesystems reject >255 bytes).
+            //  5. Falls back to the job's host name if the title
+            //     sanitizes to empty.
+            let safeTitle = Self.sanitizeFilename(result.title ?? job.titleFallback,
+                                                  fallback: job.titleFallback)
+            let userDestFile = userDestDir.appendingPathComponent("\(safeTitle).\(videoExt)")
+                .standardizedFileURL
+
+            // Defense-in-depth: even after sanitization, verify
+            // the resolved destination still lives INSIDE the
+            // chosen directory. If standardization somehow lands
+            // outside (symlink in the path, edge case), bail.
+            guard userDestFile.path.hasPrefix(userDestDir.path + "/") else {
+                NSLog("VideoStore: user-save-location target escaped chosen dir, refusing copy")
+                return
+            }
+
+            do {
+                try FileManager.default.createDirectory(
+                    at: userDestDir, withIntermediateDirectories: true
+                )
+                // Avoid clobbering: if a file with the same title
+                // already exists in the user's folder (e.g. user
+                // re-downloaded a track they already saved
+                // externally), append a UUID suffix.
+                var finalDest = userDestFile
+                if FileManager.default.fileExists(atPath: userDestFile.path) {
+                    let stem = userDestFile.deletingPathExtension().lastPathComponent
+                    let suffix = String(UUID().uuidString.prefix(6))
+                    finalDest = userDestDir.appendingPathComponent("\(stem) \(suffix).\(videoExt)")
+                }
+                try FileManager.default.copyItem(at: destFile, to: finalDest)
+                NSLog("VideoStore: copied download to user location \(finalDest.path)")
+            } catch {
+                NSLog("VideoStore: user-save-location copy failed (non-fatal): \(error)")
+            }
+        }
     }
 
     private func updateJob(_ id: UUID, _ update: (inout DownloadJob) -> Void) {
@@ -325,6 +412,53 @@ final class VideoStore: ObservableObject {
 
     private func duplicateRecord(forURL url: String) -> VideoRecord? {
         videos.first { $0.sourceUrl == url }
+    }
+
+    /// Sanitize an attacker-supplied filename component (yt-dlp
+    /// returns `result.title` from the upstream video's metadata,
+    /// which is fully attacker-controlled — anyone uploading a
+    /// video can pick any title). Per BUG-117 fix.
+    ///
+    /// Strategy:
+    ///   1. Replace path separators (`/`, `:`, `\`) and shell
+    ///      metacharacters with `-`.
+    ///   2. Replace control characters (NUL, newline, tab, etc.)
+    ///      with `_` so they don't survive into filesystem paths.
+    ///   3. Collapse `..` segments to `_` so parent-directory
+    ///      traversal can't slip through `appendingPathComponent`.
+    ///   4. Strip leading dots so the result isn't a hidden file.
+    ///   5. Trim whitespace; cap to 200 chars (filesystems reject
+    ///      >255 bytes per name; 200 leaves room for a 6-char
+    ///      collision suffix + extension).
+    ///   6. Fall back to `fallback` if the result is empty.
+    static func sanitizeFilename(_ raw: String, fallback: String) -> String {
+        let badChars = CharacterSet(charactersIn: "/:\\<>|?*\"")
+        let controlChars = CharacterSet.controlCharacters
+            .union(.newlines)
+            .union(CharacterSet(charactersIn: "\0"))
+        var s = raw.unicodeScalars
+            .map { scalar -> String in
+                if controlChars.contains(scalar) { return "_" }
+                if badChars.contains(scalar) { return "-" }
+                return String(scalar)
+            }
+            .joined()
+        // Collapse parent-directory traversal sequences.
+        while s.contains("..") {
+            s = s.replacingOccurrences(of: "..", with: "_")
+        }
+        // Strip leading dots (no hidden files).
+        while s.hasPrefix(".") {
+            s.removeFirst()
+        }
+        s = s.trimmingCharacters(in: .whitespaces)
+        if s.isEmpty {
+            return sanitizeFilename(fallback, fallback: "video")
+        }
+        if s.count > 200 {
+            s = String(s.prefix(200))
+        }
+        return s
     }
 
     private static func mime(forExtension ext: String) -> String {

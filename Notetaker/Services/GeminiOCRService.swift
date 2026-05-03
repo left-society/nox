@@ -46,14 +46,23 @@ enum GeminiOCRService {
     /// (not in some shared constants module) because the service is
     /// the only consumer outside Settings, and putting it next to
     /// the call site is easier to audit than chasing a constant.
+    /// Legacy UserDefaults key — retained as a constant only so
+    /// `SecureKeyStore.migrateFromUserDefaultsIfNeeded()` can find
+    /// any plaintext value left on disk and import it into the
+    /// Keychain on next launch. New reads/writes go through
+    /// `SecureKeyStore.shared.{load,save}(.geminiApiKey)`.
     static let apiKeyDefaultsKey = "geminiApiKey"
 
     /// Pull a clean chat-message transcript out of `url`. Returns the
     /// text on success — the caller is responsible for routing it
     /// (typically straight to the system clipboard).
     static func extractMessages(from url: URL) async -> Result {
-        let key = (UserDefaults.standard.string(forKey: apiKeyDefaultsKey) ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Read from Keychain (was: plaintext UserDefaults — security audit
+        // 2026-05-02 found both this key and the dictation key sitting in
+        // ~/Library/Preferences/...plist in the clear, exfiltratable by
+        // any process running as the user).
+        let stored = await MainActor.run { SecureKeyStore.shared.load(.geminiApiKey) }
+        let key = (stored ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return .missingAPIKey }
 
         guard let imageData = try? Data(contentsOf: url) else {
@@ -88,7 +97,15 @@ enum GeminiOCRService {
         If the image doesn't contain chat messages, output the literal string: NO_MESSAGES
         """
 
-        let endpoint = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=\(key)")!
+        // Per BUG-007 fix: moved the API key OUT of the URL query
+        // string and INTO the `x-goog-api-key` header. URLs land
+        // in unified system logs, HTTP debugger logs, the user's
+        // DNS cache, and crash reports — anyone with read access
+        // to those (Console.app, sysdiagnose, third-party crash
+        // reporters) could extract the key. The header is private
+        // to the request body and never logged by URLSession.
+        // Same fix in GeminiSummaryService.swift.
+        let endpoint = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent")!
 
         let body: [String: Any] = [
             "contents": [
@@ -120,6 +137,8 @@ enum GeminiOCRService {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Per BUG-007 fix: API key in header, not URL query.
+        request.setValue(key, forHTTPHeaderField: "x-goog-api-key")
         request.httpBody = payload
         request.timeoutInterval = 30
 

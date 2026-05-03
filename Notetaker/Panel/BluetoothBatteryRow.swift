@@ -34,22 +34,27 @@ private struct DeviceTile: View {
     let device: BluetoothDeviceService.Device
 
     var body: some View {
-        HStack(spacing: 10) {
+        // Flat row — no card background, no stroke border. The
+        // earlier card chrome made it read as a separate "tile"
+        // floating below the music card; the user wanted the row
+        // to sit quietly as part of the music tab content. Sized
+        // and spaced to match other small-text rows in the slab.
+        HStack(spacing: 8) {
             Image(systemName: device.isAirPods ? "airpodspro" : "headphones")
-                .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(.white.opacity(0.8))
-                .frame(width: 18)
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(.white.opacity(0.55))
+                .frame(width: 16, alignment: .center)
 
             Text(device.name)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(.white.opacity(0.75))
                 .lineLimit(1)
                 .truncationMode(.tail)
 
             Spacer(minLength: 8)
 
             // Per-bud / case readings when AirPods, single number
-            // otherwise. Mini battery glyphs (filled rectangle whose
+            // otherwise. Mini battery glyphs (filled capsule whose
             // width tracks the percent) keep the row scannable.
             HStack(spacing: 8) {
                 if let l = device.batteryLeft {
@@ -67,16 +72,7 @@ private struct DeviceTile: View {
                 }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.white.opacity(0.05))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
-        )
+        .padding(.vertical, 4)
     }
 }
 

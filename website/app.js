@@ -1,703 +1,221 @@
-// Notetaker site . drives the hero notch through its states + the macOS dock.
-// One file. No framework.
+/* ================================================================
+   nox.app — cinematic scroll
+   ----------------------------------------------------------------
+   Architecture:
+     1. Lenis owns scrolling (smooth-inertia). Hooks into rAF.
+     2. GSAP ScrollTrigger drives the timeline as you scroll past
+        the .cinema-stage. Each beat advances the notch through
+        a series of state morphs.
+     3. The resting waveform canvas (visible in beat 1) draws via
+        rAF with a 4-sinusoid algorithm so the notch feels alive
+        even when nothing is scroll-scrubbing it.
+   ================================================================ */
 
-(function () {
+(() => {
   'use strict';
 
-  // ============ Sphere visualizer . direct port of SphereVisualizer.swift ============
-  // 140 particles on a Fibonacci lattice, rotating in yaw + pitch,
-  // with synthetic-amplitude breath. Depth-shaded so the sphere reads
-  // as a real 3D point cloud, not a flat dot pattern.
-  (function initSpheres() {
-    const canvases = document.querySelectorAll('.sphere-viz');
-    if (!canvases.length) return;
+  // ============================================================
+  // 1. Lenis — smooth scroll
+  // ============================================================
+  const lenis = new Lenis({
+    duration: 1.0,
+    // Premium ease: starts fast, settles slowly. Apple uses
+    // approximately this curve on their product pages.
+    easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+    wheelMultiplier: 1,
+    touchMultiplier: 1.6,
+    smoothWheel: true,
+  });
 
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    canvases.forEach((c) => {
-      const cw = c.clientWidth || 60;
-      const ch = c.clientHeight || 60;
-      c.width  = Math.round(cw * dpr);
-      c.height = Math.round(ch * dpr);
-    });
-
-    // Fibonacci-lattice unit-sphere positions, computed once and shared.
-    const COUNT = 140;
-    const PHI = Math.PI * (3 - Math.sqrt(5));
-    const PARTICLES = [];
-    for (let i = 0; i < COUNT; i++) {
-      const y = 1 - (i / (COUNT - 1)) * 2;
-      const r = Math.sqrt(Math.max(0, 1 - y * y));
-      const theta = PHI * i;
-      PARTICLES.push({ x: Math.cos(theta) * r, y: y, z: Math.sin(theta) * r });
-    }
-
-    // Per-canvas state (each canvas has its own amplitude smoothing).
-    const states = new Map();
-    canvases.forEach((c) => states.set(c, { amplitude: 0, rgb: (c.dataset.tint || '255,255,255').split(',').map(Number) }));
-
-    let last = 0;
-    let time = 0;
-
-    function frame(now) {
-      const dt = last === 0 ? 1 / 60 : Math.min(0.1, (now - last) / 1000);
-      last = now;
-      time += dt;
-
-      // Synthetic amplitude . straight port from Swift.
-      const t = time;
-      const bass = (Math.sin(t * 2.83) + 1) * 0.5;
-      const mid  = (Math.sin(t * 5.34 + 0.9) + 1) * 0.5;
-      const beatRaw = Math.sin(t * 3.7);
-      const beat = beatRaw > 0.78 ? (beatRaw - 0.78) / 0.22 : 0;
-      const target = Math.min(1, bass * 0.35 + mid * 0.25 + beat * 0.65);
-
-      // Rotation
-      const yaw = t * 0.95;
-      const pitch = Math.sin(t * 0.4) * 0.25;
-      const cy_ = Math.cos(yaw),   sy_ = Math.sin(yaw);
-      const cp_ = Math.cos(pitch), sp_ = Math.sin(pitch);
-
-      canvases.forEach((c) => {
-        const st = states.get(c);
-        st.amplitude += (target - st.amplitude) * 0.28;
-        const A = st.amplitude;
-        const breath = 0.95 + A * 0.13;
-
-        const ctx = c.getContext('2d');
-        const W = c.width, H = c.height;
-        ctx.clearRect(0, 0, W, H);
-        const cx = W / 2;
-        const cy = H / 2;
-        const radius = (Math.min(W, H) * 0.5 - dpr) * breath;
-
-        const [rr, gg, bb] = st.rgb;
-
-        for (const p of PARTICLES) {
-          // Yaw around Y, pitch around X.
-          const x1 = p.x * cy_ + p.z * sy_;
-          const z1 = -p.x * sy_ + p.z * cy_;
-          const y1 = p.y * cp_ - z1 * sp_;
-          const z2 = p.y * sp_ + z1 * cp_;
-
-          const px = x1 * radius + cx;
-          const py = y1 * radius + cy;
-
-          const depth = (z2 + 1) * 0.5;                       // 0 back, 1 front
-          const alpha = (0.16 + depth * 0.84) * (0.85 + A * 0.4);
-          const dotSize = (0.7 + depth * 1.0) * (1 + A * 0.6) * dpr;
-
-          ctx.fillStyle = `rgba(${rr},${gg},${bb},${Math.min(1, alpha).toFixed(3)})`;
-          ctx.beginPath();
-          ctx.arc(px, py, dotSize / 2, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      });
-
-      requestAnimationFrame(frame);
-    }
-
-    requestAnimationFrame(frame);
-
-    // Pause on hidden tab
-    document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) { last = 0; requestAnimationFrame(frame); }
-    });
-  })();
+  // Drive Lenis from rAF and let GSAP know about scroll.
+  function raf(time) {
+    lenis.raf(time);
+    requestAnimationFrame(raf);
+  }
+  requestAnimationFrame(raf);
 
 
-  // ============ Audio waveform . Canvas, 4-sinusoid sum, never repeats ============
-  // Mirrors Notetaker/NotchPill/WaveformView.swift exactly: four sin
-  // components at incommensurate spatial AND temporal frequencies, so
-  // the silhouette never falls into a recognisable period. Reads as
-  // "alive audio" at every instant, not as a marching ASCII pattern.
-  (function initWaveforms() {
-    const canvases = document.querySelectorAll('.wave-canvas');
-    if (!canvases.length) return;
+  // ============================================================
+  // 2. Resting-pill waveform canvas
+  // ----------------------------------------------------------------
+  // Same 4-sinusoid algorithm the macOS app uses — gives the
+  // resting pill a "music is happening" presence even though
+  // nothing is actually playing. The canvas is always running;
+  // very cheap (one fill + a few sin() per frame).
+  // ============================================================
+  function drawWaveCanvas() {
+    const cv = document.querySelector('.rest-wave');
+    if (!cv) return;
+    const ctx = cv.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const w = cv.width = cv.offsetWidth * dpr;
+    const h = cv.height = cv.offsetHeight * dpr;
+    ctx.scale(dpr, dpr);
 
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    canvases.forEach((c) => {
-      // Physical size for crispness; logical size set by CSS
-      const cw = c.clientWidth || 22;
-      const ch = c.clientHeight || 14;
-      c.width  = Math.round(cw * dpr);
-      c.height = Math.round(ch * dpr);
-    });
-
-    function draw(canvas, time) {
-      const ctx = canvas.getContext('2d');
-      const w = canvas.width, h = canvas.height;
+    let t0 = performance.now();
+    function tick() {
+      const t = (performance.now() - t0) / 1000;
       ctx.clearRect(0, 0, w, h);
-      ctx.beginPath();
-      const steps = 32;
-      const amp = 0.55;          // matches WaveformView.swift `amplitudeMul` while playing
-      for (let i = 0; i <= steps; i++) {
-        const t = i / steps;
-        const x = t * w;
-        // four phase-incoherent sinusoids . straight port from Swift
-        const p1 = t * 3.4 * Math.PI - time * 4.7;
-        const p2 = t * 5.9 * Math.PI - time * 3.1;
-        const p3 = t * 9.1 * Math.PI - time * 6.3;
-        const p4 = t * 13.7 * Math.PI - time * 2.4;
-        const sig = Math.sin(p1) * 0.45 + Math.sin(p2) * 0.28 +
-                    Math.sin(p3) * 0.18 + Math.sin(p4) * 0.09;
-        const y = h / 2 + sig * amp * h;
-        if (i === 0) ctx.moveTo(x, y);
-        else         ctx.lineTo(x, y);
-      }
-      const tint = canvas.dataset.tint || '#ffffff';
-      ctx.strokeStyle = tint;
-      ctx.lineWidth   = 1.4 * dpr;     // 1.4pt stroke at @1x, scaled for retina
-      ctx.lineCap     = 'round';
-      ctx.lineJoin    = 'round';
-      ctx.stroke();
-    }
+      ctx.strokeStyle = '#C5A3FF';
+      ctx.lineWidth = 1.5 * dpr;
+      ctx.lineCap = 'round';
 
-    const start = performance.now();
-    function tick(now) {
-      // Fold time into a small repeating window like the Swift code
-      // does, to keep sin() in its precise regime.
-      const raw = (now - start) / 1000;
-      const time = raw % (2 * Math.PI * 1000);
-      canvases.forEach((c) => draw(c, time));
+      const W = w / dpr;
+      const H = h / dpr;
+      const cy = H / 2;
+      const N = 24;             // bar count
+      const gap = (W - 2) / N;
+      for (let i = 0; i < N; i++) {
+        const x = 1 + i * gap + gap * 0.5;
+        // 4 stacked sinusoids, prime-ish frequencies so the
+        // pattern never repeats visibly.
+        const phase = i * 0.35;
+        const a = Math.sin(t * 1.8 + phase) * 0.55;
+        const b = Math.sin(t * 2.6 - phase * 0.7) * 0.30;
+        const c = Math.sin(t * 4.1 + phase * 1.3) * 0.18;
+        const amp = (a + b + c) * 0.5 + 0.6;   // 0.0 → 1.0 ish
+        const barH = Math.max(2, amp * (H - 4));
+        ctx.beginPath();
+        ctx.moveTo(x, cy - barH / 2);
+        ctx.lineTo(x, cy + barH / 2);
+        ctx.stroke();
+      }
       requestAnimationFrame(tick);
     }
+    tick();
+  }
 
-    // Pause when tab is hidden . no point burning CPU off-screen.
-    let paused = false;
-    document.addEventListener('visibilitychange', () => {
-      paused = document.hidden;
-      if (!paused) requestAnimationFrame(tick);
+
+  // ============================================================
+  // 3. GSAP ScrollTrigger timeline
+  // ----------------------------------------------------------------
+  // Three beats, each one full viewport tall. The pinning of the
+  // MacBook is handled by `position: sticky` in CSS — simpler and
+  // smoother than ScrollTrigger's pin feature for this case. We
+  // use ScrollTrigger here purely to scrub property animations
+  // (notch dimensions, text fades, MacBook tilt) against scroll
+  // progress.
+  // ============================================================
+  function setupCinema() {
+    if (typeof gsap === 'undefined' || typeof ScrollTrigger === 'undefined') {
+      console.warn('GSAP / ScrollTrigger not loaded; cinema is static.');
+      return;
+    }
+    gsap.registerPlugin(ScrollTrigger);
+
+    // Tell GSAP about Lenis scroll progress so ScrollTrigger
+    // can read it correctly. Without this, ScrollTrigger would
+    // listen to native scroll events (which Lenis doesn't fire).
+    lenis.on('scroll', ScrollTrigger.update);
+    gsap.ticker.add((time) => lenis.raf(time * 1000));
+    gsap.ticker.lagSmoothing(0);
+
+    const notch = document.getElementById('notch');
+    const mac   = document.getElementById('cinemaMac');
+    const dock  = document.querySelector('.mbp-dock');
+    const restState = document.querySelector('.notch-state[data-state="rest"]');
+    const musicState = document.querySelector('.notch-state[data-state="music"]');
+
+    // ----- Beat 1: Hero entrance (no scroll trigger; runs on
+    //                              initial paint) -----
+    // Words materialize one at a time, then sub + CTA fade in.
+    gsap.to('.hero-title .word', {
+      opacity: 1, y: 0,
+      stagger: 0.18,
+      duration: 0.9,
+      ease: 'power3.out',
+      delay: 0.25,
+    });
+    gsap.to('.hero-sub', {
+      opacity: 1, y: 0,
+      duration: 0.7, ease: 'power2.out',
+      delay: 0.85,
+    });
+    gsap.to('.hero-cta', {
+      opacity: 1, y: 0,
+      duration: 0.7, ease: 'power2.out',
+      delay: 1.1,
+    });
+    // Scroll hint fades in last; CSS keyframe handles the bob.
+    gsap.to('.scroll-hint', {
+      opacity: 1,
+      duration: 0.6,
+      delay: 1.6,
     });
 
-    requestAnimationFrame(tick);
-  })();
-
-
-  // ============ macOS Dock . cosine-based magnification ============
-  const dock = document.getElementById('mbpDock');
-  if (dock) {
-    const icons = Array.from(dock.querySelectorAll('.dock-icon'));
-    const baseSize = 36;          // matches .dock-icon width/height
-    const minScale = 1.0;
-    const maxScale = 1.65;
-    const effectWidth = 180;      // px on either side of the cursor that the lift affects
-
-    let mouseX = null;            // null = mouse outside dock
-    let scales = icons.map(() => minScale);
-    let raf = null;
-    let lastClickIdx = -1;
-
-    // Cache icon centers (computed lazily, refreshed on each frame because
-    // they change as siblings scale).
-    function iconCenters() {
-      const dockRect = dock.getBoundingClientRect();
-      return icons.map((icon) => {
-        const r = icon.getBoundingClientRect();
-        return ((r.left + r.right) / 2) - dockRect.left;
-      });
-    }
-
-    function targetScales() {
-      if (mouseX === null) return icons.map(() => minScale);
-      const centers = iconCenters();
-      return centers.map((c) => {
-        const dist = mouseX - c;
-        if (Math.abs(dist) > effectWidth / 2) return minScale;
-        // (1 - cos(theta)) / 2 → smooth bell curve
-        const theta = ((dist + effectWidth / 2) / effectWidth) * 2 * Math.PI;
-        const factor = (1 - Math.cos(theta)) / 2;
-        return minScale + factor * (maxScale - minScale);
-      });
-    }
-
-    function frame() {
-      const target = targetScales();
-      let needs = mouseX !== null;
-      const lerp = mouseX !== null ? 0.30 : 0.18;
-      scales = scales.map((s, i) => {
-        const next = s + (target[i] - s) * lerp;
-        if (Math.abs(next - target[i]) > 0.003) needs = true;
-        return next;
-      });
-      icons.forEach((icon, i) => {
-        if (i === lastClickIdx) return;       // bounce animation owns this one briefly
-        icon.style.transform = `scale(${scales[i].toFixed(3)})`;
-      });
-      raf = needs ? requestAnimationFrame(frame) : null;
-    }
-
-    function start() { if (!raf) raf = requestAnimationFrame(frame); }
-
-    dock.addEventListener('mousemove', (e) => {
-      const r = dock.getBoundingClientRect();
-      mouseX = e.clientX - r.left;
-      start();
+    // ----- The cross-beat scroll timeline -----
+    // Each "+=N" segment scrubs over N viewport heights. The
+    // entire timeline runs across the cinema-stage's height, which
+    // equals the sum of the three .beat min-heights (300vh).
+    const tl = gsap.timeline({
+      scrollTrigger: {
+        trigger: '.cinema-stage',
+        start: 'top top',
+        end: 'bottom bottom',
+        scrub: 0.6,        // smoothing factor — higher = lazier
+        invalidateOnRefresh: true,
+      },
     });
-    dock.addEventListener('mouseleave', () => { mouseX = null; start(); });
 
-    icons.forEach((icon, i) => {
-      icon.addEventListener('click', () => {
-        lastClickIdx = i;
-        const s = scales[i];
-        icon.style.transition = 'transform 180ms ease-out';
-        icon.style.transform = `translateY(-12px) scale(${s.toFixed(3)})`;
-        setTimeout(() => {
-          icon.style.transform = `translateY(0px) scale(${s.toFixed(3)})`;
-          setTimeout(() => {
-            icon.style.transition = '';
-            lastClickIdx = -1;
-            start();
-          }, 200);
-        }, 200);
-      });
-    });
+    // ───── Timeline reads (in scroll-progress 0→3 units) ─────
+    // 0.0–0.5   Beat 1 fades out. MacBook tilts +1.2°.
+    // 0.5–1.5   Beat 2 (pillar) fades IN, holds, fades OUT.
+    // 1.5–2.0   MacBook un-tilts; shifts LEFT to make room for
+    //           right-side music text.
+    // 1.7–2.4   Notch morphs to music slab.
+    // 2.0–3.0   Beat 3 right-side text fades in and stays visible.
+
+    // Beat 1 OUT — hero fades out as scroll begins.
+    tl.to('.beat-hero-text', { opacity: 0, y: -30, duration: 0.4, ease: 'power2.in' }, 0.3);
+    tl.to('.mbp', { rotateZ: 1.2, duration: 0.7, ease: 'power2.inOut' }, 0.3);
+
+    // Beat 2 IN — pillar fades in mid-Beat 1's exit, ramping up
+    // through the middle of the timeline. Set initial state via
+    // gsap.set so the fromTo's start values aren't applied
+    // before scroll triggers the timeline.
+    gsap.set('.beat-pillar-text', { opacity: 0, y: 24 });
+    tl.to('.beat-pillar-text',
+      { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' },
+      0.7);
+    // Pillar holds for a beat, then fades out.
+    tl.to('.beat-pillar-text', { opacity: 0, y: -20, duration: 0.4, ease: 'power2.in' }, 1.5);
+
+    // MacBook prep for music beat — un-tilt and shift LEFT so
+    // the right-side music text has room to appear (Apple iPhone
+    // 17 Pro pattern: product slides aside, copy enters).
+    tl.to('.mbp', { rotateZ: 0, duration: 0.5, ease: 'power2.inOut' }, 1.5);
+    tl.to('.cinema-mac', { x: '-15vw', duration: 0.8, ease: 'power3.inOut' }, 1.6);
+
+    // Beat 3 IN — notch morphs to music slab.
+    tl.to(restState,  { opacity: 0, duration: 0.3 }, 1.7);
+    tl.to(musicState, { opacity: 1, duration: 0.5 }, 1.85);
+    tl.to(notch, {
+      width: 720, height: 340,
+      top: 6,
+      borderRadius: 28,
+      duration: 0.9,
+      ease: 'power3.inOut',
+    }, 1.7);
+    tl.to(dock, { opacity: 0, y: 20, duration: 0.5 }, 1.7);
+
+    // Beat 3 side text fades in and STAYS — the user is supposed
+    // to read this. Long hold (2.1 → end of timeline).
+    gsap.set('.beat-music-text', { opacity: 0, x: 30 });
+    tl.to('.beat-music-text',
+      { opacity: 1, x: 0, duration: 0.6, ease: 'power2.out' },
+      2.1);
+
+    // Subtle tilt for cinematic flair on the music beat.
+    tl.to('.mbp', { rotateZ: -1.0, duration: 0.6, ease: 'power2.inOut' }, 2.0);
+    tl.to('.mbp', { rotateZ: 0, duration: 0.4, ease: 'power2.inOut' }, 2.7);
   }
 
-  const notch = document.getElementById('notch');
-  if (!notch) return;
 
-  // The notch cycles through these states on a loop. Music is the
-  // dominant resting state . long hold up front so visitors immediately
-  // associate the pill with the now-playing surface. Then the panel
-  // opens and walks through every tab.
-  const cycle = [
-    { state: 'music', hold: 7000 },
-    { state: 'panel', hold: 16000, tabs: ['music', 'notes', 'images', 'videos', 'files'], tabHold: 3200 },
-    { state: 'shot',  hold: 2600 },
-    { state: 'video', hold: 3500 },
-    { state: 'music', hold: 5500 },
-  ];
-
-  // Tab pane cycler . runs while the panel is open.
-  const panelTabs = document.querySelectorAll('#panelTabs button');
-  const panes     = document.querySelectorAll('#panelBody .pane');
-  let tabTimer = null;
-  function setTab(name) {
-    panelTabs.forEach((b) => b.classList.toggle('is-active', b.dataset.pt === name));
-    panes.forEach((p) => p.classList.toggle('is-active', p.dataset.pp === name));
-  }
-  function startTabCycle(tabs, hold) {
-    let ti = 0;
-    setTab(tabs[0]);
-    clearInterval(tabTimer);
-    tabTimer = setInterval(() => {
-      ti = (ti + 1) % tabs.length;
-      setTab(tabs[ti]);
-    }, hold);
-  }
-  function stopTabCycle() {
-    clearInterval(tabTimer);
-    tabTimer = null;
-  }
-
-  let i = 0;
-  let timer = null;
-
-  function step() {
-    const cur = cycle[i];
-    notch.setAttribute('data-state', cur.state);
-
-    if (cur.state === 'panel' && cur.tabs) {
-      startTabCycle(cur.tabs, cur.tabHold || 3000);
-    } else {
-      stopTabCycle();
-    }
-
-    timer = setTimeout(() => {
-      i = (i + 1) % cycle.length;
-      step();
-    }, cur.hold);
-  }
-
-  // Wait until the hero is on screen before starting . saves the
-  // animation for someone who's actually looking, not someone who
-  // landed mid-page from a deep link.
-  const io = new IntersectionObserver((entries) => {
-    entries.forEach((e) => {
-      if (e.isIntersecting && timer === null) {
-        step();
-      }
-    });
-  }, { threshold: 0.4 });
-  io.observe(notch);
-
-  // Pausing on tab switch keeps things sane in the background.
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && timer) {
-      clearTimeout(timer);
-      timer = null;
-    } else if (!document.hidden && !timer) {
-      step();
-    }
+  // ============================================================
+  // 4. Boot
+  // ============================================================
+  document.addEventListener('DOMContentLoaded', () => {
+    drawWaveCanvas();
+    setupCinema();
   });
-
-
-  // ============ Interactive: click the pill to open / close the panel ============
-  // The auto-cycle runs by default. Clicking the notch hands control to the
-  // user — pauses the cycle, toggles open/close, releases control after a beat.
-  let userOverride = false;
-  let releaseTimer = null;
-  function pauseCycle() {
-    if (timer) { clearTimeout(timer); timer = null; }
-    stopTabCycle();
-  }
-  function resumeCycle() {
-    userOverride = false;
-    if (!timer) step();
-  }
-  if (notch) {
-    notch.style.cursor = 'pointer';
-    notch.addEventListener('click', () => {
-      const isOpen = notch.getAttribute('data-state') === 'panel';
-      pauseCycle();
-      userOverride = true;
-      if (isOpen) {
-        notch.setAttribute('data-state', 'music');
-      } else {
-        notch.setAttribute('data-state', 'panel');
-        // open on the music tab so first impression on click is the centerpiece
-        startTabCycle(['music', 'notes', 'images', 'videos', 'files'], 3200);
-      }
-      // Hand control back after 16s of no further interaction
-      clearTimeout(releaseTimer);
-      releaseTimer = setTimeout(resumeCycle, 16000);
-    });
-
-    // Hover tease — pill briefly grows when hovered (when not already open/transitioning)
-    notch.addEventListener('mouseenter', () => {
-      if (notch.getAttribute('data-state') === 'music' && !userOverride) {
-        notch.style.transform = 'translateX(-50%) scaleY(1.15) scaleX(1.04)';
-      }
-    });
-    notch.addEventListener('mouseleave', () => {
-      notch.style.transform = '';
-    });
-  }
-
-
-  // ============ Interactive: click panel tabs to switch ============
-  if (panelTabs.length) {
-    panelTabs.forEach((btn) => {
-      btn.style.cursor = 'pointer';
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const target = btn.dataset.pt;
-        if (!target) return;
-        // If user clicks a tab while in pill state, open the panel first
-        if (notch.getAttribute('data-state') !== 'panel') {
-          pauseCycle();
-          userOverride = true;
-          notch.setAttribute('data-state', 'panel');
-        }
-        stopTabCycle();
-        setTab(target);
-        // resume auto-cycle after the user stops engaging
-        clearTimeout(releaseTimer);
-        releaseTimer = setTimeout(resumeCycle, 16000);
-      });
-    });
-  }
-
-
-  // ============ Interactive: play / pause toggle on the music pane ============
-  const playButtons = document.querySelectorAll('.m-pp, .hmac-card-transport .play');
-  const playIconSVG  = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M9 5v14l11-7z"/></svg>';
-  const pauseIconSVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
-  let isPlaying = true; // canvas wave already animates as if playing
-  playButtons.forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      isPlaying = !isPlaying;
-      playButtons.forEach((b) => { b.innerHTML = isPlaying ? pauseIconSVG : playIconSVG; });
-      // Reflect on the resting waveform too (canvas keeps rendering, just dims it)
-      document.querySelectorAll('.wave-canvas').forEach((c) => {
-        c.style.opacity = isPlaying ? '1' : '0.35';
-      });
-    });
-  });
-  // Initial state: pause icon (since music is "playing")
-  playButtons.forEach((b) => { b.innerHTML = pauseIconSVG; });
-
-
-  // ============ Interactive: subtle parallax on the hero MacBook ============
-  // Cursor moves over the page and the MacBook tilts a few degrees toward it.
-  // Stays well within the polite range — no nausea, just feels alive.
-  const mbp = document.querySelector('.mbp');
-  if (mbp && window.matchMedia('(hover: hover)').matches) {
-    mbp.style.transition = 'transform 0.6s cubic-bezier(.32,.72,.32,1)';
-    let mbpRaf = null;
-    let targetX = 0, targetY = 0, curX = 0, curY = 0;
-    function tick() {
-      curX += (targetX - curX) * 0.08;
-      curY += (targetY - curY) * 0.08;
-      mbp.style.transform = `perspective(1600px) rotateY(${curX.toFixed(2)}deg) rotateX(${(-curY).toFixed(2)}deg)`;
-      if (Math.abs(targetX - curX) > 0.02 || Math.abs(targetY - curY) > 0.02) {
-        mbpRaf = requestAnimationFrame(tick);
-      } else { mbpRaf = null; }
-    }
-    window.addEventListener('mousemove', (e) => {
-      const r = mbp.getBoundingClientRect();
-      // only react when cursor is near the MacBook
-      const inRange = e.clientY < r.bottom + 200 && e.clientY > r.top - 200;
-      if (!inRange) { targetX = 0; targetY = 0; }
-      else {
-        const cx = r.left + r.width / 2;
-        const cy = r.top + r.height / 2;
-        // Max ~3 degrees — felt presence without seasickness
-        targetX = ((e.clientX - cx) / r.width) * 3;
-        targetY = ((e.clientY - cy) / r.height) * 1.6;
-      }
-      if (!mbpRaf) mbpRaf = requestAnimationFrame(tick);
-    }, { passive: true });
-  }
-
-
-  // ============ Hover-scroll: stroke draws + cursor rides + notch opens ============
-  const hoverSection = document.querySelector('.hover-scroll');
-  const hoverPath    = document.getElementById('hoverPath');
-  const hoverCursor  = document.getElementById('hoverCursor');
-  // Two notch ids are supported: the new `.hmac-notch` inside the
-  // MacBook frame and the legacy floating notch. They share the id
-  // `hoverNotch` . whichever exists is what we drive.
-  const hoverNotch   = document.getElementById('hoverNotch');
-  const hoverCaption = document.getElementById('hoverCaption');
-
-  if (hoverSection && hoverPath && hoverCursor && hoverNotch) {
-    const length = hoverPath.getTotalLength();
-    hoverPath.style.strokeDasharray  = String(length);
-    hoverPath.style.strokeDashoffset = String(length);
-
-    // Two progress values: `target` jumps with scroll, `smooth` lerps
-    // toward it every frame. The cursor reads `smooth`, so it glides
-    // into position even when the user flicks the trackpad fast.
-    let targetProgress = 0;
-    let smoothProgress = 0;
-    let raf = null;
-    let lastNotchState = '';
-
-    function paint(progress) {
-      // Path draws 0 → length as progress goes 0 → 1.
-      hoverPath.style.strokeDashoffset = String(length * (1 - progress));
-
-      // Cursor rides the drawn end of the path.
-      const point = hoverPath.getPointAtLength(length * progress);
-      hoverCursor.setAttribute('transform', `translate(${point.x}, ${point.y})`);
-
-      // Cursor fades as it merges into the notch.
-      hoverCursor.style.opacity = String(progress > 0.94 ? 0 : 1);
-
-      // Notch state . tease at 0.55, open at 0.85.
-      let next = '';
-      if (progress > 0.85) next = 'is-open';
-      else if (progress > 0.55) next = 'is-tease';
-      if (next !== lastNotchState) {
-        hoverNotch.classList.remove('is-tease', 'is-open');
-        if (next) hoverNotch.classList.add(next);
-        lastNotchState = next;
-        if (hoverCaption) hoverCaption.classList.toggle('is-visible', next === 'is-open');
-      }
-    }
-
-    function loop() {
-      raf = null;
-      const diff = targetProgress - smoothProgress;
-      // 18% per frame ≈ ~5-6 frames to settle, feels weighty but responsive
-      smoothProgress += diff * 0.18;
-      paint(smoothProgress);
-      // Keep going until we're within ~half a path-pixel of target
-      if (Math.abs(diff) > 0.0008) raf = requestAnimationFrame(loop);
-      else smoothProgress = targetProgress; // snap final drift
-    }
-
-    function recalcTarget() {
-      const rect = hoverSection.getBoundingClientRect();
-      const total = hoverSection.offsetHeight - window.innerHeight;
-      const scrolled = Math.max(0, -rect.top);
-      targetProgress = Math.max(0, Math.min(1, total > 0 ? scrolled / total : 0));
-      if (!raf) raf = requestAnimationFrame(loop);
-    }
-
-    window.addEventListener('scroll', recalcTarget, { passive: true });
-    window.addEventListener('resize', recalcTarget, { passive: true });
-    // Snap to current scroll position on first paint so we don't see
-    // the cursor swing in from 0% on a deep-link refresh.
-    recalcTarget();
-    smoothProgress = targetProgress;
-    paint(smoothProgress);
-  }
-
-
-  // ============ Montage carousel . auto-cycles feature cards ============
-  const montage = document.getElementById('montageStage');
-  const dotsBox = document.getElementById('montageDots');
-  if (montage && dotsBox) {
-    const cards = Array.from(montage.querySelectorAll('.mc'));
-    const dots  = Array.from(dotsBox.querySelectorAll('span'));
-    const HOLD  = 3400;
-    let idx = 0;
-    let mTimer = null;
-
-    function showCard(i) {
-      cards.forEach((c, k) => c.classList.toggle('is-active', k === i));
-      dots.forEach((d, k) => d.classList.toggle('is-active', k === i));
-    }
-
-    function tick() {
-      idx = (idx + 1) % cards.length;
-      showCard(idx);
-      mTimer = setTimeout(tick, HOLD);
-    }
-
-    // Only start cycling when the section is on screen . no offscreen CPU.
-    const startIO = new IntersectionObserver((entries) => {
-      entries.forEach((e) => {
-        if (e.isIntersecting && !mTimer) {
-          mTimer = setTimeout(tick, HOLD);
-        } else if (!e.isIntersecting && mTimer) {
-          clearTimeout(mTimer);
-          mTimer = null;
-        }
-      });
-    }, { threshold: 0.25 });
-    startIO.observe(montage);
-  }
-
-
-  // ============ Anime.js layer: hero entrance + scroll reveals + counters ============
-  if (typeof anime === 'function') {
-
-    // Hero entrance — words rise into place after the page paints
-    document.addEventListener('DOMContentLoaded', () => {
-      anime({
-        targets: '.hero-words > *',
-        opacity: [0, 1],
-        translateY: [22, 0],
-        duration: 850,
-        delay: anime.stagger(110, { start: 250 }),
-        easing: 'easeOutQuart'
-      });
-    });
-
-    // Section reveal on first scroll-into-view — each section's headline + body
-    // glide up together. One-shot per section.
-    const revealSections = document.querySelectorAll(
-      '.declare, .pull, .ribbon, .keystroke, .montage, .keys, .quiet, .end'
-    );
-    const revealIO = new IntersectionObserver((entries) => {
-      entries.forEach((e) => {
-        if (e.isIntersecting) {
-          const targets = e.target.querySelectorAll(
-            'h2, .pull-line, .body, .keys-table, .ribbon-panel, .end h2, .end p, .end .btn-primary, .montage-stage, .keystroke-keys, .keystroke-line'
-          );
-          if (targets.length) {
-            anime.set(targets, { opacity: 0, translateY: 20 });
-            anime({
-              targets,
-              opacity: [0, 1],
-              translateY: [20, 0],
-              duration: 750,
-              delay: anime.stagger(70),
-              easing: 'easeOutQuart'
-            });
-          }
-          revealIO.unobserve(e.target);
-        }
-      });
-    }, { threshold: 0.18, rootMargin: '0px 0px -8% 0px' });
-    revealSections.forEach((s) => revealIO.observe(s));
-
-    // 4.5 MB number counter — counts up the first time the native card is shown
-    const nativeCard = document.querySelector('.mc[data-mc="native"]');
-    const nativeNum  = nativeCard?.querySelector('.mc-num');
-    let nativeCounted = false;
-    if (nativeCard && nativeNum) {
-      // Snapshot the markup so we can rebuild it after animating the digit
-      const mbSpan = nativeNum.querySelector('span');
-      const mbHTML = mbSpan ? mbSpan.outerHTML : '<span>MB</span>';
-      const cardObserver = new MutationObserver(() => {
-        if (nativeCounted) return;
-        if (!nativeCard.classList.contains('is-active')) return;
-        nativeCounted = true;
-        const obj = { v: 0 };
-        anime({
-          targets: obj,
-          v: 4.5,
-          duration: 1400,
-          easing: 'easeOutQuart',
-          update: () => {
-            nativeNum.innerHTML = obj.v.toFixed(1) + mbHTML;
-          },
-          complete: () => {
-            nativeNum.innerHTML = '4.5' + mbHTML;
-          }
-        });
-      });
-      cardObserver.observe(nativeCard, { attributes: true, attributeFilter: ['class'] });
-    }
-
-    // Spring on dock icons — replace CSS scale with elastic-feeling click bounce
-    document.querySelectorAll('#mbpDock .dock-icon').forEach((icon) => {
-      icon.addEventListener('click', () => {
-        anime.remove(icon);
-        anime({
-          targets: icon,
-          translateY: [0, -14, 0],
-          duration: 600,
-          easing: 'spring(1, 70, 8, 0)'
-        });
-      });
-    });
-
-    // Soft pulse on the hero pill the first time it cycles through music — draws
-    // the eye to the music state without being distracting.
-    const heroPill = document.getElementById('notch');
-    if (heroPill) {
-      let firstPulse = true;
-      const pulseObserver = new MutationObserver(() => {
-        if (!firstPulse) return;
-        if (heroPill.getAttribute('data-state') !== 'music') return;
-        firstPulse = false;
-        // Wait a beat after settle so it doesn't fight the state-change transition
-        setTimeout(() => {
-          if (heroPill.getAttribute('data-state') !== 'music') return;
-          anime({
-            targets: heroPill,
-            scale: [1, 1.04, 1],
-            duration: 1200,
-            easing: 'easeInOutQuad'
-          });
-        }, 800);
-      });
-      pulseObserver.observe(heroPill, { attributes: true, attributeFilter: ['data-state'] });
-    }
-  }
-
-
-  // ============ Section animations (scroll into view) ============
-  const animSections = document.querySelectorAll('[data-anim]');
-  if (animSections.length && 'IntersectionObserver' in window) {
-    const animIO = new IntersectionObserver((entries) => {
-      entries.forEach((e) => {
-        if (e.isIntersecting) {
-          e.target.classList.add('is-visible');
-          // Run the video-demo percent counter manually since CSS content can't tween
-          if (e.target.dataset.anim === 'video') {
-            const pct = e.target.querySelector('.vd-pct');
-            if (pct) {
-              setTimeout(() => {
-                let v = 0;
-                const id = setInterval(() => {
-                  v += 2;
-                  if (v >= 78) { v = 78; clearInterval(id); }
-                  pct.textContent = v + '%';
-                }, 100);
-              }, 2100);
-            }
-          }
-          animIO.unobserve(e.target);
-        }
-      });
-    }, { threshold: 0.35, rootMargin: '0px 0px -10% 0px' });
-    animSections.forEach((s) => animIO.observe(s));
-  }
 })();

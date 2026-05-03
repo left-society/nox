@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Hardened-runtime entitlements for nox.
+
+        Hardened runtime is required for Apple notarization. By default
+        it locks down a lot of behavior; we have to explicitly opt out
+        of restrictions we genuinely need.
+
+        ─ App Sandbox is intentionally OFF (no `com.apple.security.app-
+          sandbox` key). nox legitimately needs unsandboxed access to:
+            • the global event tap (for the Fn-key dictation hold)
+            • the menu-bar status item APIs
+            • cross-app paste-at-cursor via CGEvent posts
+            • dlopen of /System/Library/PrivateFrameworks/MediaRemote
+            • Apple Events to query Spotify / Music for timing
+          App Store sandbox forbids all of the above; that's why we
+          ship direct-download instead. Same path Alcove, NotchNook,
+          Sleeve all take.
+    -->
+
+    <!--
+        dlopen of private frameworks (MediaRemote, in particular)
+        requires this on hardened-runtime apps. Without it dyld
+        refuses to load any framework not signed by Apple AND
+        embedded in the bundle, which kills the whole music HUD.
+    -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!--
+        AppleScript bridge for Spotify and Music timing fallbacks
+        (the AppleScript-driven `playerPosition` reads). Without
+        this, AppleEvents to other apps return errAEEventNotPermitted
+        on hardened-runtime builds even after the user grants the
+        Automation permission.
+    -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+
+    <!--
+        WhisperKit / swift-transformers ML models load via mmap.
+        Some Metal Performance Shaders code paths on Apple Silicon
+        legitimately use JIT compilation. Allowing it here keeps
+        Local Whisper transcription working on hardened builds.
+    -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+</dict>
+</plist>
