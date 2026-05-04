@@ -650,10 +650,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // after `pendingSystemEventTimeout` seconds.
         orchestrator.onChargingChange = { [weak self] percent, plugged in
             guard let self, let panel = self.panelController else { return }
-            // Settings → Charging → Show charging pill. Default on
-            // for first-launch users.
+            // Settings → Charging → Show charging pill. Default OFF
+            // since charging events fire on every plug/unplug and
+            // the user reported these as "system events picked up
+            // as noise we don't need." Users who want the indicator
+            // can enable it in Settings.
             let showPill: Bool = {
-                if UserDefaults.standard.object(forKey: "showChargingPill") == nil { return true }
+                if UserDefaults.standard.object(forKey: "showChargingPill") == nil { return false }
                 return UserDefaults.standard.bool(forKey: "showChargingPill")
             }()
             guard showPill else { return }
@@ -1419,7 +1422,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// gate, and we'd rather not have two slightly-different reads
     /// drift apart later.
     private static func bluetoothPillEnabled() -> Bool {
-        userDefaultBool(SettingsKey.showBluetoothPill, default: true)
+        // Default OFF — BT pair/unpair events were reported as
+        // "system events picked up as noise we don't need."
+        // Users who want the connect/disconnect indicator can
+        // enable it in Settings.
+        userDefaultBool(SettingsKey.showBluetoothPill, default: false)
     }
 
     /// Newest file in ~/Downloads, used by the synthetic AirDrop test
@@ -1572,9 +1579,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // the pill right?". Same pattern as screenshots: the
             // resting pill flashes a "Note saved" tile, then
             // returns to whatever was there (music, empty, etc).
-            panel.enterRestingMode()
-            panel.presenter.setPendingSystemEvent(.noteSaved)
-            HapticFeedback.generic()
+            //
+            // 2026-05-04: gated on `showNoteSavedPill` UserDefaults
+            // (default OFF). The user reported the auto-save pills
+            // as "system events as noise" — every text copy was
+            // triggering the resting-mode + pill flash, which
+            // disrupted other UI. With the toggle defaulting to
+            // false, the auto-save still happens silently in the
+            // background but doesn't surface a pill. Users who
+            // want the visual confirmation can flip it on in
+            // Settings.
+            let showNoteSaved: Bool = {
+                if UserDefaults.standard.object(forKey: "showNoteSavedPill") == nil {
+                    return false
+                }
+                return UserDefaults.standard.bool(forKey: "showNoteSavedPill")
+            }()
+            if showNoteSaved {
+                panel.enterRestingMode()
+                panel.presenter.setPendingSystemEvent(.noteSaved)
+                HapticFeedback.generic()
+            }
             return
         }
 

@@ -963,20 +963,26 @@ final class PanelWindowController {
         // key-window screen — otherwise on multi-display the tease
         // would bloom from the wrong notch.
         let screen = screenContainingCursor() ?? NSScreen.main
-        let closedFrame = closedPillFrame(for: screen)
         let teaseFrame = teasePillFrame(for: screen)
 
-        // Only snap to closed-pill frame if the panel isn't already on
-        // screen. In resting mode the panel is ALREADY at closedFrame
-        // (PanelPresenter.isResting == true, `enterRestingMode` did the
-        // orderFront), so a redundant setFrame here would force AppKit
-        // to repaint the existing pill identically right before the
-        // animator starts — burning a frame for no visual gain. Letting
-        // animateTease blend from the panel's current frame is what
-        // makes the resting-pill → tease feel like one continuous
-        // surface.
+        // Decide the START frame for the tease spring:
+        //   • In RESTING mode (music pill on screen) the panel is
+        //     ALREADY at closedPillFrame. Skip setFrame — animateTease
+        //     blends from current to teaseFrame for one continuous
+        //     pill→tease motion.
+        //   • If the panel is NOT visible at all (no music): start at
+        //     notchHiddenFrame (matches the actual notch hardware
+        //     dimensions). The spring grows from notch-shape → tease.
+        //     Earlier we started at closedPillFrame here, which made
+        //     the panel POP IN at music-pill geometry for one frame
+        //     before the spring ran — the user described this as
+        //     "jumping" instead of smooth. Starting at notchHidden
+        //     means the silhouette is invisible at frame 0 (matches
+        //     hardware notch black-on-black) and grows visibly into
+        //     the tease pill via the spring.
         if !panel.isVisible {
-            panel.setFrame(closedFrame, display: false)
+            let hiddenStart = notchHiddenFrame(for: screen)
+            panel.setFrame(hiddenStart, display: false)
             panel.alphaValue = 1
             panel.orderFrontRegardless()
         }

@@ -622,7 +622,7 @@ private struct MusicSettings: View {
 // MARK: - Bluetooth
 
 private struct BluetoothSettings: View {
-    @AppStorage(SettingsKey.showBluetoothPill) private var showBluetoothPill: Bool = true
+    @AppStorage(SettingsKey.showBluetoothPill) private var showBluetoothPill: Bool = false
     @AppStorage(SettingsKey.hapticOnBluetoothChange) private var hapticOnBluetoothChange: Bool = true
     @AppStorage(SettingsKey.bluetoothShowAirPodsIcon) private var bluetoothShowAirPodsIcon: Bool = true
 
@@ -924,7 +924,7 @@ private struct VideosSettings: View {
 // MARK: - Charging
 
 private struct ChargingSettings: View {
-    @AppStorage(SettingsKey.showChargingPill) private var showChargingPill: Bool = true
+    @AppStorage(SettingsKey.showChargingPill) private var showChargingPill: Bool = false
     @AppStorage(SettingsKey.chargingPillDuration) private var chargingPillDuration: Double = 3.5
     @AppStorage(SettingsKey.hapticOnChargingChange) private var hapticOnChargingChange: Bool = true
 
