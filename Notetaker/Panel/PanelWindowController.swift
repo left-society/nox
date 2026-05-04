@@ -1474,22 +1474,26 @@ final class PanelWindowController {
         let notchOnly = PanelWindowController.notchOverlap(for: panel.screen)
         let isNotchHiddenTarget = abs(target.height - notchOnly) < halo / 2
 
-        // SYMMETRIC close: same SpringFrameAnimator as the open
-        // (stiffness 300, damping 32, mass 1.0). The close is the
-        // open played in reverse — slab → notch-hidden — using the
-        // same physics, so both sides feel like one motion language.
-        // No alpha fade. The panel literally morphs through the same
-        // shapes it did on open, just in the opposite direction.
+        // SYMMETRIC: same stiffness as the open (300) so the close is
+        // the open played in reverse — same duration, same shape
+        // trajectory through the morph. The user described this
+        // symmetric setup as "almost perfect."
+        //
+        // Damping bumped over critical (32 → 36) so the close has
+        // ZERO overshoot. The under-critical 32 damping had a tiny
+        // sub-pixel overshoot at the end which caused micro-stutter
+        // visible against the SwiftUI silhouette's render rate.
+        // Overdamped close lands cleanly with no settling tail —
+        // smoother feel, same total duration.
+        //
+        //   OPEN:  300/32  ω_n=17.3  ratio≈0.92  ~270ms  (slight bloom)
+        //   CLOSE: 300/36  ω_n=17.3  ratio≈1.04  ~290ms  (overdamped)
+        // Roughly mirror durations; only the damping differs.
         let spring: SpringFrameAnimator
         if isNotchHiddenTarget {
-            // No-music close: shrinks to exact notch dimensions
-            // (185×32) — silhouette converges visually with the
-            // hardware notch cutout at the end. No alpha fade.
-            spring = SpringFrameAnimator(stiffness: 300, damping: 32, mass: 1.0)
+            spring = SpringFrameAnimator(stiffness: 300, damping: 36, mass: 1.0)
         } else {
-            // Music close: shrinks to the resting pill geometry
-            // where the music indicator stays. Slightly punchier
-            // since it's not going all the way to notch dimensions.
+            // Music close: lands punchy at the resting pill.
             spring = SpringFrameAnimator(stiffness: 380, damping: 44, mass: 1.0)
         }
         currentSpring = spring

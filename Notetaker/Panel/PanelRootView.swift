@@ -527,18 +527,20 @@ struct PanelRootView: View {
             // while panel frame is still morphing → user sees
             // "endpoint not landing."
             //
-            // SYMMETRIC: same spring on both directions of the
-            // morph. Open and close are mirror images of each other
-            // through the same physics curve.
-            //   stiffness 300, damping 32 (ratio ≈ 0.92, ~270ms)
-            // Mirrors the panel-frame SpringFrameAnimator on the
-            // open side AND the no-music close side. Music close
-            // uses a slightly different CA spring on the panel
-            // frame (380/44 for a punchier landing at pill), but
-            // the SwiftUI silhouette uses ONE shared curve since
-            // the corner-radius transition is the same in both
-            // music and no-music cases (slab → pill).
-            .animation(.interpolatingSpring(mass: 1.0, stiffness: 300, damping: 32, initialVelocity: 0),
+            // Per-direction springs matched to the panel-frame
+            // SpringFrameAnimator on each side. Same stiffness so
+            // the durations mirror, only damping differs:
+            //   OPEN:  300/32  ratio≈0.92  ~270ms (slight bloom)
+            //   CLOSE: 300/36  ratio≈1.04  ~290ms (overdamped)
+            //
+            // Why bump close damping past critical: the under-
+            // critical close had sub-pixel overshoot oscillation
+            // at the end of the morph which read as micro-jitter
+            // on ProMotion displays. Overdamping eliminates that
+            // tail without changing the visible duration.
+            .animation(presenter.isShown
+                       ? .interpolatingSpring(mass: 1.0, stiffness: 300, damping: 32, initialVelocity: 0)
+                       : .interpolatingSpring(mass: 1.0, stiffness: 300, damping: 36, initialVelocity: 0),
                        value: presenter.isShown)
             .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
             // PERF GATE: both shadows render only when isShown=true.
