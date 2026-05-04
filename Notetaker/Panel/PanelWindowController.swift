@@ -366,14 +366,18 @@ final class PanelWindowController {
         )
 
         panel.isFloatingPanel = true
-        // .popUpMenu (101) draws OVER the menu bar — required so the
-        // panel visibly overlaps the menu-bar zone and merges with the
-        // physical notch. .statusBar (25) sits at the same level as the
-        // menu bar's status icons, so z-order ties can leave our panel
-        // BEHIND the bar; the popUpMenu level removes that ambiguity.
-        // We only overlap the menu bar's empty middle area (around the
-        // notch), so this doesn't trample app/system menu items.
-        panel.level = .popUpMenu
+        // .statusBar (25) — high enough to draw over normal app windows
+        // and over the menu-bar zone (via the panel's geometry that
+        // intentionally overlaps the menu-bar/notch area), but below the
+        // .modalPanel level (8) ceiling that AppKit uses for active
+        // drag-and-drop tracking. The previous .popUpMenu (101) was
+        // ABOVE that ceiling — AppKit treats popUpMenu-level windows as
+        // transient overlays (menus, popovers) and DOES NOT register
+        // them as drag-and-drop destinations. That's why
+        // `draggingEntered` was never firing on PanelDropContainer:
+        // not because of our wiring, but because AppKit was skipping
+        // the panel entirely during drag-session destination polling.
+        panel.level = .statusBar
         // .stationary keeps the panel anchored in screen space during
         // three-finger swipes between Spaces and during Mission Control
         // — the panel is part of the system surface (like the menu bar
