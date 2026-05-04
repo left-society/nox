@@ -493,23 +493,14 @@ struct PanelRootView: View {
                 caseKey: pillEventCaseKey,
                 glowColor: pillReactColor
             ))
-            // Soft-edge blur on the WHOLE panel during the morph.
-            // Per frame-by-frame audit of NotchNook (Built-in Retina
-            // Display 1880, mid-close), the silhouette has visibly
-            // SOFT edges during the shrink — not sharp. Ours had
-            // sharp edges through the entire morph because there
-            // was no blur on the panel layer itself, only on the
-            // content overlay.
-            //
-            // 3pt during isMorphing is enough to soften corners +
-            // edges without making the panel illegible. Animated
-            // with the same spring as the frame morph so it fades
-            // in at morph start and out as the spring settles. The
-            // corresponding `panel.alphaValue` and the existing
-            // 40pt content blur stay in their respective lanes —
-            // this layer just handles the silhouette softness.
-            .blur(radius: presenter.isMorphing ? 3 : 0)
-            .animation(.easeOut(duration: 0.18), value: presenter.isMorphing)
+            // 2026-05-04 (rev 8): the silhouette stays SHARP during
+            // morph. I added a 3pt blur on the whole panel layer
+            // earlier thinking the reference had soft edges — but
+            // the user pointed out it's only the CONTENT inside that
+            // blurs, not the silhouette outline. Removed; the
+            // silhouette is rendered hard-edged at every step of the
+            // morph. The content overlay's `.blur` still handles
+            // the inside fog effect (see contentOverlay).
             .padding(.horizontal, PanelWindowController.haloPadding)
             .padding(.bottom, PanelWindowController.haloPadding)
             .ignoresSafeArea(.all, edges: .top)
@@ -755,10 +746,19 @@ struct PanelRootView: View {
         // blur radius then applies to a single layer (proper
         // gauzy soft-focus), not to each subview independently
         // (which read as pixelated).
-        .blur(radius: presenter.isShown ? 0 : 40)
-        .scaleEffect(presenter.isShown ? 1.0 : 0.86, anchor: .top)
-        .animation(.spring(response: 0.52, dampingFraction: 0.8),
-                   value: presenter.isShown)
+        // 2026-05-04 (rev 8) — blur intensity dropped 40 → 18 and
+        // animation switched from response 0.52 spring (~520ms) to
+        // easeOut(0.20) (200ms). Earlier values were too strong and
+        // too long: the content stayed visibly blurred for ~300ms
+        // AFTER the panel finished its frame morph, which read as
+        // "the blur is dragging on / can't focus." 18pt is enough
+        // to read as a soft-focus pull without making content
+        // unidentifiable, and 200ms easeOut tracks the panel's
+        // 230-270ms frame morph so the blur clears as the panel
+        // settles instead of trailing behind it.
+        .blur(radius: presenter.isShown ? 0 : 18)
+        .scaleEffect(presenter.isShown ? 1.0 : 0.92, anchor: .top)
+        .animation(.easeOut(duration: 0.20), value: presenter.isShown)
         // No blur on the content overlay. Earlier attempts:
         //   • `.blur(radius: 4)` (gaussian) — wrong character;
         //     reads as soft-focus / out-of-focus rather than
