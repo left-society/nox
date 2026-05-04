@@ -244,19 +244,50 @@ final class HoverActivator {
         let location = NSEvent.mouseLocation
         let inside = zone.contains(location)
 
+        // Detect drag-in-progress: left mouse button held while
+        // cursor moves. NSEvent.pressedMouseButtons is a bitmask;
+        // bit 0 set means the left button is currently down.
+        // When dragging from Finder/Photos/anywhere, this is true.
+        //
+        // The normal hover flow has ~50ms entry debounce + 270ms
+        // dwell + ~270ms show animation = ~600ms before the drop
+        // picker appears. That's longer than most drag gestures
+        // last — by the time the picker would render, the user
+        // has already released the mouse. User reported "drop
+        // picker is gone." The actual cause: the picker comes up
+        // too late to be useful.
+        //
+        // Fix: when a drag is in progress, skip both debounces and
+        // fire activate() IMMEDIATELY on cursor entry. The user's
+        // intent is clear (they're holding a file and aiming at
+        // the notch), so dwell-protection isn't needed — open
+        // straight to the slab + drop picker.
+        let isDragging = (NSEvent.pressedMouseButtons & 1) != 0
+
         if inside && !isInsideZone {
             isInsideZone = true
             // Cooldown blocks BOTH the tease bloom and the activate.
             if Date() < cooldownUntil {
                 return
             }
-            // Schedule the tease via a small entry-debounce. A
-            // fast cursor sweep that enters the zone and leaves
-            // within `teaseEntryDebounce` (50ms) gets cancelled
-            // before any visible tease ever fires — eliminates
-            // the in/out flicker that fast cursor passes used to
-            // produce. Deliberate dwells trip the timer cleanly
-            // and proceed exactly like before from that point on.
+
+            if isDragging {
+                // Drag-in-progress fast path. Skip tease + dwell
+                // entirely; jump straight to activate. The slab
+                // opens immediately so AppKit drag tracking can
+                // route the in-flight drag into the panel and the
+                // DropPickerView renders in time for the user to
+                // drop on a zone.
+                NSLog("Notetaker: HoverActivator → activate (drag fast path)")
+                cooldownUntil = Date().addingTimeInterval(cooldownSeconds)
+                onActivate()
+                return
+            }
+
+            // Normal hover flow — schedule the tease via a small
+            // entry-debounce. A fast cursor sweep that enters the
+            // zone and leaves within `teaseEntryDebounce` (50ms)
+            // gets cancelled before any visible tease ever fires.
             teaseEntryWorkItem?.cancel()
             let work = DispatchWorkItem { [weak self] in
                 guard let self, self.isInsideZone, !self.teaseFired else { return }
