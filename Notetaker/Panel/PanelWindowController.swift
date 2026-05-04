@@ -640,36 +640,27 @@ final class PanelWindowController {
         let pillFrame = closedPillFrame(for: screen)
         let slabFrame = openSlabFrame(for: screen, tab: presenter.activeTab)
 
-        // Position the panel at its CLOSED-pill geometry BEFORE
-        // ordering it front — but only if the panel is not currently
-        // visible (i.e. fresh open after a completed close). If a
-        // close is still in flight (panel mid-shrink, orderOut not yet
-        // fired), DON'T snap it back to the pill frame: that would
-        // cause a visible jump. Instead, let `animateOpen`'s animator
-        // call take over from the panel's current frame — Core
-        // Animation handles the velocity blend smoothly.
+        // Position the panel at its starting geometry BEFORE ordering
+        // it front. If a close is still in flight (panel mid-shrink,
+        // orderOut not yet fired), DON'T snap it — let animateOpen
+        // blend from the panel's CURRENT frame so velocity continues
+        // smoothly (no visible jump).
         //
-        // 2026-05-04: track whether we're opening from FULLY HIDDEN
-        // (no resting music pill, no in-flight close, panel was
-        // orderOut'd). In that case orderFrontRegardless makes the
-        // panel pop in at pill geometry for one frame before the
-        // spring starts — the user perceives that flash as a
-        // "music pill flash" because the pill is the only thing they
-        // remember the silhouette being. With music, the pill is
-        // CONTINUOUSLY visible so there's no flash; the eye just
-        // sees the spring run from where the pill already is.
-        //
-        // Fix: when opening from fully hidden, set alpha=0 BEFORE
-        // orderFront, then animate alpha back to 1 over the first
-        // ~180ms of the spring. The user sees the slab MATERIALIZE
-        // from the notch alongside the spring growth — no
-        // "pill flash" frame, motion is continuous from frame 1.
-        let wasFullyHidden = !panel.isVisible
-        if wasFullyHidden {
-            panel.setFrame(pillFrame, display: false)
-            panel.alphaValue = 0
-        } else {
-            panel.alphaValue = 1
+        // The starting frame depends on whether the panel was hidden
+        // or already visible:
+        //   • Already visible (resting music pill OR mid-close):
+        //     skip setFrame; spring blends from current frame to slab.
+        //   • Fully hidden (no music, panel was orderOut'd): start at
+        //     notchHiddenFrame — height = notchOverlap only, fully
+        //     occluded by the hardware notch. The spring grows from
+        //     "invisible behind the notch" → slab. No "pill flash"
+        //     frame to worry about, no alpha fade required, pure
+        //     spring physics from frame 1. Matches the symmetric
+        //     close-to-notch endpoint.
+        panel.alphaValue = 1
+        if !panel.isVisible {
+            let hiddenStart = notchHiddenFrame(for: screen)
+            panel.setFrame(hiddenStart, display: false)
         }
         // Deliberately NOT writing `presenter.isShown = false` here.
         // It's already false (hide() flips it before the close morph),
@@ -724,23 +715,6 @@ final class PanelWindowController {
         // panel.animator().setFrame at the window-server level — GPU-
         // accelerated, no SwiftUI body re-evaluation per frame.
         animateOpen(to: slabFrame)
-
-        // Fade in from invisibility ALONGSIDE the spring when we
-        // opened from a fully-hidden state. Window-server-level alpha
-        // animation, runs in parallel with animateOpen's Timer-driven
-        // spring on the panel's frame. Duration matches the spring's
-        // visible-motion window (~180ms is the front-loaded portion;
-        // beyond that the spring is settling sub-pixel deltas the eye
-        // doesn't catch). easeOut so the alpha ramp is concentrated
-        // at the start — by the time the user notices the panel exists
-        // it's already at full opacity, with the spring still running.
-        if wasFullyHidden {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.18
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                panel.animator().alphaValue = 1
-            }
-        }
 
         clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
@@ -1417,138 +1391,64 @@ final class PanelWindowController {
         currentSpring?.cancel()
         currentSpring = nil
 
-        // Two distinct close characters, branched on the target shape:
+        // Pure spring close — SAME spring physics as the open
+        // (stiffness 240, damping 26, mass 1.0, ratio ≈ 0.84).
+        // No CA timing functions. No alpha fade. Just one
+        // SpringFrameAnimator integrating from current frame to
+        // target frame. The open and close now share one motion
+        // language: spring physics with a slightly under-critical
+        // damping ratio, ~330ms settle, subtle one-cycle landing.
         //
-        // (A) MUSIC pill — target is `closedPillFrame`. There IS a
-        //     visible silhouette to land at (the resting music pill),
-        //     so we use the original two-stage Core Animation: dive
-        //     past target by 2pt + recoil back up. The recoil IS the
-        //     "lands into the notch" endpoint the user has been asking
-        //     for — without it the eye sees the spring trail off into
-        //     a target instead of landing THROUGH it.
+        // Why same spring as open instead of dive-recoil CA: the
+        // alpha fade I'd added to mask the "panel disappears at
+        // pill geometry" issue made the close feel laggy / fading.
+        // The dive-recoil CA close also didn't read as alive
+        // because its curve was different from the open's spring.
+        // A single spring physics model on both sides — same
+        // stiffness, same damping, same mass — makes the open
+        // and close feel like ONE coherent motion language.
         //
-        //     Curves: cubic-bezier ease-outs lifted from the ComfyNotch
-        //     reference we originally modeled against. Snappy at the
-        //     start, confident at the end — same character as Apple's
-        //     Dynamic Island collapse.
+        // The TARGET frame is what differentiates music vs no-music:
+        //   • MUSIC: target = pillFrame. Spring settles at the
+        //     resting music-pill geometry. Panel stays.
+        //   • NO MUSIC: target = notchHiddenFrame. Spring settles
+        //     fully behind the notch hardware (zero visible
+        //     silhouette below the menu bar). orderOut after
+        //     settle — but by then the silhouette is already
+        //     invisible, so orderOut is silent.
         //
-        // (B) NO-MUSIC — target is `notchHiddenFrame`. The endpoint is
-        //     a fully-occluded silhouette (zero visible bump below the
-        //     menu bar), so a recoil makes no sense — there's nothing
-        //     to land at. Instead, single-stage ease-out shrink AND
-        //     a parallel alpha fade 1→0 with easeIn. The slab visibly
-        //     retreats into the notch hardware while the alpha drops
-        //     toward the end (easeIn keeps the panel mostly opaque
-        //     during the visible shrink, then fades the last few
-        //     frames as it disappears into the notch). orderOut once
-        //     both finish.
-        //
-        // Detect which mode by comparing target height: pill height =
-        // notchOverlap + halo, notchHidden height = notchOverlap. The
-        // halo presence is the differentiator.
-        let halo = PanelWindowController.haloPadding
-        let notchOnly = PanelWindowController.notchOverlap(for: panel.screen)
-        let isNotchHiddenTarget = abs(target.height - notchOnly) < halo / 2
-
+        // The hide() function picks the right target based on
+        // presenter.isResting; this method just runs the spring.
+        let start = panel.frame
         presenter.isMorphing = true
-
-        if isNotchHiddenTarget {
-            // ---- (B) No music: shrink-into-notch + fade-out ----
-            //
-            // Frame: single ease-out cubic-bezier. Slightly longer
-            // than the music dive (320ms vs 200ms) so the visible
-            // shrink reads as a deliberate "absorbing" motion, not a
-            // snap. The slab travels a much bigger distance vertically
-            // than the music close (full slab → notch baseline vs full
-            // slab → pill), so the longer duration keeps the apparent
-            // velocity comparable.
-            //
-            // Alpha: easeIn over 0.30s. EaseIn keeps the panel near
-            // opacity 1 for the first ~70% of the close (visible shrink
-            // motion), then drops fast in the last ~30% as the silhouette
-            // reaches the notch baseline. Net effect: user sees the
-            // slab retreat into the notch hardware, then dissolve into
-            // it as it disappears.
-            let shrinkCurve = CAMediaTimingFunction(controlPoints: 0.55, 0.05, 0.6, 1.0)
-            NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = 0.32
-                ctx.timingFunction = shrinkCurve
-                ctx.allowsImplicitAnimation = true
-                self.panel.animator().setFrame(target, display: true)
-            }, completionHandler: { [weak self] in
-                guard let self, self.animationGeneration == myGen else { return }
-                self.presenter.isMorphing = false
-                // Re-check music presence in case it appeared during
-                // the close (rare, but a hide() that was about to
-                // orderOut should still respect a fresh resting pill).
-                let hasMusic = self.presenter.nowPlaying != nil
-                if self.presenter.isResting && hasMusic {
-                    // Music came back — bail to pill geometry instead
-                    // of orderOut. Restore alpha first since the fade
-                    // ran the panel toward 0.
-                    self.panel.alphaValue = 1
-                    let pillFrame = self.closedPillFrame(for: self.panel.screen)
-                    self.panel.setFrame(pillFrame, display: true)
-                } else {
-                    self.presenter.isResting = false
-                    self.panel.orderOut(nil)
-                    // Reset alpha for the next open — show()'s
-                    // wasFullyHidden path also sets it to 0, but a
-                    // user opening via the resting-mode path expects
-                    // the panel at full alpha.
-                    self.panel.alphaValue = 1
-                }
-            })
-            // Parallel alpha fade. Runs as a separate NSAnimationContext
-            // so it has its OWN curve independent of the frame morph.
-            NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = 0.30
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
-                self.panel.animator().alphaValue = 0
-            })
-        } else {
-            // ---- (A) Music: dive past pill + recoil to pill ----
-            let undershoot: CGFloat = 2
-            let underFrame = NSRect(
-                x: target.minX + undershoot / 2,
-                y: target.minY + undershoot,
-                width: target.width - undershoot,
-                height: target.height - undershoot
-            )
-            let diveDuration: TimeInterval = 0.20
-            let recoilDuration: TimeInterval = 0.15
-            let diveCurve = CAMediaTimingFunction(controlPoints: 0.65, 1.0, 0.5, 1.0)
-            let recoilCurve = CAMediaTimingFunction(controlPoints: 0.75, 1.0, 0.8, 1.0)
-
-            NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = diveDuration
-                ctx.timingFunction = diveCurve
-                ctx.allowsImplicitAnimation = true
-                self.panel.animator().setFrame(underFrame, display: true)
-            }, completionHandler: { [weak self] in
-                guard let self, self.animationGeneration == myGen else { return }
-                NSAnimationContext.runAnimationGroup({ ctx in
-                    ctx.duration = recoilDuration
-                    ctx.timingFunction = recoilCurve
-                    ctx.allowsImplicitAnimation = true
-                    self.panel.animator().setFrame(target, display: true)
-                }, completionHandler: { [weak self] in
-                    guard let self, self.animationGeneration == myGen else { return }
-                    self.presenter.isMorphing = false
-                    // Defensive: music could disappear during the
-                    // close (rare but possible). If nowPlaying went
-                    // nil mid-recoil we no longer have a reason to
-                    // sit at pill geometry — orderOut to match the
-                    // no-music intent.
-                    let hasMusic = self.presenter.nowPlaying != nil
-                    if self.presenter.isResting && hasMusic {
-                        self.panel.setFrame(target, display: true)
-                    } else {
-                        self.presenter.isResting = false
-                        self.panel.orderOut(nil)
-                    }
-                })
-            })
+        let spring = SpringFrameAnimator(stiffness: 240, damping: 26, mass: 1.0)
+        currentSpring = spring
+        spring.animate(panel: panel, from: start, to: target) { [weak self] in
+            guard let self, self.animationGeneration == myGen else { return }
+            self.currentSpring = nil
+            self.presenter.isMorphing = false
+            // Decide whether to stay (music resting pill) or orderOut
+            // (no music). Recheck nowPlaying at completion in case
+            // it changed during the spring — a fresh now-playing
+            // session that started mid-close should keep the pill.
+            let hasMusic = self.presenter.nowPlaying != nil
+            if self.presenter.isResting && hasMusic {
+                // Settle exactly at target — Core Animation can leave
+                // sub-pixel residuals after a spring; an explicit
+                // setFrame fixes that without a visible jump. The
+                // panel STAYS visible at pill geometry as the
+                // always-on now-playing indicator.
+                self.panel.setFrame(target, display: true)
+            } else {
+                // No music to anchor a pill → orderOut. By this
+                // point the spring has settled at notchHiddenFrame
+                // (or close to it via overshoot), so the panel is
+                // already invisible — orderOut just frees the
+                // window resource without a visible cut. Clear
+                // isResting so the next show() starts clean.
+                self.presenter.isResting = false
+                self.panel.orderOut(nil)
+            }
         }
     }
 
