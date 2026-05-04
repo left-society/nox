@@ -245,6 +245,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 HapticFeedback.bluetoothChange()
             }
             panelController = PanelWindowController(environment: env)
+            // Bring the panel up at notch-hidden (invisible behind
+            // hardware notch) on launch so AppKit drag-and-drop has a
+            // registered destination from the start. Without this,
+            // the very first drag-into-notch (before any hover/show)
+            // wouldn't be picked up — the user would see no drop
+            // picker until they'd hovered the notch at least once.
+            // The silhouette at notch-hidden is black-on-black with
+            // the hardware cutout = visually invisible, but the
+            // window is alive and registered for dragged types.
+            panelController?.parkAtNotchHidden()
             // Eagerly warm up the on-device Whisper model so the
             // first dictation doesn't pay the ~5-10s Core ML
             // compile + ANE engine selection cost. Cache hits

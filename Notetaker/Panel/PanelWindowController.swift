@@ -479,6 +479,7 @@ final class PanelWindowController {
                 HapticFeedback.levelChange()
             },
             onTargeted: { [weak presenter, weak self] flag in
+                NSLog("🎯 onTargeted(\(flag)) isShown=\(presenter?.isShown ?? false) isVisible=\(self?.isVisible ?? false)")
                 presenter?.isDropTargeted = flag
                 // Drive the two-zone Save/AirDrop drop picker
                 // overlay. The DropPickerView in PanelRootView is
@@ -1539,26 +1540,37 @@ final class PanelWindowController {
             guard let self, self.animationGeneration == myGen else { return }
             self.currentSpring = nil
             self.presenter.isMorphing = false
-            // Decide whether to stay (music resting pill) or orderOut
-            // (no music). Recheck nowPlaying at completion in case
-            // it changed during the spring — a fresh now-playing
-            // session that started mid-close should keep the pill.
+            // ALWAYS keep the panel visible at the close target.
+            //
+            // Why: AppKit drag-and-drop tracks destination windows
+            // captured at the START of the drag session. A panel that
+            // orderOut's after a close is NOT a drag target — when the
+            // user later drags a file from Finder toward the notch,
+            // the drag-session simply doesn't see our panel and no
+            // draggingEntered fires → DropPickerView never renders.
+            //
+            // Keeping the panel alive at notchHiddenFrame (185×32 =
+            // EXACT hardware notch dimensions) makes it black-on-black
+            // with the physical notch cutout — visually invisible —
+            // while staying registered as a drag-target so AppKit can
+            // route drag-into-notch events to it. This is the real
+            // structural fix for "drop picker not showing while
+            // dragging."
+            //
+            // For the music case, the resting pill stays visible at
+            // pillFrame as the now-playing indicator (existing
+            // behavior). For the no-music case, isResting is cleared
+            // but the panel STAYS visible at notch-hidden geometry —
+            // there's no visible silhouette below the menu bar, so
+            // the user's experience is identical to "panel hidden,"
+            // but AppKit knows the window is alive.
             let hasMusic = self.presenter.nowPlaying != nil
-            if self.presenter.isResting && hasMusic {
-                // Settle exactly at target — Core Animation can leave
-                // sub-pixel residuals after a spring; an explicit
-                // setFrame fixes that without a visible jump. The
-                // panel STAYS visible at pill geometry as the
-                // always-on now-playing indicator.
-                self.panel.setFrame(target, display: true)
-            } else {
-                // No music to anchor a pill → orderOut. Spring has
-                // settled at exact notch dimensions; the silhouette
-                // is now the same shape as the hardware notch, so
-                // orderOut is visually a no-op (black on black).
-                // Clear isResting so the next show() starts clean.
+            self.panel.setFrame(target, display: true)
+            if !(self.presenter.isResting && hasMusic) {
+                // No-music path: panel STAYS visible at notch-hidden
+                // (black-on-black with hardware) as a drag target.
+                // Clear isResting so future show() flows start clean.
                 self.presenter.isResting = false
-                self.panel.orderOut(nil)
             }
         }
     }
@@ -1625,6 +1637,27 @@ final class PanelWindowController {
     /// - Panel teasing → flip isResting=true. Either dismissTease (cursor
     ///   left) keeps the pill, or activate (dwell completed) opens the
     ///   slab and isResting carries through to the eventual close.
+    /// Bring the panel up at notch-hidden geometry (185×32 = exact
+    /// hardware notch dimensions) and order it front. The silhouette
+    /// is black-on-black with the physical notch cutout — visually
+    /// invisible — but the window is alive and registered for
+    /// dragged types so AppKit can route drag-into-notch events to
+    /// it. Called once at app launch so the very first drag works
+    /// without requiring a prior hover.
+    ///
+    /// Idempotent — safe to call repeatedly.
+    func parkAtNotchHidden() {
+        let screen = NSScreen.main
+        let target = notchHiddenFrame(for: screen)
+        panel.setFrame(target, display: false)
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+        // Don't flip isResting — this isn't a music resting pill,
+        // just an invisible drag-target perch.
+        presenter.isShown = false
+        NSLog("Notetaker: parkAtNotchHidden — panel alive at \(target)")
+    }
+
     func enterRestingMode() {
         if presenter.isResting { return }
         presenter.isResting = true
@@ -1697,31 +1730,28 @@ final class PanelWindowController {
             return
         }
 
-        // Animate the resting pill back to notch-hidden geometry, then
-        // orderOut. Without this animation, transient pills (charging,
-        // note-saved, screenshot, AirDrop received, BT, calendar,
-        // timer) that fire when there's no music would orderOut
-        // INSTANTLY after their timeout — the user described seeing
-        // "the music pill open after every single notification"
-        // because the pill silhouette stayed at full pillFrame
-        // geometry for one frame before vanishing, reading as an
-        // empty music pill briefly appearing.
+        // Animate the resting pill back to notch-hidden geometry and
+        // STAY visible there (panel is now always alive at notch-
+        // hidden so AppKit can route drag-into-notch events). The
+        // silhouette at notch-hidden is black-on-black with the
+        // hardware notch cutout — visually invisible — but the
+        // window is still a registered drag target.
         //
         // Mirror the enterRestingMode entrance: spring shrink from
-        // current frame to notch-hidden, orderOut at completion.
+        // current frame back to notch-hidden geometry.
         let screen = panel.screen ?? NSScreen.main
         let target = notchHiddenFrame(for: screen)
         let start = panel.frame
         currentSpring?.cancel()
-        // Match the entrance spring (300/32 ~270ms) for a symmetric
+        // Match the entrance spring (300/32 ~270ms) for symmetric
         // appear/disappear motion.
         let spring = SpringFrameAnimator(stiffness: 300, damping: 32, mass: 1.0)
         currentSpring = spring
         spring.animate(panel: panel, from: start, to: target) { [weak self] in
             guard let self else { return }
             self.currentSpring = nil
-            self.panel.orderOut(nil)
-            NSLog("Notetaker: exitRestingMode — panel animated to notch-hidden then orderOut")
+            self.panel.setFrame(target, display: true)
+            NSLog("Notetaker: exitRestingMode — settled at notch-hidden (alive as drag target)")
         }
     }
 

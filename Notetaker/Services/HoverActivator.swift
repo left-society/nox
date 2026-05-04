@@ -274,10 +274,17 @@ final class HoverActivator {
         // straight to the slab + drop picker.
         let isDragging = isDragEvent || (NSEvent.pressedMouseButtons & 1) != 0
 
+        // DIAGNOSTIC LOGGING (verbose). Helps trace why the drop picker
+        // isn't appearing during drags. Remove once confirmed working.
+        if inside != isInsideZone {
+            NSLog("🔍 HoverActivator: cursor zone change inside=\(inside) wasInside=\(isInsideZone) isDragEvent=\(isDragEvent) buttons=\(NSEvent.pressedMouseButtons)")
+        }
+
         if inside && !isInsideZone {
             isInsideZone = true
             // Cooldown blocks BOTH the tease bloom and the activate.
             if Date() < cooldownUntil {
+                NSLog("🔍 HoverActivator: skipping (cooldown)")
                 return
             }
 
@@ -288,7 +295,7 @@ final class HoverActivator {
                 // route the in-flight drag into the panel and the
                 // DropPickerView renders in time for the user to
                 // drop on a zone.
-                NSLog("Notetaker: HoverActivator → activate (drag fast path)")
+                NSLog("🔍 HoverActivator → activate (drag fast path)")
                 cooldownUntil = Date().addingTimeInterval(cooldownSeconds)
                 onActivate()
                 return
