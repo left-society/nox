@@ -460,6 +460,13 @@ final class PanelWindowController {
             },
             onTargeted: { [weak presenter, weak self] flag in
                 presenter?.isDropTargeted = flag
+                // Drive the two-zone Save/AirDrop drop picker
+                // overlay. The DropPickerView in PanelRootView is
+                // gated on `dropPickerActive && isShown`. Without
+                // this assignment the picker stays hidden and the
+                // user just sees the accent ring with no Save vs
+                // AirDrop choice — exactly the bug user reported.
+                presenter?.dropPickerActive = flag
                 // Auto-expand the slab when a drag enters while the
                 // panel is at resting-pill geometry. Without this,
                 // the user would drag a file over the pill and see
@@ -1329,20 +1336,28 @@ final class PanelWindowController {
             guard let self, self.animationGeneration == myGen else { return }
             self.currentSpring = nil
             self.presenter.isMorphing = false
-            if self.presenter.isResting {
-                // RESTING mode: panel stays on screen as the
-                // persistent now-playing pill. Settle the frame
-                // exactly at target to fix any sub-pixel residual
-                // — this final redraw is wanted because the
-                // user keeps seeing the window.
+            // Decide whether to keep the panel visible at pill
+            // geometry (resting now-playing indicator) OR fully
+            // orderOut. The TWO conditions for "stay resting" are:
+            //   1. isResting flag is set, AND
+            //   2. There's actually music to anchor the pill.
+            //
+            // Bug fix: previously checked only `isResting`. If
+            // `isResting` got set true (e.g. via an earlier music
+            // session) but `nowPlaying` was already nil by close
+            // time, the panel stayed at pill geometry forever —
+            // user reported "closing animation stuck at small
+            // pill when no music." Adding the nowPlaying check
+            // means the panel ALWAYS orderOuts when there's no
+            // music, even if isResting got desync'd.
+            let hasMusic = self.presenter.nowPlaying != nil
+            if self.presenter.isResting && hasMusic {
                 self.panel.setFrame(target, display: true)
             } else {
-                // No music — we're about to orderOut the window.
-                // Skip the final `setFrame(_, display: true)` (it
-                // would force a paint of a frame the user only
-                // sees for ~16ms before orderOut yanks it,
-                // reading as a stutter at the end of the close).
-                // Just orderOut directly.
+                // No music to anchor the pill → panel goes away.
+                // Clear isResting too so the next show() starts
+                // from a clean state.
+                self.presenter.isResting = false
                 self.panel.orderOut(nil)
             }
         }
