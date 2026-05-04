@@ -1255,19 +1255,18 @@ final class PanelWindowController {
         let frame = s?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let overlap = PanelWindowController.notchOverlap(for: screen)
 
-        // Iterated bezel-padding values for the close-end size:
-        //   +8pt  → 201pt — sat inside visible notch (shrinking)
-        //   +14pt → 213pt — barely overlapped, felt small
-        //   +20pt → 225pt — visible overlap, still felt small
-        //   +32pt → 249pt — clearly bigger than the notch hardware,
-        //                   visibly attaches at close-end
+        // EXACTLY hardware notch width — width comes straight from
+        // NSScreen.auxiliaryTopLeftArea / auxiliaryTopRightArea
+        // (gap = 185pt on this 16" MBP). That's the literal boundary
+        // the system uses to position menu-bar items away from the
+        // notch hardware = the actual hardware cutout width.
         //
-        // 249pt is bigger than the visual notch (~200pt) by ~25pt
-        // on each side, smaller than the resting music pill width
-        // (302pt) so it doesn't read as "music player" — sits in
-        // the middle as a "this panel is attaching to the notch"
-        // visual.
-        let bezelPadding: CGFloat = 32
+        // User direction: the close should match the notch hardware
+        // size, not extend past it. Iterated wider values (+8, +14,
+        // +20, +32) all read as the panel sitting on top of the
+        // notch rather than becoming it. With no padding the
+        // silhouette ends at the exact hardware boundary.
+        let bezelPadding: CGFloat = 0
         let auxGapWidth: CGFloat = {
             guard let s,
                   let auxL = s.auxiliaryTopLeftArea,
