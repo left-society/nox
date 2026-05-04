@@ -511,23 +511,23 @@ struct PanelRootView: View {
             // than a linear ease-out on the corner shape.
             // `.bouncy` gives the corner-radius interpolation a
             // slight overshoot — the bottom corners briefly round
-            // Direction-aware animation. Numbers must mirror the
+            // Direction-aware animation. Numbers MUST mirror the
             // PanelWindowController NSPanel-frame springs so the
             // SwiftUI-side properties (corner radius, content opacity,
             // shadow params) finish on the same beat as the window
-            // geometry. Numbers were re-tuned from a frame-by-frame
-            // teardown of Alcove's actual morph (~165ms total, no
-            // visible overshoot, content fades in concurrent with
-            // silhouette growth):
-            //   • OPEN  (isShown→true):  k=450 d=40 ratio≈0.94,
-            //     full settle in ~150ms. Earlier 200/22 spring
-            //     stretched the morph over ~360ms — long enough for
-            //     Timer pacing variance to read as jitter.
-            //   • CLOSE (isShown→false): k=600 d=50 ratio≈1.02,
-            //     just-overdamped, settles in ~120ms.
+            // geometry. Mismatch = silhouette settles at one duration
+            // while panel frame is still morphing → user sees
+            // "endpoint not landing."
+            //
+            // 2026-05-04 synced with the slower, more visible panel
+            // springs:
+            //   • OPEN  (isShown→true):  k=240 d=26 ratio≈0.84,
+            //     settles in ~330ms.
+            //   • CLOSE (isShown→false): k=280 d=30 ratio≈0.90,
+            //     settles in ~280ms with no overshoot.
             .animation(presenter.isShown
-                       ? .interpolatingSpring(mass: 1.0, stiffness: 450, damping: 40, initialVelocity: 0)
-                       : .interpolatingSpring(mass: 1.0, stiffness: 600, damping: 50, initialVelocity: 0),
+                       ? .interpolatingSpring(mass: 1.0, stiffness: 240, damping: 26, initialVelocity: 0)
+                       : .interpolatingSpring(mass: 1.0, stiffness: 280, damping: 30, initialVelocity: 0),
                        value: presenter.isShown)
             .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
             // PERF GATE: both shadows render only when isShown=true.
@@ -1107,16 +1107,14 @@ struct PanelRootView: View {
         }
         // Bouncy spring on the content swap — gives the system
         // event entrance a tactile "pop in" feel rather than a
-        // straight fade. extraBounce 0.3 is more pronounced than
-        // the slab-radius bounce because the content is small
-        // and the swap is short — needs more energy to read.
-        // Stronger bounce + slightly longer duration so the
-        // pill ENTRANCE itself reads as a "pop" before the
-        // shutter punch / flash plays out on the icon. The
-        // user explicitly wanted "more alive" for screenshot
-        // events; this curve drives all transient pill morphs
-        // (charging, screenshot, download) for consistency.
-        .animation(.bouncy(duration: 0.50, extraBounce: 0.45),
+        // straight fade.
+        //
+        // 2026-05-04 reduced extraBounce 0.45 → 0.18 because the
+        // 0.45 value was overshooting visibly past the resting
+        // pill silhouette before settling. 0.18 gives a tactile
+        // landing with one small rebound — like a real spring
+        // settling, not a rubber-ball flail.
+        .animation(.bouncy(duration: 0.42, extraBounce: 0.18),
                    value: presenter.pendingSystemEvent)
         .animation(.bouncy(duration: 0.42, extraBounce: 0.25),
                    value: presenter.pendingVideoCandidate)
@@ -3009,7 +3007,7 @@ private struct ScreenshotPillBody: View {
             // thumbnail-vs-icon state changes — that's the
             // "shape responds" cue. Same bouncy curve as the
             // entrance so it feels of a piece.
-            .animation(.bouncy(duration: 0.35, extraBounce: 0.3),
+            .animation(.bouncy(duration: 0.32, extraBounce: 0.15),
                        value: hasThumbnail)
 
             Spacer(minLength: 0)
@@ -3217,22 +3215,24 @@ extension AnyTransition {
     /// stays inside the visible silhouette envelope rather than
     /// sticking out.
     static var pillEnter: AnyTransition {
-        // Opacity-only entrance — no scale. Multiple anchor attempts
-        // (.center, .top, .bottom) all left a visible glitch where
-        // the silhouette briefly extended past the menu-bar edge or
-        // had odd overshoot artifacts during the bouncy parent
-        // animation. Removing the `.scale` component entirely
-        // eliminates any way for the silhouette envelope to change
-        // during transitions — content swaps in/out via opacity
-        // only. The bouncy "pop" feel comes from the parent's
-        // `.animation(.bouncy, value:)` driving content swap, but
-        // the silhouette dimensions stay constant.
-        .opacity
+        // 2026-05-04 added .scale alongside .opacity so the
+        // entrance has visible motion. Pure opacity (the previous
+        // form) produced a fade so subtle it read as no animation
+        // — the user's "animation end points are broken" complaint
+        // was rooted in this. Anchored at .center with a 0.78
+        // starting scale: same ratio Apple uses for SF Symbols'
+        // .symbolEffect(.bounce). The silhouette clip catches
+        // anything outside the envelope so this can't visibly bow
+        // past the menu bar.
+        .scale(scale: 0.78, anchor: .center).combined(with: .opacity)
     }
 
-    /// Pill exit transition — opacity fade, no scale, same reason.
+    /// Pill exit transition. Scales DOWN + fades. Without the
+    /// scale component the exit was pure opacity — visually too
+    /// subtle to read as "landing." Scale to 0.85 + opacity gives
+    /// a clear "pulling back into the silhouette" exit.
     static var pillExit: AnyTransition {
-        .opacity
+        .scale(scale: 0.85, anchor: .center).combined(with: .opacity)
     }
 
     /// Convenience: the asymmetric pair as a single transition.

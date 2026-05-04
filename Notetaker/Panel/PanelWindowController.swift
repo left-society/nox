@@ -91,7 +91,15 @@ final class PanelWindowController {
     /// content "spilling" or "not filling" — when really the slab
     /// just couldn't shrink. Per-tab heights make the black silhouette
     /// always wrap its content, no awkward empty space.
-    static let innerPanelHeightMusic: CGFloat = 290
+    ///
+    /// 2026-05-04 bumped 290 → 360. The nowPlayingCard (artwork tile +
+    /// 3-line text + ~12pt vertical padding) hits ~96pt, then progressBar
+    /// (~30pt), then iosStyleTransportRow (~50pt with inline volume) +
+    /// 36pt VStack spacing + padding = ~225pt of content. With the old
+    /// 290pt slab and ~90pt of header chrome, available content height
+    /// was only ~200pt — transport row was getting clipped at the
+    /// bottom. 360pt restores comfortable headroom.
+    static let innerPanelHeightMusic: CGFloat = 360
 
     /// Inner slab height for a given active tab. Single source of truth
     /// for the per-tab sizing — `openSlabFrame(for:tab:)` uses it on
@@ -1297,7 +1305,12 @@ final class PanelWindowController {
         // Sphere + spring on the same main runloop at 60Hz each
         // were competing for ticks — visible as jelly jitter.
         presenter.isMorphing = true
-        let spring = SpringFrameAnimator(stiffness: 450, damping: 40, mass: 1.0)
+        // 2026-05-04 bumped 450/40 → 240/26 so the morph takes ~330ms
+        // instead of ~150ms. The previous 150ms was so fast the user
+        // perceived it as a snap, not an animation. 240/26
+        // (ratio ≈ 0.84) gives a slightly bouncy, distinctly
+        // visible morph that lands cleanly.
+        let spring = SpringFrameAnimator(stiffness: 240, damping: 26, mass: 1.0)
         currentSpring = spring
         spring.animate(panel: panel, from: start, to: target) { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
@@ -1330,7 +1343,12 @@ final class PanelWindowController {
         //                      notch hardware), settles in ~120ms.
         let start = panel.frame
         presenter.isMorphing = true
-        let spring = SpringFrameAnimator(stiffness: 600, damping: 50, mass: 1.0)
+        // 2026-05-04 bumped 600/50 → 280/30 so the close has
+        // perceptible motion instead of snapping. 600/50 settled in
+        // ~120ms — too fast to register as a closing motion.
+        // 280/30 (ratio ≈ 0.90, ω_n ≈ 16.7) settles cleanly in
+        // ~280ms with no overshoot.
+        let spring = SpringFrameAnimator(stiffness: 280, damping: 30, mass: 1.0)
         currentSpring = spring
         spring.animate(panel: panel, from: start, to: target) { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
