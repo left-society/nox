@@ -527,21 +527,15 @@ struct PanelRootView: View {
             // while panel frame is still morphing → user sees
             // "endpoint not landing."
             //
-            // Per-direction springs matched to the panel-frame
-            // SpringFrameAnimator on each side:
-            //   OPEN:  300/32  ratio≈0.92  ~270ms (slight bloom)
-            //   CLOSE: 150/28  ratio≈1.14  ~415ms (overdamped)
-            //
-            // Close calibrated against NotchNook frame-by-frame
-            // (33 frames at 60fps = 550ms reference). Stiffness
-            // halved + damping reduced proportionally so the close
-            // has visible motion in the 350-450ms band — long enough
-            // to read as a deliberate retreat into the notch, short
-            // enough to not feel sluggish. Overdamped (ratio>1)
-            // keeps the landing clean with no overshoot tail.
-            .animation(presenter.isShown
-                       ? .interpolatingSpring(mass: 1.0, stiffness: 300, damping: 32, initialVelocity: 0)
-                       : .interpolatingSpring(mass: 1.0, stiffness: 150, damping: 28, initialVelocity: 0),
+            // SYMMETRIC: same spring on both directions of the morph.
+            //   stiffness 300, damping 32 (ratio ≈ 0.92, ~270ms)
+            // Open and close use the same physics; the close gets
+            // its "content fades first" beat from an 80ms delay in
+            // hide() before animateClose runs, not from a slower
+            // spring. Total close = 80ms (content fade) + 270ms
+            // (panel-frame spring) ≈ 350ms with a clear two-beat
+            // rhythm matching NotchNook's reference.
+            .animation(.interpolatingSpring(mass: 1.0, stiffness: 300, damping: 32, initialVelocity: 0),
                        value: presenter.isShown)
             .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
             // PERF GATE: both shadows render only when isShown=true.

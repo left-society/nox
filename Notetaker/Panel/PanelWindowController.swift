@@ -921,7 +921,25 @@ final class PanelWindowController {
         let target = presenter.isResting
             ? closedPillFrame(for: screen)
             : notchHiddenFrame(for: screen)
-        animateClose(to: target)
+
+        // Two-beat close, matching NotchNook reference frames
+        // 1864-1898:
+        //   Beat 1 (~80ms): content fades + blurs while the panel
+        //     stays slab-sized. presenter.isShown was just flipped
+        //     false above, kicking off the SwiftUI content fade
+        //     (200ms easeOut). The panel frame is held at slab size
+        //     during this pause.
+        //   Beat 2 (~270ms): panel-frame spring runs from slab to
+        //     target shape. By the time the spring starts, the
+        //     content has already faded most of the way out, so
+        //     the user sees an empty silhouette shrinking — reads
+        //     as "panel folds back into the notch" instead of
+        //     "shrinking the whole thing including content."
+        // Net feel: one coherent close motion with a beat of
+        // anticipation before the silhouette starts moving.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+            self?.animateClose(to: target)
+        }
     }
 
     // MARK: - Hover-intent tease
@@ -1495,30 +1513,22 @@ final class PanelWindowController {
         let notchOnly = PanelWindowController.notchOverlap(for: panel.screen)
         let isNotchHiddenTarget = abs(target.height - notchOnly) < halo / 2
 
-        // Close spring calibrated against frame-by-frame audit of
-        // NotchNook's close (Built-in Retina Display 1865→1898 ≈
-        // 33 frames at 60fps capture ≈ 550ms total close).
+        // SYMMETRIC close — same spring as the open (300/32). The
+        // close is the open played in reverse using the same
+        // physics. Combined with the 80ms content-fade beat that
+        // hide() inserts BEFORE the spring runs, the total close
+        // is ~350ms with a clear "content fades first, then panel
+        // folds into the notch" rhythm — matches NotchNook's
+        // reference timing without making the spring itself feel
+        // sluggish.
         //
-        // Previous tries documented:
-        //   300/36  ~290ms — user: "closing too fast"
-        //   300/32  ~270ms — user: "almost perfect, too fast"
-        //   110/26  ~510ms — user: "still not similar" (heavy
-        //                    overdamp character was wrong, even
-        //                    though the duration was close)
-        //
-        // Settled on 150/28 — moderate stiffness with just-over-
-        // critical damping:
-        //   ω_n   = √150 ≈ 12.25
-        //   ratio = 28/(2·12.25) ≈ 1.14 (overdamped, no overshoot)
-        //   λ₁    = ω_n*(ζ - √(ζ²-1)) ≈ 7.23
-        //   95% settle ≈ 3/λ₁ ≈ 415ms
-        //
-        // Splits the difference: visibly slower than 290ms (matches
-        // the user's "too fast" complaint) without sliding into the
-        // sluggish heavy-overdamp character of 110/26.
+        // Earlier overdamped attempts (150/28 ~415ms, 110/26 ~510ms)
+        // felt like a continuous shrink because the spring ran from
+        // frame 0 with no anticipation beat. The two-beat structure
+        // fixes that without slowing the spring itself.
         let spring: SpringFrameAnimator
         if isNotchHiddenTarget {
-            spring = SpringFrameAnimator(stiffness: 150, damping: 28, mass: 1.0)
+            spring = SpringFrameAnimator(stiffness: 300, damping: 32, mass: 1.0)
         } else {
             // Music close: lands punchy at the resting pill.
             spring = SpringFrameAnimator(stiffness: 380, damping: 44, mass: 1.0)
