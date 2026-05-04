@@ -325,6 +325,14 @@ final class PanelWindowController {
     /// enough; we don't tear it down on hide().
     private var activeTabSubscription: AnyCancellable?
 
+    /// Strong reference to the active AirDropShareDelegate. Need to
+    /// hold this past performAirDrop returning because NSSharingService
+    /// only WEAKLY retains its delegate — without this, the delegate
+    /// would deallocate before AirDrop's callbacks fire and the
+    /// debounce / pill plumbing would silently never run. Replaced
+    /// each time the user kicks off a new send.
+    private var airDropDelegate: AirDropShareDelegate?
+
     weak var menuBarController: MenuBarController?
 
     init(environment: AppEnvironment) {
@@ -1399,21 +1407,42 @@ final class PanelWindowController {
     ///   PanelRootView's pill overlay.
     /// - Panel already shown (user has music slab open via hotkey or
     ///   hover) → just flip isResting=true. The next hide()/animateClose
-    /// Drive an AirDrop send via NSSharingService. We initially
-    /// tried wiring success/failure pills via NSSharingServiceDelegate
-    /// callbacks, but Apple's AirDrop service is unreliable —
-    /// `didShareItems` sometimes fires on cancel, and
-    /// `didFailToShareItems` often DOESN'T fire on cancel — so any
-    /// pill we showed could lie to the user. The system's own AirDrop
-    /// sheet already labels each recipient card with "Sent" /
-    /// "Declined" / "Sending…", so duplicating that in-app isn't
-    /// worth the false-positive risk.
+    /// Drive an AirDrop send via NSSharingService and surface a pill
+    /// with the result.
+    ///
+    /// Apple's AirDrop service is famously unreliable for completion
+    /// callbacks: `didShareItems` sometimes fires on cancel, and
+    /// `didFailToShareItems` often fires AFTER the spurious success
+    /// callback. To not lie to the user we use a 350ms debounce —
+    /// when `didShareItems` fires we SCHEDULE the success pill, and
+    /// if `didFailToShareItems` lands within that window, we cancel
+    /// the pending success and show the failure pill instead. The
+    /// 350ms is empirically the upper bound on how long the failure
+    /// callback trails the spurious success in practice.
+    ///
+    /// Strong ref to the delegate is held on `self` so it lives past
+    /// this function returning — NSSharingService only weakly retains
+    /// its delegate. Released the next time performAirDrop runs (and
+    /// at app shutdown).
     private func performAirDrop(urls: [URL]) {
         guard let service = NSSharingService(named: .sendViaAirDrop) else {
             DictationOrchestrator.dlog("    ⚠️ AirDrop service unavailable")
             return
         }
         DictationOrchestrator.dlog("    → AirDrop service.perform(\(urls.count) URL(s))")
+
+        let delegate = AirDropShareDelegate(
+            count: urls.count,
+            onSuccess: { [weak self] count in
+                self?.presenter.setPendingSystemEvent(.airDropSent(count: count))
+            },
+            onFailure: { [weak self] in
+                self?.presenter.setPendingSystemEvent(.airDropFailed)
+            }
+        )
+        service.delegate = delegate
+        airDropDelegate = delegate
+
         service.perform(withItems: urls)
         HapticFeedback.levelChange()
     }
@@ -1498,6 +1527,79 @@ final class PanelWindowController {
 //
 // Why a single fraction (not 4 independent springs per frame
 // component): the panel grows/shrinks proportionally — height,
+// MARK: - AirDropShareDelegate
+
+/// NSSharingServiceDelegate wrapper that papers over Apple's
+/// unreliable AirDrop completion callbacks.
+///
+/// Empirically, when a user CANCELS an AirDrop sheet, Apple often
+/// fires `didShareItems` first (a spurious "success") and then a few
+/// dozen-to-hundred milliseconds later fires `didFailToShareItems`
+/// with the real cancellation. Trusting the first callback would
+/// mean showing a "Sent" pill on a cancelled send.
+///
+/// This delegate handles that with a debounce:
+///   • didShareItems → schedule the success pill for 350ms in the
+///     future and wait.
+///   • didFailToShareItems → if a success is pending, cancel it; show
+///     the failure pill now.
+/// 350ms is generous enough to swallow Apple's race in practice
+/// without making real-success cases feel laggy (the pill shows up
+/// roughly when the recipient's device finishes the haptic confirm).
+///
+/// All callbacks are forced onto the main actor — NSSharingService
+/// makes no thread guarantee, and our presenter is @MainActor.
+@MainActor
+final class AirDropShareDelegate: NSObject, NSSharingServiceDelegate {
+    private let count: Int
+    private let onSuccess: (Int) -> Void
+    private let onFailure: () -> Void
+    private var didFail = false
+    private var pendingSuccess: Task<Void, Never>?
+
+    /// 350ms — long enough to swallow Apple's spurious-success race,
+    /// short enough that real success still feels prompt.
+    private static let debounceNanos: UInt64 = 350_000_000
+
+    init(count: Int,
+         onSuccess: @escaping (Int) -> Void,
+         onFailure: @escaping () -> Void) {
+        self.count = count
+        self.onSuccess = onSuccess
+        self.onFailure = onFailure
+    }
+
+    nonisolated func sharingService(_ sharingService: NSSharingService,
+                                    didShareItems items: [Any]) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // If we've already decided this was a cancel, ignore the
+            // delayed-success that Apple sometimes still fires.
+            if self.didFail { return }
+            self.pendingSuccess?.cancel()
+            self.pendingSuccess = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: AirDropShareDelegate.debounceNanos)
+                guard !Task.isCancelled, let self, !self.didFail else { return }
+                self.onSuccess(self.count)
+            }
+        }
+    }
+
+    nonisolated func sharingService(_ sharingService: NSSharingService,
+                                    didFailToShareItems items: [Any],
+                                    error: Error) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.didFail = true
+            self.pendingSuccess?.cancel()
+            self.pendingSuccess = nil
+            self.onFailure()
+        }
+    }
+}
+
+// MARK: - SpringFrameAnimator
+
 // width, x, and y all reach their targets at the same beat. One
 // spring drives them together, the lerp distributes the motion.
 @MainActor

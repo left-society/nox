@@ -1052,6 +1052,14 @@ struct PanelRootView: View {
                 airDropPillContent(filename: filename)
                     .transition(.pillPop)
                     .id("airdrop-\(filename)")
+            } else if case .airDropSent(let count) = presenter.pendingSystemEvent {
+                airDropSentPillContent(count: count)
+                    .transition(.pillPop)
+                    .id("airdrop-sent-\(count)")
+            } else if case .airDropFailed = presenter.pendingSystemEvent {
+                airDropFailedPillContent()
+                    .transition(.pillPop)
+                    .id("airdrop-failed")
             } else if let videoURL = presenter.pendingVideoCandidate {
                 videoPreviewPillContent(for: videoURL)
                     .transition(.pillPop)
@@ -1161,6 +1169,8 @@ struct PanelRootView: View {
             case .timerFinished: return "timerFinished"
             case .calendarUpcoming(let title, _): return "calendar-\(title)"
             case .airDropReceived(let filename): return "airdrop-\(filename)"
+            case .airDropSent(let count): return "airdropSent-\(count)"
+            case .airDropFailed: return "airdropFailed"
             }
         }
         if presenter.pendingVideoCandidate != nil { return "video" }
@@ -1184,6 +1194,8 @@ struct PanelRootView: View {
             case .timerFinished: return Color(red: 0.30, green: 0.85, blue: 0.45)
             case .calendarUpcoming: return Color(red: 0.99, green: 0.45, blue: 0.30)
             case .airDropReceived: return Color(red: 0.30, green: 0.78, blue: 0.99)
+            case .airDropSent: return Color(red: 0.30, green: 0.78, blue: 0.99)
+            case .airDropFailed: return Color(red: 0.65, green: 0.65, blue: 0.70)
             }
         }
         return Color.white
@@ -1406,6 +1418,76 @@ struct PanelRootView: View {
         .onTapGesture {
             presenter.onRevealAirDrop?()
         }
+    }
+
+    /// Confirmation pill after the user successfully sends N files via
+    /// AirDrop. AirDrop logo on the left tile (matches the "received"
+    /// pill's color language so both directions feel like the same
+    /// family of events), then a discreet checkmark + count on the
+    /// right. Apple's NSSharingService doesn't expose the recipient
+    /// name to third-party apps so we deliberately avoid showing
+    /// "Sent to <name>" — just the confirmation that something landed.
+    @ViewBuilder
+    private func airDropSentPillContent(count: Int) -> some View {
+        let visible = presenter.isResting && !presenter.isShown
+        HStack(spacing: 6) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color(red: 0.30, green: 0.78, blue: 0.99).opacity(0.92))
+                AirDropLogo()
+                    .frame(width: 14, height: 14)
+            }
+            .frame(width: 22, height: 22)
+            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 3) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Color(red: 0.30, green: 0.85, blue: 0.45))
+                if count > 1 {
+                    Text("\(count)")
+                        .font(.system(size: 11, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(.white.opacity(0.92))
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: notchOverlap)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .opacity(visible ? 1 : 0)
+    }
+
+    /// Brief acknowledgement pill when the user cancels the AirDrop
+    /// sheet or the send fails. Same blue tile so the user reads it
+    /// as "AirDrop, but the other state" — and a small slashed-circle
+    /// glyph on the right rather than a checkmark. Kept short (2.0s)
+    /// so it doesn't camp on top of the music pill.
+    @ViewBuilder
+    private func airDropFailedPillContent() -> some View {
+        let visible = presenter.isResting && !presenter.isShown
+        HStack(spacing: 6) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color(red: 0.55, green: 0.55, blue: 0.60).opacity(0.92))
+                AirDropLogo()
+                    .frame(width: 14, height: 14)
+            }
+            .frame(width: 22, height: 22)
+            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+
+            Spacer(minLength: 0)
+
+            Image(systemName: "xmark")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white.opacity(0.78))
+        }
+        .padding(.horizontal, 10)
+        .frame(height: notchOverlap)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .opacity(visible ? 1 : 0)
     }
 
 

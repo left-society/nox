@@ -245,6 +245,16 @@ final class PanelPresenter: ObservableObject {
         /// the same Equatable-friendliness reason as the calendar
         /// join URL).
         case airDropReceived(filename: String)
+        /// User just SENT N files via AirDrop. Pill flashes the
+        /// AirDrop mark + checkmark + file count. NSSharingService
+        /// doesn't expose the recipient name to third-party apps so
+        /// we don't show "Sent to Sarah", just the confirmation
+        /// that the send went through.
+        case airDropSent(count: Int)
+        /// User canceled the AirDrop sheet, or the send failed.
+        /// Brief acknowledgement so the user doesn't wonder if
+        /// their files went somewhere they didn't intend.
+        case airDropFailed
     }
     @Published var pendingSystemEvent: SystemEvent? = nil
     private var pendingSystemEventTimer: Task<Void, Never>?
@@ -332,6 +342,16 @@ final class PanelPresenter: ObservableObject {
             // to tap-to-reveal; short enough that an ignored
             // arrival doesn't camp on the music pill.
             return 4.0
+        case .airDropSent:
+            // Quick acknowledgement of a successful send. The user
+            // initiated the action, so they only need a brief
+            // confirmation that it landed before the pill goes away.
+            return 2.5
+        case .airDropFailed:
+            // Even shorter — the user already knows they canceled
+            // (or it failed); we just don't want them wondering if
+            // something went out by accident.
+            return 2.0
         }
     }
 
@@ -359,6 +379,10 @@ final class PanelPresenter: ObservableObject {
             // AirDrop is initiated by another person interacting
             // with the user's device; muting it would mean the
             // user wonders if their accept landed. Always show.
+            return false
+        case .airDropSent, .airDropFailed:
+            // User explicitly initiated this AirDrop send — they
+            // need to know whether it landed regardless of focus.
             return false
         }
     }
