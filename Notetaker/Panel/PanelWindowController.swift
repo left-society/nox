@@ -1442,22 +1442,32 @@ final class PanelWindowController {
         currentSpring?.cancel()
         currentSpring = nil
 
-        // 350/37 — paced so the morph blur is visible. ω_n≈18.7,
-        // ratio≈0.99, settle ~230ms. A hair snappier than open
-        // (300/32 ~270ms) so the close edges feel confident, but
-        // still slow enough that the silhouette's progressive shape
-        // morph + the content blur fade-in have time to read.
+        // 380/44 — stiffened slightly + bumped damping past critical
+        // to kill the micro-jitter the user reported on close.
+        //   ω_n  = √380 ≈ 19.5
+        //   ratio = 44/(2·19.5) ≈ 1.13 (overdamped)
+        //   settle ≈ 230ms (similar duration but with ZERO bounce)
         //
-        // The TARGET frame differentiates music vs no-music:
-        //   • MUSIC: target = pillFrame, settles at the resting
-        //     music-pill geometry, panel stays.
-        //   • NO MUSIC: target = notchHiddenFrame, sized to the
-        //     ACTUAL hardware notch (auxiliaryTopLeft/Right derived).
-        //     Silhouette merges visually with the physical notch
-        //     cutout (black on black) and orderOut once settled.
+        // Why overdamped helps:
+        //   1. ratio≈0.99 (the previous value) has a 1-2% terminal
+        //      overshoot — sub-pixel but visible as a tiny "bounce"
+        //      at the end of the close.
+        //   2. The SpringFrameAnimator runs on a 60Hz Timer; SwiftUI
+        //      renders at the display refresh rate (120Hz on
+        //      ProMotion). With a near-critical spring, the
+        //      sub-pixel overshoot phase is exactly where the
+        //      60Hz/120Hz desync becomes visible — half the SwiftUI
+        //      frames render against a panel whose frame hasn't
+        //      updated yet. Overdamping eliminates the overshoot
+        //      phase entirely so there's no settling tail to
+        //      desync against.
+        //
+        // Same SpringFrameAnimator class on both sides; just
+        // different ratios (open under-critical for liveness, close
+        // over-critical for stability).
         let start = panel.frame
         presenter.isMorphing = true
-        let spring = SpringFrameAnimator(stiffness: 350, damping: 37, mass: 1.0)
+        let spring = SpringFrameAnimator(stiffness: 380, damping: 44, mass: 1.0)
         currentSpring = spring
         spring.animate(panel: panel, from: start, to: target) { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }

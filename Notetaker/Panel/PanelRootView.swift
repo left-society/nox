@@ -527,18 +527,26 @@ struct PanelRootView: View {
             // while panel frame is still morphing → user sees
             // "endpoint not landing."
             //
-            // 2026-05-04 (rev 7): timing calibrated against NotchNook
-            // frame-by-frame audit. Slow enough that the progressive
-            // blur on content (40pt → 0) reads visibly during the
-            // morph, fast enough that it doesn't feel sluggish.
-            //   OPEN  k=300 d=32 (ratio≈0.92, ~270ms settle)
-            //   CLOSE k=350 d=37 (ratio≈0.99, ~230ms settle)
-            // Mirror the panel-frame SpringFrameAnimator on each
-            // side so the corner-radius / top-flare morph runs in
-            // lockstep with the frame morph.
+            // 2026-05-04 (rev 8): split the SwiftUI silhouette
+            // animation by direction.
+            //
+            //   OPEN  → interpolatingSpring(300/32). Slight under-
+            //           critical lets the corner-radius interpolation
+            //           feel "alive" alongside the open spring.
+            //   CLOSE → easeOut(duration: 0.22). Duration-based
+            //           curve tracks the CA spring's visible motion
+            //           window precisely (no overshoot tail). The
+            //           previous interpolatingSpring(350/37) was
+            //           ratio≈0.99 — sub-pixel overshoot at the end
+            //           that desynced against the 60Hz CA Timer on
+            //           120Hz ProMotion displays. The user reported
+            //           this as "jittery while closing the pill."
+            //           A monotonic easeOut has no overshoot phase,
+            //           lands exactly when the CA spring's visible
+            //           motion completes.
             .animation(presenter.isShown
                        ? .interpolatingSpring(mass: 1.0, stiffness: 300, damping: 32, initialVelocity: 0)
-                       : .interpolatingSpring(mass: 1.0, stiffness: 350, damping: 37, initialVelocity: 0),
+                       : .easeOut(duration: 0.22),
                        value: presenter.isShown)
             .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
             // PERF GATE: both shadows render only when isShown=true.
