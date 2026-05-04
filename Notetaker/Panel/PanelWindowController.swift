@@ -1255,22 +1255,19 @@ final class PanelWindowController {
         let frame = s?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let overlap = PanelWindowController.notchOverlap(for: screen)
 
-        // Visual-notch padding: aux gap + 20pt each side.
-        // Iterated through:
-        //   +8pt  → 201pt — sat inside visible notch (shrinking feel)
-        //   +14pt → 213pt — barely overlapped notch outline
-        //   +20pt → 225pt — clearly wraps around the notch hardware
+        // Iterated bezel-padding values for the close-end size:
+        //   +8pt  → 201pt — sat inside visible notch (shrinking)
+        //   +14pt → 213pt — barely overlapped, felt small
+        //   +20pt → 225pt — visible overlap, still felt small
+        //   +32pt → 249pt — clearly bigger than the notch hardware,
+        //                   visibly attaches at close-end
         //
-        // The aux gap measures where menu-bar items can be SAFELY
-        // placed (~185pt on this 16" MBP). The visible notch
-        // hardware (cutout + rounded bezel) extends a few pt past
-        // that. To make the close-end feel like the panel ATTACHES
-        // to the notch (rather than disappearing inside it), the
-        // silhouette has to clearly OVERLAP the visible notch
-        // outline by a noticeable margin. +20pt each side gives a
-        // ~25pt total overlap past the visual notch — silhouette
-        // visibly hugs the notch from outside.
-        let bezelPadding: CGFloat = 20
+        // 249pt is bigger than the visual notch (~200pt) by ~25pt
+        // on each side, smaller than the resting music pill width
+        // (302pt) so it doesn't read as "music player" — sits in
+        // the middle as a "this panel is attaching to the notch"
+        // visual.
+        let bezelPadding: CGFloat = 32
         let auxGapWidth: CGFloat = {
             guard let s,
                   let auxL = s.auxiliaryTopLeftArea,
