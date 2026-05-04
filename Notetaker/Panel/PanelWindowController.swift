@@ -1217,32 +1217,43 @@ final class PanelWindowController {
     /// notch precisely, the silhouette is black-on-black with the
     /// hardware cutout and the close lands cleanly.
     ///
-    /// End-of-close target for the NO-music close. Keeps WIDTH at the
-    /// current slab width — only HEIGHT collapses to the menu-bar /
-    /// notch zone. Combined with an alpha fade-out alongside, the
-    /// panel "deflates vertically" and fades, instead of dramatically
-    /// narrowing horizontally from slab → notch (504pt → 185pt = 63%
-    /// width reduction, which the user described as "why is it getting
-    /// narrower").
+    /// Frame matched EXACTLY to the hardware notch dimensions — width
+    /// derived from `NSScreen.auxiliaryTopLeftArea` /
+    /// `auxiliaryTopRightArea` (gap between them = notch width =
+    /// 185pt on this 16" MBP), height equal to `notchOverlap`
+    /// (= safeAreaInsets.top = 32pt).
     ///
-    /// At close-end the silhouette is `slabWidth × notchOverlap` — a
-    /// wide thin strip behind the menu bar. The companion alpha fade
-    /// (in animateClose) drops the panel to alpha 0 over the same
-    /// duration so the strip is invisible by the time the spring
-    /// settles. orderOut then frees the window.
+    /// Used SYMMETRICALLY by the show / hide path:
+    ///   • OPEN (from fully hidden) starts at this frame and the
+    ///     spring grows it to the slab.
+    ///   • CLOSE (no music) starts at the slab and the spring shrinks
+    ///     it to this frame, then orderOut.
+    /// Same spring on both sides, same start/end shape — open and
+    /// close are mirror images of each other through the notch
+    /// hardware geometry.
+    ///
+    /// At rest here, the silhouette merges visually with the
+    /// physical notch (black silhouette over black hardware cutout,
+    /// same pixel boundaries). No alpha fade required — the panel
+    /// is simply at the same shape as the hardware.
     private func notchHiddenFrame(for screen: NSScreen?) -> NSRect {
         let s = screen ?? NSScreen.main
         let frame = s?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let overlap = PanelWindowController.notchOverlap(for: screen)
-        // Width = slab width so there's no horizontal narrowing during
-        // the close. The user reported the width-shrink as the most
-        // jarring part of the close ("why it's getting narrower?").
-        let halo = PanelWindowController.haloPadding
-        let width = PanelWindowController.innerPanelWidth + 2 * halo
+        let notchHardwareWidth: CGFloat = {
+            guard let s,
+                  let auxL = s.auxiliaryTopLeftArea,
+                  let auxR = s.auxiliaryTopRightArea
+            else {
+                // Non-notched display — fall back to pill width.
+                return PanelWindowController.closedPillWidth
+            }
+            return s.frame.width - auxL.width - auxR.width
+        }()
         return NSRect(
-            x: frame.midX - width / 2,
+            x: frame.midX - notchHardwareWidth / 2,
             y: frame.maxY - overlap,
-            width: width,
+            width: notchHardwareWidth,
             height: overlap
         )
     }
@@ -1463,34 +1474,25 @@ final class PanelWindowController {
         let notchOnly = PanelWindowController.notchOverlap(for: panel.screen)
         let isNotchHiddenTarget = abs(target.height - notchOnly) < halo / 2
 
+        // SYMMETRIC close: same SpringFrameAnimator as the open
+        // (stiffness 300, damping 32, mass 1.0). The close is the
+        // open played in reverse — slab → notch-hidden — using the
+        // same physics, so both sides feel like one motion language.
+        // No alpha fade. The panel literally morphs through the same
+        // shapes it did on open, just in the opposite direction.
         let spring: SpringFrameAnimator
         if isNotchHiddenTarget {
-            // No-music close: panel deflates vertically (height
-            // shrinks to notchOverlap, width stays slab-wide) and
-            // fades to alpha 0. Spring 110/26 (overdamped, ~510ms)
-            // gives a visible vertical collapse; the parallel alpha
-            // fade hides the wide strip at close end.
-            spring = SpringFrameAnimator(stiffness: 110, damping: 26, mass: 1.0)
+            // No-music close: shrinks to exact notch dimensions
+            // (185×32) — silhouette converges visually with the
+            // hardware notch cutout at the end. No alpha fade.
+            spring = SpringFrameAnimator(stiffness: 300, damping: 32, mass: 1.0)
         } else {
-            // Music — punchier spring; lands at the resting pill.
-            // ω_n=19.5, ratio=1.13, ~230ms settle.
+            // Music close: shrinks to the resting pill geometry
+            // where the music indicator stays. Slightly punchier
+            // since it's not going all the way to notch dimensions.
             spring = SpringFrameAnimator(stiffness: 380, damping: 44, mass: 1.0)
         }
         currentSpring = spring
-
-        // For the no-music close, fade alpha to 0 alongside the
-        // height collapse. Keeps width at slab so the close feels
-        // like a vertical deflation rather than a horizontal narrow.
-        // 380ms easeIn so most of the alpha drop happens in the
-        // second half of the close — early frames stay visible
-        // (you see the panel shrinking), late frames fade out.
-        if isNotchHiddenTarget {
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.38
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
-                self.panel.animator().alphaValue = 0
-            }
-        }
         spring.animate(panel: panel, from: start, to: target) { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
             self.currentSpring = nil
@@ -1508,15 +1510,13 @@ final class PanelWindowController {
                 // always-on now-playing indicator.
                 self.panel.setFrame(target, display: true)
             } else {
-                // No music to anchor a pill → orderOut. By this point
-                // the spring has settled at notchHiddenFrame and the
-                // alpha fade has reached 0, so the panel is invisible.
-                // Reset alpha to 1 BEFORE orderOut so the next open
-                // doesn't inherit alpha 0 (which would make the
-                // re-opened panel invisible). Clear isResting too.
+                // No music to anchor a pill → orderOut. Spring has
+                // settled at exact notch dimensions; the silhouette
+                // is now the same shape as the hardware notch, so
+                // orderOut is visually a no-op (black on black).
+                // Clear isResting so the next show() starts clean.
                 self.presenter.isResting = false
                 self.panel.orderOut(nil)
-                self.panel.alphaValue = 1
             }
         }
     }
