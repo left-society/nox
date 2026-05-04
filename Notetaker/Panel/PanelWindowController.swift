@@ -1442,32 +1442,44 @@ final class PanelWindowController {
         currentSpring?.cancel()
         currentSpring = nil
 
-        // 380/44 — stiffened slightly + bumped damping past critical
-        // to kill the micro-jitter the user reported on close.
-        //   ω_n  = √380 ≈ 19.5
-        //   ratio = 44/(2·19.5) ≈ 1.13 (overdamped)
-        //   settle ≈ 230ms (similar duration but with ZERO bounce)
+        // Branch the close spring on target type so apparent velocity
+        // reads similarly in both cases.
         //
-        // Why overdamped helps:
-        //   1. ratio≈0.99 (the previous value) has a 1-2% terminal
-        //      overshoot — sub-pixel but visible as a tiny "bounce"
-        //      at the end of the close.
-        //   2. The SpringFrameAnimator runs on a 60Hz Timer; SwiftUI
-        //      renders at the display refresh rate (120Hz on
-        //      ProMotion). With a near-critical spring, the
-        //      sub-pixel overshoot phase is exactly where the
-        //      60Hz/120Hz desync becomes visible — half the SwiftUI
-        //      frames render against a panel whose frame hasn't
-        //      updated yet. Overdamping eliminates the overshoot
-        //      phase entirely so there's no settling tail to
-        //      desync against.
+        // Music close (target = pillFrame): slab → pill is a
+        //   moderate distance (480→302 wide, 360→44 tall). 380/44
+        //   gives ~230ms settle, no overshoot, decisive feel.
         //
-        // Same SpringFrameAnimator class on both sides; just
-        // different ratios (open under-critical for liveness, close
-        // over-critical for stability).
+        // No-music close (target = notchHiddenFrame): slab → notch
+        //   is MUCH bigger (480→191 wide, 360→32 tall). At 380/44
+        //   the larger distance translates to higher peak velocity
+        //   so the close READS as "snap-vanished" even though the
+        //   duration is the same as the music close — that's the
+        //   "still too fast" feel the user reported. A softer spring
+        //   (240/36, ratio≈1.16 overdamped, ~330ms settle) gives
+        //   the no-music close more breathing room — the user can
+        //   see the slab visibly retreating into the notch instead
+        //   of vanishing.
+        //
+        // Both kept overdamped (no overshoot phase) to avoid the
+        // jitter from the 60Hz Timer / 120Hz display desync.
         let start = panel.frame
         presenter.isMorphing = true
-        let spring = SpringFrameAnimator(stiffness: 380, damping: 44, mass: 1.0)
+
+        let halo = PanelWindowController.haloPadding
+        let notchOnly = PanelWindowController.notchOverlap(for: panel.screen)
+        let isNotchHiddenTarget = abs(target.height - notchOnly) < halo / 2
+
+        let spring: SpringFrameAnimator
+        if isNotchHiddenTarget {
+            // No music — softer spring so the larger shrink reads
+            // as a visible "retreat into the notch" rather than a
+            // snap. ω_n=15.5, ratio=1.16, ~330ms settle.
+            spring = SpringFrameAnimator(stiffness: 240, damping: 36, mass: 1.0)
+        } else {
+            // Music — punchier spring; lands at the resting pill.
+            // ω_n=19.5, ratio=1.13, ~230ms settle.
+            spring = SpringFrameAnimator(stiffness: 380, damping: 44, mass: 1.0)
+        }
         currentSpring = spring
         spring.animate(panel: panel, from: start, to: target) { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }

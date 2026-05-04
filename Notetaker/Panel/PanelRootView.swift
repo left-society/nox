@@ -527,26 +527,26 @@ struct PanelRootView: View {
             // while panel frame is still morphing → user sees
             // "endpoint not landing."
             //
-            // 2026-05-04 (rev 8): split the SwiftUI silhouette
-            // animation by direction.
+            // SwiftUI silhouette animation, paced to track each
+            // direction's CA panel-frame spring:
+            //   OPEN  → interpolatingSpring(300/32) (~270ms, under-
+            //           critical for "alive" bloom feel)
+            //   CLOSE → easeOut(duration: 0.30). Long enough to cover
+            //           the no-music CA spring (240/36 ~330ms settle)
+            //           AND the music CA spring (380/44 ~230ms). The
+            //           music close lands earlier in the curve where
+            //           the easeOut's velocity is still high — feels
+            //           punchy. The no-music close lands deeper in
+            //           the curve where velocity has dropped — feels
+            //           slower / breathier. One curve naturally
+            //           accommodates both close characters.
             //
-            //   OPEN  → interpolatingSpring(300/32). Slight under-
-            //           critical lets the corner-radius interpolation
-            //           feel "alive" alongside the open spring.
-            //   CLOSE → easeOut(duration: 0.22). Duration-based
-            //           curve tracks the CA spring's visible motion
-            //           window precisely (no overshoot tail). The
-            //           previous interpolatingSpring(350/37) was
-            //           ratio≈0.99 — sub-pixel overshoot at the end
-            //           that desynced against the 60Hz CA Timer on
-            //           120Hz ProMotion displays. The user reported
-            //           this as "jittery while closing the pill."
-            //           A monotonic easeOut has no overshoot phase,
-            //           lands exactly when the CA spring's visible
-            //           motion completes.
+            //           Duration-based curve has zero overshoot, so
+            //           no settling-tail desync against the 60Hz CA
+            //           Timer on 120Hz displays.
             .animation(presenter.isShown
                        ? .interpolatingSpring(mass: 1.0, stiffness: 300, damping: 32, initialVelocity: 0)
-                       : .easeOut(duration: 0.22),
+                       : .easeOut(duration: 0.30),
                        value: presenter.isShown)
             .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
             // PERF GATE: both shadows render only when isShown=true.
