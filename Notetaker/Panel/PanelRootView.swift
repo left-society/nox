@@ -519,15 +519,22 @@ struct PanelRootView: View {
             // while panel frame is still morphing → user sees
             // "endpoint not landing."
             //
-            // 2026-05-04 synced with the slower, more visible panel
-            // springs:
-            //   • OPEN  (isShown→true):  k=240 d=26 ratio≈0.84,
-            //     settles in ~330ms.
-            //   • CLOSE (isShown→false): k=280 d=30 ratio≈0.90,
-            //     settles in ~280ms with no overshoot.
+            // 2026-05-04 (rev 3) timing now aligns with:
+            //   • OPEN  (isShown→true):  panel frame uses spring
+            //     k=240 d=26 ratio≈0.84, settles in ~330ms.
+            //     Mirror the SwiftUI silhouette to match.
+            //   • CLOSE (isShown→false): panel frame uses two-stage
+            //     Core Animation: 200ms dive ease-out + 150ms recoil
+            //     ease-out (total 350ms). Use `.smooth(0.32)` for the
+            //     SwiftUI silhouette — critically damped (no overshoot,
+            //     matches the recoil character) and lands by end of
+            //     recoil. The corner radius reaches pill value while
+            //     the dive is still in flight, so the recoil settles
+            //     against the already-pill-shaped silhouette — exactly
+            //     the "pill lands into the notch" feel.
             .animation(presenter.isShown
                        ? .interpolatingSpring(mass: 1.0, stiffness: 240, damping: 26, initialVelocity: 0)
-                       : .interpolatingSpring(mass: 1.0, stiffness: 280, damping: 30, initialVelocity: 0),
+                       : .smooth(duration: 0.32),
                        value: presenter.isShown)
             .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
             // PERF GATE: both shadows render only when isShown=true.

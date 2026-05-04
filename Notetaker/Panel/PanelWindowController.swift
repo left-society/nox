@@ -1368,74 +1368,93 @@ final class PanelWindowController {
         animationGeneration &+= 1
         let myGen = animationGeneration
 
-        // Cancel any in-flight open spring before starting the
-        // close spring so two animators don't fight over the same
-        // window frame.
+        // Cancel any in-flight open spring so the dive doesn't
+        // fight a still-running grow.
         currentSpring?.cancel()
         currentSpring = nil
 
-        // Slightly-overdamped spring close, matched to Alcove's
-        // measured close timing (~100–120ms in the recording: frames
-        // 314→320, content fades concurrent with silhouette shrink).
-        // Slightly punchier than the open spring so the close feels
-        // decisive — Alcove's close edged a hair faster than the
-        // open in the frame teardown.
+        // 2026-05-04 (rev 3): RESTORED the original two-stage Core
+        // Animation close from commits f99bc00 / 1ab08ea, which the
+        // user remembered as the "alive" close. The single-spring
+        // close (whether 600/50 fast or 280/30 slow) decelerates to
+        // pill geometry and stops — no visible "endpoint" landing.
+        // The user kept reporting "no animation at the end / endpoints
+        // broken" because the spring just trails off into a target,
+        // it doesn't land THROUGH it.
         //
-        //   stiffness = 600  — ω_n ≈ 24.5 rad/s
-        //   damping   = 50   — ratio ≈ 1.02 (just over critical):
-        //                      zero overshoot (no bounce against the
-        //                      notch hardware), settles in ~120ms.
-        let start = panel.frame
+        // The two-stage form has a clear endpoint:
+        //   1. DIVE (200ms ease-out): panel shrinks PAST target by
+        //      2pt — momentary undershoot. This is the "absorbed
+        //      into the notch" beat. The notch hardware swallows
+        //      the brief over-shrunk frame visually.
+        //   2. RECOIL (150ms ease-out): panel grows back UP to
+        //      target frame. The eye reads this as the silhouette
+        //      "landing" against the notch baseline.
+        // Total 350ms with a tactile dive-and-settle feel, matching
+        // the open's dive-past-and-recoil character.
+        //
+        // Curves: cubic-bezier ease-outs sourced from ComfyNotch
+        // (the reference implementation we modeled the original
+        // animations against). They feel "snappy at the start,
+        // confident at the end" — same character as Apple's
+        // Dynamic Island collapse.
+        let undershoot: CGFloat = 2
+        let underFrame = NSRect(
+            x: target.minX + undershoot / 2,
+            y: target.minY + undershoot,
+            width: target.width - undershoot,
+            height: target.height - undershoot
+        )
+        let diveDuration: TimeInterval = 0.20
+        let recoilDuration: TimeInterval = 0.15
+        let diveCurve = CAMediaTimingFunction(controlPoints: 0.65, 1.0, 0.5, 1.0)
+        let recoilCurve = CAMediaTimingFunction(controlPoints: 0.75, 1.0, 0.8, 1.0)
+
         presenter.isMorphing = true
-        // 2026-05-04 bumped 600/50 → 280/30 so the close has
-        // perceptible motion instead of snapping. 600/50 settled in
-        // ~120ms — too fast to register as a closing motion.
-        // 280/30 (ratio ≈ 0.90, ω_n ≈ 16.7) settles cleanly in
-        // ~280ms with no overshoot.
-        let spring = SpringFrameAnimator(stiffness: 280, damping: 30, mass: 1.0)
-        currentSpring = spring
-
-        // 2026-05-04: tried fading alpha → 0 alongside the shrink to
-        // mirror the open path's fade-in, but the alpha drop made the
-        // panel vanish BEFORE the spring fully settled — the eye read
-        // that as a "fast pop-out" rather than the smooth shrink-into-
-        // the-notch the close should feel like. Reverted to spring-
-        // only close: the silhouette stays at full opacity through the
-        // entire shrink, then orderOut fires in the completion handler
-        // exactly when the spring lands at pill geometry. The hardware
-        // notch swallows the final pill frame visually so there's no
-        // visible "flash" at the end (closedPillBump = 0 → pill is
-        // mostly behind the notch hardware).
-
-        spring.animate(panel: panel, from: start, to: target) { [weak self] in
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = diveDuration
+            ctx.timingFunction = diveCurve
+            ctx.allowsImplicitAnimation = true
+            self.panel.animator().setFrame(underFrame, display: true)
+        }, completionHandler: { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
-            self.currentSpring = nil
-            self.presenter.isMorphing = false
-            // Decide whether to keep the panel visible at pill
-            // geometry (resting now-playing indicator) OR fully
-            // orderOut. The TWO conditions for "stay resting" are:
-            //   1. isResting flag is set, AND
-            //   2. There's actually music to anchor the pill.
-            //
-            // Bug fix: previously checked only `isResting`. If
-            // `isResting` got set true (e.g. via an earlier music
-            // session) but `nowPlaying` was already nil by close
-            // time, the panel stayed at pill geometry forever —
-            // user reported "closing animation stuck at small
-            // pill when no music." Adding the nowPlaying check
-            // means the panel ALWAYS orderOuts when there's no
-            // music, even if isResting got desync'd.
-            let hasMusic = self.presenter.nowPlaying != nil
-            if self.presenter.isResting && hasMusic {
-                self.panel.setFrame(target, display: true)
-            } else {
-                // No music to anchor the pill → panel goes away.
-                // Clear isResting too so the next show() starts
-                // from a clean state.
-                self.presenter.isResting = false
-                self.panel.orderOut(nil)
-            }
-        }
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = recoilDuration
+                ctx.timingFunction = recoilCurve
+                ctx.allowsImplicitAnimation = true
+                self.panel.animator().setFrame(target, display: true)
+            }, completionHandler: { [weak self] in
+                guard let self, self.animationGeneration == myGen else { return }
+                self.presenter.isMorphing = false
+                // Settle exactly at target — Core Animation can leave
+                // sub-pixel residuals after a recoil; an explicit
+                // setFrame fixes that without a visible jump.
+                // Decide whether to keep the panel visible at pill
+                // geometry (resting now-playing indicator) OR fully
+                // orderOut. The TWO conditions for "stay resting":
+                //   1. isResting flag is set, AND
+                //   2. There's actually music to anchor the pill.
+                //
+                // Bug fix: previously checked only `isResting`. If
+                // `isResting` got set true (e.g. via an earlier music
+                // session) but `nowPlaying` was already nil by close
+                // time, the panel stayed at pill geometry forever —
+                // user reported "closing animation stuck at small
+                // pill when no music." Adding the nowPlaying check
+                // means the panel ALWAYS orderOuts when there's no
+                // music, even if isResting got desync'd.
+                let hasMusic = self.presenter.nowPlaying != nil
+                if self.presenter.isResting && hasMusic {
+                    self.panel.setFrame(target, display: true)
+                } else {
+                    // No music to anchor the pill → panel goes away.
+                    // Clear isResting too so the next show() starts
+                    // from a clean state.
+                    self.presenter.isResting = false
+                    self.panel.orderOut(nil)
+                }
+            })
+        })
     }
 
     // MARK: - Resting mode (always-on now-playing pill)
