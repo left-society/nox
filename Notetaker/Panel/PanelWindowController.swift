@@ -1697,15 +1697,32 @@ final class PanelWindowController {
             return
         }
 
-        // Resting pill currently on screen → collapse it off. We don't
-        // run a full close animation here; the music stopped, the pill
-        // is already at its smallest geometry, an immediate orderOut
-        // reads as "music ended" without any drawn-out theatrics. If
-        // we ever want to fade it out, do alphaValue + orderOut on a
-        // 0.15s ease-out — but plain orderOut matches Alcove's behavior
-        // (the pill just isn't there anymore once the source quits).
-        panel.orderOut(nil)
-        NSLog("Notetaker: exitRestingMode — panel ordered out")
+        // Animate the resting pill back to notch-hidden geometry, then
+        // orderOut. Without this animation, transient pills (charging,
+        // note-saved, screenshot, AirDrop received, BT, calendar,
+        // timer) that fire when there's no music would orderOut
+        // INSTANTLY after their timeout — the user described seeing
+        // "the music pill open after every single notification"
+        // because the pill silhouette stayed at full pillFrame
+        // geometry for one frame before vanishing, reading as an
+        // empty music pill briefly appearing.
+        //
+        // Mirror the enterRestingMode entrance: spring shrink from
+        // current frame to notch-hidden, orderOut at completion.
+        let screen = panel.screen ?? NSScreen.main
+        let target = notchHiddenFrame(for: screen)
+        let start = panel.frame
+        currentSpring?.cancel()
+        // Match the entrance spring (300/32 ~270ms) for a symmetric
+        // appear/disappear motion.
+        let spring = SpringFrameAnimator(stiffness: 300, damping: 32, mass: 1.0)
+        currentSpring = spring
+        spring.animate(panel: panel, from: start, to: target) { [weak self] in
+            guard let self else { return }
+            self.currentSpring = nil
+            self.panel.orderOut(nil)
+            NSLog("Notetaker: exitRestingMode — panel animated to notch-hidden then orderOut")
+        }
     }
 
 }
