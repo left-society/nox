@@ -1362,6 +1362,19 @@ final class PanelWindowController {
         })
     }
 
+    /// Spring constants — RESTORED to the values from commit 91627ea
+    /// after multiple rounds of (well-meaning) slowing-down attempts
+    /// produced animations the user described as awful. The original
+    /// fast, tight springs are what felt right.
+    ///
+    ///   OPEN  k=450 d=40 ω_n≈21.2 ratio≈0.943  settle ~150ms
+    ///   CLOSE k=600 d=50 ω_n≈24.5 ratio≈1.02   settle ~120ms
+    ///
+    /// Both just-around-critical (0.94 / 1.02). Fast settle, no
+    /// visible overshoot, snappy / tactile feel. The earlier 240/26
+    /// open and 320/36 close took ~330ms / 250ms which the user
+    /// experienced as "laggy" — animations should land in ~150ms,
+    /// not ~300ms.
     private func animateOpen(to target: NSRect) {
         animationGeneration &+= 1
         let myGen = animationGeneration
@@ -1396,12 +1409,10 @@ final class PanelWindowController {
         // Sphere + spring on the same main runloop at 60Hz each
         // were competing for ticks — visible as jelly jitter.
         presenter.isMorphing = true
-        // 2026-05-04 bumped 450/40 → 240/26 so the morph takes ~330ms
-        // instead of ~150ms. The previous 150ms was so fast the user
-        // perceived it as a snap, not an animation. 240/26
-        // (ratio ≈ 0.84) gives a slightly bouncy, distinctly
-        // visible morph that lands cleanly.
-        let spring = SpringFrameAnimator(stiffness: 240, damping: 26, mass: 1.0)
+        // 450/40 — original spring from commit 91627ea. ω_n≈21.2,
+        // ratio≈0.94, ~150ms settle. Fast, tight, just barely under
+        // critical so motion is decisive without snappy.
+        let spring = SpringFrameAnimator(stiffness: 450, damping: 40, mass: 1.0)
         currentSpring = spring
         spring.animate(panel: panel, from: start, to: target) { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
@@ -1420,42 +1431,23 @@ final class PanelWindowController {
         currentSpring?.cancel()
         currentSpring = nil
 
-        // Spring close — same SpringFrameAnimator class as open, but
-        // CRITICALLY DAMPED instead of slightly under-damped:
-        //   OPEN:  stiffness 240, damping 26  (ratio ≈ 0.84, alive,
-        //                                       slight overshoot)
-        //   CLOSE: stiffness 320, damping 36  (ratio ≈ 1.0,  decisive,
-        //                                       zero overshoot)
+        // 600/50 — original close spring from commit 91627ea.
+        // ω_n≈24.5, ratio≈1.02 (just over critical), ~120ms settle.
+        // Slightly punchier than open's 450/40 — the close should
+        // feel decisive ("pill snaps back into the notch"), the open
+        // should feel soft ("pill blooms out"). Same SpringFrameAnimator
+        // class, just different constants per direction.
         //
-        // Same physics MODEL on both sides (mass-spring-damper, same
-        // SpringFrameAnimator), but different RATIOS. Open is "soft
-        // lively bloom"; close is "decisive collapse." Without the
-        // tighter damping on close, the spring's overshoot phase ran
-        // for ~100ms after visible motion finished and the user
-        // perceived it as the close "lagging" / "stuck near the
-        // notch." Critical damping (ratio = 1.0) cuts that settle
-        // tail off entirely — once the spring reaches the target
-        // it just stops, no oscillation.
-        //
-        // Bumped stiffness 240 → 320 alongside the damping change so
-        // ω_n stays similar (sqrt(320)≈17.9 vs sqrt(240)≈15.5) — the
-        // total close motion still completes in ~250ms, slightly
-        // faster than the open's ~330ms. Asymmetric on purpose: a
-        // confident close edge feels more polished than a perfectly
-        // mirrored one.
-        //
-        // The TARGET frame differentiates music vs no-music:
-        //   • MUSIC: target = pillFrame. Settles at the resting
+        // The TARGET frame is what differentiates music vs no-music:
+        //   • MUSIC: target = pillFrame, settles at the resting
         //     music-pill geometry, panel stays.
         //   • NO MUSIC: target = notchHiddenFrame, sized to the
-        //     ACTUAL hardware notch (auxiliaryTopLeftArea /
-        //     auxiliaryTopRightArea derived). The silhouette merges
-        //     visually with the physical notch cutout — black on
-        //     black — so the close lands cleanly into the hardware.
-        //     orderOut once the spring settles.
+        //     ACTUAL hardware notch (auxiliaryTopLeft/Right derived).
+        //     Silhouette merges visually with the physical notch
+        //     cutout (black on black) and orderOut once settled.
         let start = panel.frame
         presenter.isMorphing = true
-        let spring = SpringFrameAnimator(stiffness: 320, damping: 36, mass: 1.0)
+        let spring = SpringFrameAnimator(stiffness: 600, damping: 50, mass: 1.0)
         currentSpring = spring
         spring.animate(panel: panel, from: start, to: target) { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
