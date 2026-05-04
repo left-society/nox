@@ -173,22 +173,26 @@ final class PanelWindowController {
     /// read as a real curve, not so much that the pill encroaches
     /// on the desktop.
     static let closedPillBump: CGFloat = 0
-    /// Bottom-corner radius for the closed pill silhouette. **14pt**
-    /// — modest enough that the silhouette BODY stays at full
-    /// 259pt width through most of its height, with only the last
-    /// 14pt of vertical tapering into rounded corners. The user
-    /// explicitly rejected the previous 30pt approach as "the curve
-    /// is shrinking i didn't meant that"; that radius made the
-    /// bottom edge 60pt narrower than the body, producing a
-    /// stadium-arc shape rather than a proper rounded rectangle.
-    /// With 14pt radius and 12pt bump, the bottom edge meets the
-    /// desktop at 259 - 2*14 = 231pt — only 28pt narrower than
-    /// the body, so the pill reads as "wide rectangle with rounded
-    /// corners" rather than "tapered teardrop." This matches
-    /// Alcove's visual treatment in the Mission Control reference
-    /// the user shared. Slab uses `innerCornerRadius` (34pt);
-    /// silhouette morphs 14 → 34 via `.smooth`.
-    static let pillCornerRadius: CGFloat = 14
+    /// Bottom-corner radius for the closed pill silhouette. **8pt** —
+    /// dropped from 14 to match the actual hardware notch's
+    /// subtle corner curvature (~4-6pt).
+    ///
+    /// At our close-end frame (201pt × 32pt visual notch), 14pt
+    /// bottom corners were taking ~43% of the silhouette's vertical
+    /// height — the curves dominated the visual, making the
+    /// silhouette read as a "compressed pill" rather than the
+    /// mostly-rectangular notch shape. The user described this as
+    /// "squizy when ending."
+    ///
+    /// 8pt corners take only 25% of the close-end height, leaving
+    /// 50% as straight vertical body and 19% as the inverse-bow
+    /// top — matches the actual notch's flat-bottomed character
+    /// with subtle corner rounding. The resting music pill (44pt
+    /// tall) also reads cleaner with 8pt corners since the curves
+    /// fit fully within the 12pt visible halo without clipping.
+    /// Slab uses `innerCornerRadius` (34pt); silhouette morphs
+    /// 8 → 34 via `.smooth` interpolation.
+    static let pillCornerRadius: CGFloat = 8
     /// Tease (hover-intent) geometry. When the cursor enters the notch
     /// hot zone, we animate the panel from resting closed-pill geometry
     /// to a slightly-wider, slightly-taller pill to give immediate visual
