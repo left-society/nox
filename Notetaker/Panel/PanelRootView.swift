@@ -295,13 +295,19 @@ struct PanelRootView: View {
         if presenter.isShown {
             return PanelWindowController.innerCornerRadius
         }
-        // At notch-hidden geometry (no-music close end, 185×32 = hardware
-        // notch size): subtle 4pt bottom corner matches the hardware
-        // notch cutout's actual bottom curvature. Larger values make
-        // the silhouette read as a triangular wedge at this small width
-        // (see PanelPresenter.isAtNotchHidden for the full rationale).
+        // At notch-hidden geometry (no-music close target, 185×32):
+        // PROPORTIONALLY SCALED music-pill bottom radius. Music pill
+        // is 278×32 with bottomR=8 (per-side taper from inverse-bow
+        // + bottom = 14pt = 5% of width). At 185 wide the same 8pt
+        // bottom + 6pt top = 14pt taper becomes 7.6% of width — eye
+        // reads it as a wedge ("triangle"). Scaling radii by the
+        // width ratio (185/278 ≈ 0.665) gives bottomR=5, which
+        // preserves the music-pill silhouette character at the
+        // smaller hardware-notch size. User asked: "Just think there
+        // is a build, but it is the size of that hardware of this
+        // Mac" — same flared pill character, sized to hardware notch.
         if presenter.isAtNotchHidden {
-            return 4
+            return 5
         }
         // Music-pill resting state (visible 278×32 silhouette): 8pt
         // bottom corners read as a clean pill shape at this width.
@@ -318,13 +324,15 @@ struct PanelRootView: View {
     /// radii in lockstep.
     private var panelTopRadius: CGFloat {
         if presenter.isShown { return 22 }
-        // At notch-hidden geometry: zero inverse-bow → straight 90° top
-        // corners matching the hardware notch's actual top edge (which
-        // meets the screen edge at 90°, no flare). With topR=0 the
-        // silhouette's top edge is the full width of the rect — no
-        // shoulder narrowing — which eliminates the "triangle" appearance
-        // at 185pt-wide × 32pt-tall hardware-notch dimensions.
-        if presenter.isAtNotchHidden { return 0 }
+        // At notch-hidden geometry: PROPORTIONALLY SCALED music-pill
+        // top inverse-bow. Music pill uses topR=6 at 278 wide (chamfer
+        // shoulder character). Scaling by width ratio (185/278): 4pt
+        // — same ratio of inverse-bow shoulder relative to width as
+        // the music pill, so the silhouette reads as a "smaller
+        // version of the music pill" rather than a wedge. Combined
+        // with bottomR=5, total per-side narrowing is 9pt = 4.86% of
+        // width (essentially identical to the music pill's 5%).
+        if presenter.isAtNotchHidden { return 4 }
         // Music-pill resting state: 6pt subtle inverse-bow chamfer.
         return 6
     }

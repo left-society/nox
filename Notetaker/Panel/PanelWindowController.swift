@@ -414,17 +414,23 @@ final class PanelWindowController {
         panel.isMovableByWindowBackground = false
         panel.isMovable = false
 
-        // Attach the panel to the custom SkyLight space at level
-        // 400 (kSLSSpaceAbsoluteLevelNotificationCenterAtScreenLock).
-        // This is what makes the pill visible on the lock screen
-        // — the same compositor pool Apple's own Notification
-        // Center widgets live in. Public NSWindow API has no path
-        // to this; we go through SkyLight private symbols. See
-        // NotchSpaceManager for the full mechanism. If SkyLight
-        // load fails (future macOS removes the symbols) the
-        // attach is a no-op and the pill behaves as a normal
-        // desktop-only window.
-        NotchSpaceManager.shared?.attach(panel)
+        // 2026-05-04: NotchSpaceManager attach REMOVED for the main
+        // panel. Adding the panel to a custom SkyLight space at level
+        // 400 was excluding the window from normal user-space drag
+        // tracking — AppKit's drag session captures destination
+        // windows in the user's current space, and a window living
+        // in a custom system-level space simply isn't enumerated.
+        // Result: `draggingEntered` never fired on PanelDropContainer
+        // regardless of panel.level (we tried .popUpMenu, .statusBar,
+        // both produced zero "🟢 draggingEntered" entries in the
+        // dlog at /tmp/notetaker-dictation.log).
+        //
+        // Lock-screen visibility for the now-playing pill is not
+        // affected — that lives on the dedicated `LockMusicCardWindow`
+        // (constructed in AppDelegate after this controller), which
+        // does its OWN `NotchSpaceManager.attach`. The main panel
+        // doesn't need lock-screen visibility; it's the music card
+        // that carries that contract.
 
         // Inject each store as its own environment object so SwiftUI
         // only re-renders views that actually depend on the store
@@ -1706,6 +1712,10 @@ final class PanelWindowController {
         // flare that reads as a "triangle" at this small width.
         presenter.isAtNotchHidden = true
         NSLog("Notetaker: parkAtNotchHidden — panel alive at \(target)")
+        // Mirror to dlog so we can verify from /tmp/notetaker-dictation.log
+        // whether the park ran (NSLog content is private-redacted in
+        // unified logging by default, so it never shows in `log show`).
+        DictationOrchestrator.dlog("🅿️ parkAtNotchHidden frame=\(target) windowNumber=\(panel.windowNumber) level=\(panel.level.rawValue) alpha=\(panel.alphaValue) visible=\(panel.isVisible) registeredTypes=\((panel.contentView as? PanelDropContainer).map { _ in "yes" } ?? "NO")")
     }
 
     func enterRestingMode() {
