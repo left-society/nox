@@ -493,6 +493,23 @@ struct PanelRootView: View {
                 caseKey: pillEventCaseKey,
                 glowColor: pillReactColor
             ))
+            // Soft-edge blur on the WHOLE panel during the morph.
+            // Per frame-by-frame audit of NotchNook (Built-in Retina
+            // Display 1880, mid-close), the silhouette has visibly
+            // SOFT edges during the shrink — not sharp. Ours had
+            // sharp edges through the entire morph because there
+            // was no blur on the panel layer itself, only on the
+            // content overlay.
+            //
+            // 3pt during isMorphing is enough to soften corners +
+            // edges without making the panel illegible. Animated
+            // with the same spring as the frame morph so it fades
+            // in at morph start and out as the spring settles. The
+            // corresponding `panel.alphaValue` and the existing
+            // 40pt content blur stay in their respective lanes —
+            // this layer just handles the silhouette softness.
+            .blur(radius: presenter.isMorphing ? 3 : 0)
+            .animation(.easeOut(duration: 0.18), value: presenter.isMorphing)
             .padding(.horizontal, PanelWindowController.haloPadding)
             .padding(.bottom, PanelWindowController.haloPadding)
             .ignoresSafeArea(.all, edges: .top)
@@ -519,17 +536,18 @@ struct PanelRootView: View {
             // while panel frame is still morphing → user sees
             // "endpoint not landing."
             //
-            // 2026-05-04 (rev 6): RESTORED original 91627ea spring
-            // values after multiple rounds of slowing-down attempts
-            // produced animations the user described as awful.
-            //   OPEN  k=450 d=40 (ratio≈0.94, ~150ms settle)
-            //   CLOSE k=600 d=50 (ratio≈1.02, ~120ms settle)
+            // 2026-05-04 (rev 7): timing calibrated against NotchNook
+            // frame-by-frame audit. Slow enough that the progressive
+            // blur on content (40pt → 0) reads visibly during the
+            // morph, fast enough that it doesn't feel sluggish.
+            //   OPEN  k=300 d=32 (ratio≈0.92, ~270ms settle)
+            //   CLOSE k=350 d=37 (ratio≈0.99, ~230ms settle)
             // Mirror the panel-frame SpringFrameAnimator on each
             // side so the corner-radius / top-flare morph runs in
             // lockstep with the frame morph.
             .animation(presenter.isShown
-                       ? .interpolatingSpring(mass: 1.0, stiffness: 450, damping: 40, initialVelocity: 0)
-                       : .interpolatingSpring(mass: 1.0, stiffness: 600, damping: 50, initialVelocity: 0),
+                       ? .interpolatingSpring(mass: 1.0, stiffness: 300, damping: 32, initialVelocity: 0)
+                       : .interpolatingSpring(mass: 1.0, stiffness: 350, damping: 37, initialVelocity: 0),
                        value: presenter.isShown)
             .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
             // PERF GATE: both shadows render only when isShown=true.

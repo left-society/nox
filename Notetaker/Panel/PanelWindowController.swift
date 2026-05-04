@@ -1362,19 +1362,28 @@ final class PanelWindowController {
         })
     }
 
-    /// Spring constants — RESTORED to the values from commit 91627ea
-    /// after multiple rounds of (well-meaning) slowing-down attempts
-    /// produced animations the user described as awful. The original
-    /// fast, tight springs are what felt right.
+    /// Spring constants — calibrated against frame-by-frame audit of
+    /// NotchNook's open/close animations (the user's reference app).
     ///
-    ///   OPEN  k=450 d=40 ω_n≈21.2 ratio≈0.943  settle ~150ms
-    ///   CLOSE k=600 d=50 ω_n≈24.5 ratio≈1.02   settle ~120ms
+    /// Reference timing (Built-in Retina Display 1300→1340 open,
+    /// 1850→1900 close, ~30fps capture):
+    ///   open  ~30 frames ≈ 1.0s with progressive blur on content
+    ///   close ~50 frames ≈ 1.7s with soft/glowy silhouette
     ///
-    /// Both just-around-critical (0.94 / 1.02). Fast settle, no
-    /// visible overshoot, snappy / tactile feel. The earlier 240/26
-    /// open and 320/36 close took ~330ms / 250ms which the user
-    /// experienced as "laggy" — animations should land in ~150ms,
-    /// not ~300ms.
+    /// We don't need to match those durations literally — NotchNook
+    /// is on the slow end. But "snap in 120ms" felt awful because
+    /// there's no time to PERCEIVE the morph (especially with the
+    /// progressive blur on content). Aiming for ~250-300ms so the
+    /// blur fade-in / fade-out is visible.
+    ///
+    ///   OPEN  k=300 d=32 ω_n≈17.3 ratio≈0.92  settle ~270ms
+    ///   CLOSE k=350 d=37 ω_n≈18.7 ratio≈0.99  settle ~230ms
+    ///
+    /// Both just-under-critical (0.92 / 0.99). Visible motion in
+    /// the 200-300ms window where the eye reads it as a real
+    /// animation, with the SwiftUI content-overlay blur (40pt → 0
+    /// over the same window) playing through. Close edges a hair
+    /// faster than open — confident retreat.
     private func animateOpen(to target: NSRect) {
         animationGeneration &+= 1
         let myGen = animationGeneration
@@ -1409,10 +1418,12 @@ final class PanelWindowController {
         // Sphere + spring on the same main runloop at 60Hz each
         // were competing for ticks — visible as jelly jitter.
         presenter.isMorphing = true
-        // 450/40 — original spring from commit 91627ea. ω_n≈21.2,
-        // ratio≈0.94, ~150ms settle. Fast, tight, just barely under
-        // critical so motion is decisive without snappy.
-        let spring = SpringFrameAnimator(stiffness: 450, damping: 40, mass: 1.0)
+        // 300/32 — paced so the SwiftUI content-overlay blur
+        // (40pt → 0) has time to play through visibly during the
+        // morph. ω_n≈17.3, ratio≈0.92, settle ~270ms. Faster than
+        // 240/26 (~330ms which felt laggy without blur), slower
+        // than 450/40 (~150ms which snapped before blur could read).
+        let spring = SpringFrameAnimator(stiffness: 300, damping: 32, mass: 1.0)
         currentSpring = spring
         spring.animate(panel: panel, from: start, to: target) { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
@@ -1431,14 +1442,13 @@ final class PanelWindowController {
         currentSpring?.cancel()
         currentSpring = nil
 
-        // 600/50 — original close spring from commit 91627ea.
-        // ω_n≈24.5, ratio≈1.02 (just over critical), ~120ms settle.
-        // Slightly punchier than open's 450/40 — the close should
-        // feel decisive ("pill snaps back into the notch"), the open
-        // should feel soft ("pill blooms out"). Same SpringFrameAnimator
-        // class, just different constants per direction.
+        // 350/37 — paced so the morph blur is visible. ω_n≈18.7,
+        // ratio≈0.99, settle ~230ms. A hair snappier than open
+        // (300/32 ~270ms) so the close edges feel confident, but
+        // still slow enough that the silhouette's progressive shape
+        // morph + the content blur fade-in have time to read.
         //
-        // The TARGET frame is what differentiates music vs no-music:
+        // The TARGET frame differentiates music vs no-music:
         //   • MUSIC: target = pillFrame, settles at the resting
         //     music-pill geometry, panel stays.
         //   • NO MUSIC: target = notchHiddenFrame, sized to the
@@ -1447,7 +1457,7 @@ final class PanelWindowController {
         //     cutout (black on black) and orderOut once settled.
         let start = panel.frame
         presenter.isMorphing = true
-        let spring = SpringFrameAnimator(stiffness: 600, damping: 50, mass: 1.0)
+        let spring = SpringFrameAnimator(stiffness: 350, damping: 37, mass: 1.0)
         currentSpring = spring
         spring.animate(panel: panel, from: start, to: target) { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
