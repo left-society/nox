@@ -531,20 +531,17 @@ struct PanelRootView: View {
             // cases:
             //   OPEN  → interpolatingSpring(300/32) (~270ms, under-
             //           critical for "alive" bloom feel)
-            //   CLOSE → easeOut(duration: 0.40). Covers the no-music
-            //           CA spring (170/32, ~410ms settle) without
+            //   CLOSE → easeOut(duration: 0.50). Covers the no-music
+            //           CA spring (110/26, ~510ms settle) without
             //           landing before the panel frame finishes.
             //           Music close (380/44, ~230ms) lands earlier in
             //           the curve where velocity is still high (feels
-            //           punchy) — the trailing portion of the easeOut
-            //           runs invisibly because the panel frame and
-            //           radii have already reached their pill values.
-            //           Duration-based curve has zero overshoot — no
-            //           sub-pixel settling tail to desync against the
-            //           60Hz CA Timer on ProMotion displays.
+            //           punchy). Duration-based curve has zero
+            //           overshoot — no sub-pixel settling tail to
+            //           desync against the 60Hz CA Timer on ProMotion.
             .animation(presenter.isShown
                        ? .interpolatingSpring(mass: 1.0, stiffness: 300, damping: 32, initialVelocity: 0)
-                       : .easeOut(duration: 0.40),
+                       : .easeOut(duration: 0.50),
                        value: presenter.isShown)
             .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
             // PERF GATE: both shadows render only when isShown=true.

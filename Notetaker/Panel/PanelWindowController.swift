@@ -1217,52 +1217,42 @@ final class PanelWindowController {
     /// notch precisely, the silhouette is black-on-black with the
     /// hardware cutout and the close lands cleanly.
     ///
-    /// Negative inset so the silhouette ends UP TO 4pt INSIDE the
-    /// hardware notch on each side. The notch is a black hardware
-    /// cutout; our silhouette is also black; with the silhouette
-    /// fully inside the cutout, it's invisible (black on black) at
-    /// the end of the close. Earlier I had +2pt OUTWARD bleed which
-    /// made the silhouette extend past the notch over the menu bar
-    /// — exactly the "bizarre shape" the user reported. Going
-    /// inward instead means the panel cleanly disappears INTO the
-    /// notch hardware rather than landing visibly NEXT to it.
+    /// End-of-close target sized to the EXACT notch hardware
+    /// dimensions, so the silhouette converges visually with the
+    /// physical notch cutout at the end of the morph.
+    ///
+    /// Per direct measurement against NotchNook reference frames
+    /// (which the user uses as the visual target), the silhouette
+    /// at close-end should be:
+    ///   • Width: exactly the notch hardware width (NSScreen
+    ///     auxiliaryTopLeft/Right derived = 185pt on 16" MBP)
+    ///   • Height: exactly notchOverlap (32pt = menu bar height)
+    /// Both edges aligned with the hardware notch boundary. The
+    /// silhouette is rendered black; the hardware cutout is black;
+    /// they merge into one shape with no visible seam.
+    ///
+    /// Earlier attempts (+2pt outward bleed, then -4pt inset) both
+    /// looked off — bleeding outward extended past the notch over
+    /// the menu bar, insetting inward made the silhouette dissolve
+    /// before reaching the notch shape. Exact match is the answer.
     private func notchHiddenFrame(for screen: NSScreen?) -> NSRect {
         let s = screen ?? NSScreen.main
         let frame = s?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let overlap = PanelWindowController.notchOverlap(for: screen)
-        // -4pt INWARD inset: end smaller than the notch on each side.
-        let inset: CGFloat = 4
         let notchHardwareWidth: CGFloat = {
             guard let s,
                   let auxL = s.auxiliaryTopLeftArea,
                   let auxR = s.auxiliaryTopRightArea
             else {
-                // Non-notched display fallback — use pill width so the
-                // silhouette tucks behind the menu bar at a sensible
-                // size. There's no notch hole to merge with anyway.
                 return PanelWindowController.closedPillWidth
             }
-            // Notch width = total screen width minus the two flanking
-            // menu-bar pieces. Verified on 16" MBP at 1728×1117pt:
-            //   auxL = 0..771  (771pt left of notch)
-            //   auxR = 956..1728 (772pt right of notch)
-            //   notch = 1728 - 771 - 772 = 185pt
             return s.frame.width - auxL.width - auxR.width
         }()
-
-        // Width: notch minus 4pt on each side. Silhouette ends up to
-        // 4pt narrower than the hardware on each edge → fully inside.
-        let width = max(80, notchHardwareWidth - 2 * inset)
-        // Height: also inset from notchOverlap so the silhouette is
-        // shorter than the hardware vertically. Combined with the
-        // narrower width, the silhouette ends fully inside the notch
-        // bounding box on all sides — invisible at end-state.
-        let height = max(20, overlap - inset)
         return NSRect(
-            x: frame.midX - width / 2,
-            y: frame.maxY - height,
-            width: width,
-            height: height
+            x: frame.midX - notchHardwareWidth / 2,
+            y: frame.maxY - overlap,
+            width: notchHardwareWidth,
+            height: overlap
         )
     }
 
@@ -1484,21 +1474,18 @@ final class PanelWindowController {
 
         let spring: SpringFrameAnimator
         if isNotchHiddenTarget {
-            // No music — distinctly softer spring so the bigger
-            // shrink (slab → fully-inside-notch) plays out as a
-            // visible "retreat into the notch hardware" instead
-            // of a snap-vanish. The user reported even 240/36
-            // (~330ms) felt too fast; bumped to a still-overdamped
-            // but lower-stiffness pair:
-            //   ω_n = √170 ≈ 13.0
-            //   ratio = 32/(2·13) ≈ 1.23 (overdamped, no overshoot)
-            //   settle ≈ 410ms
-            // 410ms is long enough for the silhouette to visibly
-            // arc through several intermediate sizes — including
-            // the moment it crosses the notch dimensions and
-            // visually merges with the hardware — before settling
-            // fully inside the cutout.
-            spring = SpringFrameAnimator(stiffness: 170, damping: 32, mass: 1.0)
+            // No-music close calibrated against NotchNook reference
+            // (frames 1865→1898, ≈33 frames at 60fps capture ≈ 550ms
+            // total close, with main visible motion in first ~330ms).
+            // The user reported every faster value as "still too
+            // fast." Bumped to a low-stiffness, heavily-damped pair:
+            //   ω_n   = √110 ≈ 10.49
+            //   ratio = 26/(2·10.49) ≈ 1.24 (overdamped)
+            //   settle ≈ 510ms
+            // Long enough to visibly retreat into the notch through
+            // several intermediate stadium-pill sizes before
+            // converging on the exact notch hardware shape.
+            spring = SpringFrameAnimator(stiffness: 110, damping: 26, mass: 1.0)
         } else {
             // Music — punchier spring; lands at the resting pill.
             // ω_n=19.5, ratio=1.13, ~230ms settle.
