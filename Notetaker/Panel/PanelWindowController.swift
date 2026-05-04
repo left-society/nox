@@ -488,15 +488,18 @@ final class PanelWindowController {
                 // AirDrop choice — exactly the bug user reported.
                 presenter?.dropPickerActive = flag
                 // Auto-expand the slab when a drag enters while the
-                // panel is at resting-pill geometry. Without this,
-                // the user would drag a file over the pill and see
-                // no feedback (slab content is invisible at opacity
-                // 0). Expanding routes them directly to the Files
-                // tab so the drop ring + tray are immediately
-                // visible — same UX NotchNook uses for their notch
-                // file shelf.
-                if flag, let self, !self.isVisible {
-                    presenter?.activeTab = .files
+                // panel ISN'T currently showing the slab. Two cases
+                // need to expand:
+                //   • Panel fully hidden (no music) → orderFront +
+                //     animateOpen
+                //   • Panel at resting pill (music playing) →
+                //     show() animates pill → slab so the drop
+                //     picker (gated on `isShown == true`) renders
+                // Earlier this only checked `!self.isVisible` which
+                // missed the music-resting case — drag with music
+                // playing showed no picker.
+                if flag, let self, let presenter, !presenter.isShown {
+                    presenter.activeTab = .files
                     self.show(mode: .hover)
                 }
             },
@@ -1638,9 +1641,16 @@ final class PanelWindowController {
 
         let screen = NSScreen.main
         let pillFrame = closedPillFrame(for: screen)
-        // Snap into pill geometry BEFORE orderFront so the pill doesn't
-        // pop in at any default frame and then jump to position.
-        panel.setFrame(pillFrame, display: false)
+        // Animate from notch-hidden start frame to pill geometry so
+        // the resting pill GROWS smoothly out of the notch instead of
+        // popping in instantly. Without this animation, a transient
+        // pill event (charging plug-in, note-saved, screenshot, etc.)
+        // would make the panel jump abruptly into existence at full
+        // pill size — the user reported this as "all the transient
+        // pill animations have broken endpoints / startpoints when
+        // there's no small pill yet."
+        let hiddenStart = notchHiddenFrame(for: screen)
+        panel.setFrame(hiddenStart, display: false)
         panel.alphaValue = 1
         panel.orderFrontRegardless()
         // Defensive: make sure isShown is false so PanelRootView's
@@ -1649,7 +1659,20 @@ final class PanelWindowController {
         // `isResting && !isShown`.
         presenter.isShown = false
 
-        NSLog("Notetaker: enterRestingMode — panel shown at pillFrame=\(pillFrame)")
+        // Soft spring grow from notch-hidden → pillFrame. Matches the
+        // motion language of the open spring but to a smaller end
+        // target. ~270ms, slightly under-critical for a tactile
+        // landing.
+        let start = panel.frame
+        currentSpring?.cancel()
+        let spring = SpringFrameAnimator(stiffness: 300, damping: 32, mass: 1.0)
+        currentSpring = spring
+        spring.animate(panel: panel, from: start, to: pillFrame) { [weak self] in
+            self?.currentSpring = nil
+            self?.panel.setFrame(pillFrame, display: true)
+        }
+
+        NSLog("Notetaker: enterRestingMode — animating notchHidden → pillFrame=\(pillFrame)")
     }
 
     /// Tear down the persistent pill — music has stopped or the source
