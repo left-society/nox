@@ -1273,10 +1273,23 @@ final class PanelWindowController {
         let frame = s?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let overlap = PanelWindowController.notchOverlap(for: screen)
 
-        // Visual-notch padding: aux gap + 8pt each side.
-        // Bezel safety zone where menu bar items don't go but the
-        // hardware notch still extends.
-        let bezelPadding: CGFloat = 8
+        // Visual-notch padding: aux gap + 14pt each side.
+        // The aux gap measures where menu bar items can be safely
+        // placed without bumping the notch bezel — typically there's
+        // ~8pt safety padding around the notch hardware where items
+        // aren't placed but the cutout still extends. The visible
+        // BEZEL (rounded corners around the hardware notch) extends
+        // a few more pt past that.
+        //
+        // Earlier +8pt each side made the silhouette match the
+        // measurable hardware width but disappear INSIDE the visible
+        // notch boundary at end-of-close — read as "shrinking into
+        // the notch" rather than attaching to it. +14pt each side
+        // makes the silhouette extend slightly past the visible
+        // notch outline so the close-end visibly OVERLAPS the
+        // hardware (silhouette merges with notch by sitting on top
+        // of it). Reads as "the panel attached to the notch."
+        let bezelPadding: CGFloat = 14
         let auxGapWidth: CGFloat = {
             guard let s,
                   let auxL = s.auxiliaryTopLeftArea,
