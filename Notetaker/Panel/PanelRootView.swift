@@ -528,19 +528,20 @@ struct PanelRootView: View {
             // "endpoint not landing."
             //
             // Per-direction springs matched to the panel-frame
-            // SpringFrameAnimator on each side. Same stiffness so
-            // the durations mirror, only damping differs:
+            // SpringFrameAnimator on each side:
             //   OPEN:  300/32  ratio≈0.92  ~270ms (slight bloom)
-            //   CLOSE: 300/36  ratio≈1.04  ~290ms (overdamped)
+            //   CLOSE: 150/28  ratio≈1.14  ~415ms (overdamped)
             //
-            // Why bump close damping past critical: the under-
-            // critical close had sub-pixel overshoot oscillation
-            // at the end of the morph which read as micro-jitter
-            // on ProMotion displays. Overdamping eliminates that
-            // tail without changing the visible duration.
+            // Close calibrated against NotchNook frame-by-frame
+            // (33 frames at 60fps = 550ms reference). Stiffness
+            // halved + damping reduced proportionally so the close
+            // has visible motion in the 350-450ms band — long enough
+            // to read as a deliberate retreat into the notch, short
+            // enough to not feel sluggish. Overdamped (ratio>1)
+            // keeps the landing clean with no overshoot tail.
             .animation(presenter.isShown
                        ? .interpolatingSpring(mass: 1.0, stiffness: 300, damping: 32, initialVelocity: 0)
-                       : .interpolatingSpring(mass: 1.0, stiffness: 300, damping: 36, initialVelocity: 0),
+                       : .interpolatingSpring(mass: 1.0, stiffness: 150, damping: 28, initialVelocity: 0),
                        value: presenter.isShown)
             .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
             // PERF GATE: both shadows render only when isShown=true.

@@ -1474,24 +1474,30 @@ final class PanelWindowController {
         let notchOnly = PanelWindowController.notchOverlap(for: panel.screen)
         let isNotchHiddenTarget = abs(target.height - notchOnly) < halo / 2
 
-        // SYMMETRIC: same stiffness as the open (300) so the close is
-        // the open played in reverse — same duration, same shape
-        // trajectory through the morph. The user described this
-        // symmetric setup as "almost perfect."
+        // Close spring calibrated against frame-by-frame audit of
+        // NotchNook's close (Built-in Retina Display 1865→1898 ≈
+        // 33 frames at 60fps capture ≈ 550ms total close).
         //
-        // Damping bumped over critical (32 → 36) so the close has
-        // ZERO overshoot. The under-critical 32 damping had a tiny
-        // sub-pixel overshoot at the end which caused micro-stutter
-        // visible against the SwiftUI silhouette's render rate.
-        // Overdamped close lands cleanly with no settling tail —
-        // smoother feel, same total duration.
+        // Previous tries documented:
+        //   300/36  ~290ms — user: "closing too fast"
+        //   300/32  ~270ms — user: "almost perfect, too fast"
+        //   110/26  ~510ms — user: "still not similar" (heavy
+        //                    overdamp character was wrong, even
+        //                    though the duration was close)
         //
-        //   OPEN:  300/32  ω_n=17.3  ratio≈0.92  ~270ms  (slight bloom)
-        //   CLOSE: 300/36  ω_n=17.3  ratio≈1.04  ~290ms  (overdamped)
-        // Roughly mirror durations; only the damping differs.
+        // Settled on 150/28 — moderate stiffness with just-over-
+        // critical damping:
+        //   ω_n   = √150 ≈ 12.25
+        //   ratio = 28/(2·12.25) ≈ 1.14 (overdamped, no overshoot)
+        //   λ₁    = ω_n*(ζ - √(ζ²-1)) ≈ 7.23
+        //   95% settle ≈ 3/λ₁ ≈ 415ms
+        //
+        // Splits the difference: visibly slower than 290ms (matches
+        // the user's "too fast" complaint) without sliding into the
+        // sluggish heavy-overdamp character of 110/26.
         let spring: SpringFrameAnimator
         if isNotchHiddenTarget {
-            spring = SpringFrameAnimator(stiffness: 300, damping: 36, mass: 1.0)
+            spring = SpringFrameAnimator(stiffness: 150, damping: 28, mass: 1.0)
         } else {
             // Music close: lands punchy at the resting pill.
             spring = SpringFrameAnimator(stiffness: 380, damping: 44, mass: 1.0)
