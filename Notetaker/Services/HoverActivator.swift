@@ -162,7 +162,16 @@ final class HoverActivator {
             }
         }
 
-        monitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
+        // Listen for BOTH plain mouse-moved AND drag-in-progress events.
+        // During a file drag from Finder/Photos/etc the cursor emits
+        // `.leftMouseDragged` events (NOT `.mouseMoved`), so a
+        // mouse-moved-only monitor would miss drags entering the notch
+        // zone — the drop picker would never appear because the panel
+        // never woke up. User reported "when I'm dragging something it
+        // should open two sides for save / airdrop — these features
+        // are basically gone." The fix is monitoring both event types.
+        let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
+        monitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
             // Global monitors deliver on the main thread but the closure
             // signature isn't `@MainActor`, so hop into the actor explicitly.
             Task { @MainActor in
