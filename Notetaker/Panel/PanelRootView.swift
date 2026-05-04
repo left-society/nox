@@ -519,16 +519,22 @@ struct PanelRootView: View {
             // while panel frame is still morphing → user sees
             // "endpoint not landing."
             //
-            // 2026-05-04 (rev 4): open and close now share ONE spring.
-            // The panel frame is driven by SpringFrameAnimator with
-            // stiffness 240, damping 26, mass 1.0 on BOTH sides
-            // (animateOpen and animateClose). Mirror the SwiftUI
-            // silhouette's corner-radius / top-flare interpolation to
-            // the same constants so the shape morph runs in lockstep
-            // with the frame morph — open and close feel like one
-            // coherent motion language with no curve mismatch at the
-            // transition seam.
-            .animation(.interpolatingSpring(mass: 1.0, stiffness: 240, damping: 26, initialVelocity: 0),
+            // 2026-05-04 (rev 5): same SpringFrameAnimator class on
+            // both sides of the panel-frame morph, but different
+            // damping ratios:
+            //   OPEN:  stiffness 240, damping 26 (ratio ≈ 0.84,
+            //                                     slight overshoot,
+            //                                     "alive bloom")
+            //   CLOSE: stiffness 320, damping 36 (ratio ≈ 1.0,
+            //                                     no overshoot,
+            //                                     "decisive collapse")
+            // Mirror the SwiftUI silhouette's corner-radius /
+            // top-flare interpolation to MATCH each direction so the
+            // shape morph runs in lockstep with the frame morph
+            // without a curve mismatch at the transition seam.
+            .animation(presenter.isShown
+                       ? .interpolatingSpring(mass: 1.0, stiffness: 240, damping: 26, initialVelocity: 0)
+                       : .interpolatingSpring(mass: 1.0, stiffness: 320, damping: 36, initialVelocity: 0),
                        value: presenter.isShown)
             .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
             // PERF GATE: both shadows render only when isShown=true.

@@ -1194,28 +1194,57 @@ final class PanelWindowController {
         )
     }
 
-    /// "Notch-hidden" frame — height equal to `notchOverlap` only, no
-    /// halo bump, no `closedPillBump`. The visible silhouette below
-    /// the menu bar is ZERO points — the entire panel is parked inside
-    /// the menu-bar/notch zone where the hardware notch occludes it.
+    /// "Notch-hidden" frame — geometry sized to the ACTUAL hardware
+    /// notch so the panel's silhouette merges with the physical
+    /// notch cutout when the close lands.
     ///
-    /// Used as the close-animation target when there's NO music, so
-    /// the slab visibly shrinks ALL THE WAY into the notch hardware
-    /// instead of landing at pill geometry (which leaves a 12pt
-    /// rounded bump that reads as "the music pill is still there"
-    /// to the user — exactly the regression they reported).
+    /// Width: derived from `NSScreen.auxiliaryTopLeftArea` /
+    /// `auxiliaryTopRightArea`. Those rects describe the menu-bar
+    /// pieces FLANKING the notch; the gap between them IS the notch
+    /// hardware width (185pt on 16" MBP, ~200pt on 14" MBP). Falls
+    /// back to `closedPillWidth` on non-notched displays.
     ///
-    /// Width and x stay equal to the pill frame so the dive trajectory
-    /// is purely vertical / height-driven; the silhouette doesn't
-    /// shimmy sideways while shrinking.
+    /// Height: `safeAreaInsets.top` (= notch height = menu-bar height
+    /// on notched Macs).
+    ///
+    /// Why this matters: the panel runs at level `.popUpMenu` (above
+    /// the menu bar), so when the close lands here the silhouette
+    /// draws OVER the menu-bar zone. If the silhouette is wider than
+    /// the hardware notch the user sees the panel's black silhouette
+    /// extending past the notch over the menu bar — exactly the
+    /// "bizarre shape" regression: a wider-than-notch black bar
+    /// briefly sitting against the wallpaper. Sized to match the
+    /// notch precisely, the silhouette is black-on-black with the
+    /// hardware cutout and the close lands cleanly.
+    ///
+    /// 2pt outward bleed accommodates sub-pixel rendering at the
+    /// notch edges so the silhouette covers the full hardware
+    /// cutout without leaving a hairline gap.
     private func notchHiddenFrame(for screen: NSScreen?) -> NSRect {
-        let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let s = screen ?? NSScreen.main
+        let frame = s?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let overlap = PanelWindowController.notchOverlap(for: screen)
-        let halo = PanelWindowController.haloPadding
-        // Height = notchOverlap only. Adding halo here would re-introduce
-        // the 12pt visible bump we're trying to eliminate, so skip it.
+        let bleed: CGFloat = 2
+        let notchHardwareWidth: CGFloat = {
+            guard let s,
+                  let auxL = s.auxiliaryTopLeftArea,
+                  let auxR = s.auxiliaryTopRightArea
+            else {
+                // Non-notched display fallback — use pill width so the
+                // silhouette tucks behind the menu bar at a sensible
+                // size. There's no notch hole to merge with anyway.
+                return PanelWindowController.closedPillWidth
+            }
+            // Notch width = total screen width minus the two flanking
+            // menu-bar pieces. Verified on 16" MBP at 1728×1117pt:
+            //   auxL = 0..771  (771pt left of notch)
+            //   auxR = 956..1728 (772pt right of notch)
+            //   notch = 1728 - 771 - 772 = 185pt
+            return s.frame.width - auxL.width - auxR.width
+        }()
+
+        let width = notchHardwareWidth + 2 * bleed
         let height = overlap
-        let width = PanelWindowController.closedPillWidth + 2 * halo
         return NSRect(
             x: frame.midX - width / 2,
             y: frame.maxY - height,
@@ -1391,37 +1420,42 @@ final class PanelWindowController {
         currentSpring?.cancel()
         currentSpring = nil
 
-        // Pure spring close — SAME spring physics as the open
-        // (stiffness 240, damping 26, mass 1.0, ratio ≈ 0.84).
-        // No CA timing functions. No alpha fade. Just one
-        // SpringFrameAnimator integrating from current frame to
-        // target frame. The open and close now share one motion
-        // language: spring physics with a slightly under-critical
-        // damping ratio, ~330ms settle, subtle one-cycle landing.
+        // Spring close — same SpringFrameAnimator class as open, but
+        // CRITICALLY DAMPED instead of slightly under-damped:
+        //   OPEN:  stiffness 240, damping 26  (ratio ≈ 0.84, alive,
+        //                                       slight overshoot)
+        //   CLOSE: stiffness 320, damping 36  (ratio ≈ 1.0,  decisive,
+        //                                       zero overshoot)
         //
-        // Why same spring as open instead of dive-recoil CA: the
-        // alpha fade I'd added to mask the "panel disappears at
-        // pill geometry" issue made the close feel laggy / fading.
-        // The dive-recoil CA close also didn't read as alive
-        // because its curve was different from the open's spring.
-        // A single spring physics model on both sides — same
-        // stiffness, same damping, same mass — makes the open
-        // and close feel like ONE coherent motion language.
+        // Same physics MODEL on both sides (mass-spring-damper, same
+        // SpringFrameAnimator), but different RATIOS. Open is "soft
+        // lively bloom"; close is "decisive collapse." Without the
+        // tighter damping on close, the spring's overshoot phase ran
+        // for ~100ms after visible motion finished and the user
+        // perceived it as the close "lagging" / "stuck near the
+        // notch." Critical damping (ratio = 1.0) cuts that settle
+        // tail off entirely — once the spring reaches the target
+        // it just stops, no oscillation.
         //
-        // The TARGET frame is what differentiates music vs no-music:
-        //   • MUSIC: target = pillFrame. Spring settles at the
-        //     resting music-pill geometry. Panel stays.
-        //   • NO MUSIC: target = notchHiddenFrame. Spring settles
-        //     fully behind the notch hardware (zero visible
-        //     silhouette below the menu bar). orderOut after
-        //     settle — but by then the silhouette is already
-        //     invisible, so orderOut is silent.
+        // Bumped stiffness 240 → 320 alongside the damping change so
+        // ω_n stays similar (sqrt(320)≈17.9 vs sqrt(240)≈15.5) — the
+        // total close motion still completes in ~250ms, slightly
+        // faster than the open's ~330ms. Asymmetric on purpose: a
+        // confident close edge feels more polished than a perfectly
+        // mirrored one.
         //
-        // The hide() function picks the right target based on
-        // presenter.isResting; this method just runs the spring.
+        // The TARGET frame differentiates music vs no-music:
+        //   • MUSIC: target = pillFrame. Settles at the resting
+        //     music-pill geometry, panel stays.
+        //   • NO MUSIC: target = notchHiddenFrame, sized to the
+        //     ACTUAL hardware notch (auxiliaryTopLeftArea /
+        //     auxiliaryTopRightArea derived). The silhouette merges
+        //     visually with the physical notch cutout — black on
+        //     black — so the close lands cleanly into the hardware.
+        //     orderOut once the spring settles.
         let start = panel.frame
         presenter.isMorphing = true
-        let spring = SpringFrameAnimator(stiffness: 240, damping: 26, mass: 1.0)
+        let spring = SpringFrameAnimator(stiffness: 320, damping: 36, mass: 1.0)
         currentSpring = spring
         spring.animate(panel: panel, from: start, to: target) { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
