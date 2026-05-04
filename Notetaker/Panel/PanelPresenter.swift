@@ -91,6 +91,35 @@ final class PanelPresenter: ObservableObject {
     /// silhouette morphs smoothly during the expand animation.
     @Published var isResting: Bool = false
 
+    /// True when the panel has parked at notch-hidden geometry (no-music
+    /// close target — exact hardware-notch dimensions). Used by
+    /// PanelRootView to render the silhouette WITHOUT the inverse-bow
+    /// shoulder + convex bottom flare that the slab/music-pill states use.
+    ///
+    /// Why this matters — the "triangle" close fix:
+    /// At slab/music-pill widths (278pt+), topR=6 + bottomR=8 = 14pt
+    /// per-side narrowing reads as ~5% inward taper — a clean pill curve.
+    /// At notch-hidden width (185pt = hardware notch), the SAME 14pt
+    /// per-side narrowing becomes ~7.5% taper across only 32pt of height,
+    /// which the user perceives as a wedge ("triangle"). Solving by
+    /// scaling radii proportionally (e.g. 4/5) still leaves visible
+    /// shoulder narrowing; the cleaner answer is to match the actual
+    /// hardware-notch silhouette character — sharp 90° top corners
+    /// (the notch hardware meets the screen edge at 90°, no flare) and
+    /// a subtle rounded bottom (the cutout's bottom edge has a small
+    /// corner radius). With topR=0 and bottomR=4 at notch-hidden state,
+    /// the silhouette renders as a flat-topped rectangle with subtle
+    /// rounded bottom corners — visually identical to the hardware
+    /// notch cutout itself, so panel + hardware merge as one shape.
+    /// This is the "exactly the same as music close, but at hardware
+    /// size" the user asked for — same clean-pill character, sized
+    /// to the hardware cutout.
+    ///
+    /// Set by PanelWindowController.animateClose completion when target
+    /// is notchHidden. Cleared by show()/open paths so the slab radii
+    /// (22 / innerCornerRadius) take over for the open silhouette.
+    @Published var isAtNotchHidden: Bool = false
+
     /// Latest now-playing snapshot from MediaRemoteService, forwarded
     /// here by NotchOrchestrator so SwiftUI views inside the panel
     /// (specifically MusicPanelView and the segmented bar) can observe

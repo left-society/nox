@@ -713,6 +713,12 @@ final class PanelWindowController {
         // to do but tick a published bool. Repeated open/close cycles
         // are now essentially free on the SwiftUI side.
         presenter.isShown = true
+        // We're transitioning out of notch-hidden parking — clear the
+        // flag so the silhouette uses slab radii (22 / innerCornerRadius)
+        // during the open morph instead of the hardware-notch radii
+        // (0 / 4). The shape's animatableData interpolates smoothly
+        // between the two.
+        presenter.isAtNotchHidden = false
 
         // Subtle haptic at the moment the morph begins — same idea
         // as Alcove (their bundle ships `HapticFeedback` symbols + a
@@ -929,6 +935,23 @@ final class PanelWindowController {
         let target = presenter.isResting
             ? closedPillFrame(for: screen)
             : notchHiddenFrame(for: screen)
+        // Flip the silhouette mode BEFORE animateClose runs the spring
+        // so SwiftUI's animatableData interpolates radii in lockstep
+        // with the frame shrink:
+        //   • No-music close: radii morph 22 → 0 (top) and
+        //     innerCornerRadius → 4 (bottom) over the same ~680ms as
+        //     the frame morph slab → 185×32. End state is a clean
+        //     hardware-notch silhouette (sharp 90° top, subtle rounded
+        //     bottom) merged invisibly with the actual notch cutout.
+        //   • Music close: radii morph 22 → 6 and innerCornerRadius
+        //     → 8 over ~230ms, frame slab → 278×32. End state is
+        //     the music-pill silhouette with its characteristic
+        //     inverse-bow shoulder + 8pt bottom flare.
+        // Setting this in animateClose's completion handler instead
+        // would cause radii to SNAP at the end, producing a visible
+        // "second morph" pop after the frame settled. With this
+        // ordering, frame and shape morph as ONE continuous motion.
+        presenter.isAtNotchHidden = !presenter.isResting
         animateClose(to: target)
     }
 
@@ -1575,6 +1598,23 @@ final class PanelWindowController {
                 // (black-on-black with hardware) as a drag target.
                 // Clear isResting so future show() flows start clean.
                 self.presenter.isResting = false
+                // Flag the silhouette as notch-hidden so PanelRootView
+                // renders the close-end as a clean hardware-notch shape
+                // (sharp 90° top corners + 4pt bottom corners) instead
+                // of the inverse-bow + 8pt bottom flare which reads as
+                // a "triangle" wedge at 185×32 hardware-notch dimensions.
+                // See PanelPresenter.isAtNotchHidden for the visual
+                // reasoning. Flag is cleared the moment the panel
+                // starts opening again (show()).
+                self.presenter.isAtNotchHidden = isNotchHiddenTarget
+            } else {
+                // Music close path lands at the music pill (278×32
+                // visible silhouette, wider than hardware notch). The
+                // 6/8 inverse-bow + bottom-flare radii read fine here
+                // — the per-side narrowing is only ~5% of the width,
+                // not ~7.5% like at notch-hidden. So clear the flag
+                // (defensive) so the music pill always uses pill radii.
+                self.presenter.isAtNotchHidden = false
             }
         }
     }
@@ -1659,6 +1699,12 @@ final class PanelWindowController {
         // Don't flip isResting — this isn't a music resting pill,
         // just an invisible drag-target perch.
         presenter.isShown = false
+        // Flag the silhouette as notch-hidden — the panel is parked at
+        // 185×32 hardware-notch dimensions, so the rendered shape uses
+        // sharp 90° top corners + 4pt bottom corners (matching the
+        // hardware notch's actual character) instead of the inverse-bow
+        // flare that reads as a "triangle" at this small width.
+        presenter.isAtNotchHidden = true
         NSLog("Notetaker: parkAtNotchHidden — panel alive at \(target)")
     }
 
@@ -1695,6 +1741,13 @@ final class PanelWindowController {
         // pill body. The pill content is gated on
         // `isResting && !isShown`.
         presenter.isShown = false
+        // We were parked at notch-hidden (radii 0/4 — clean hardware
+        // notch silhouette). Now growing into the music pill (278×32),
+        // which uses 6/8 inverse-bow + bottom-flare radii for the
+        // pill character. Clear the flag BEFORE the spring starts so
+        // SwiftUI's animatableData interpolates radii (0→6, 4→8) in
+        // lockstep with the frame morph (185→278 wide), no popping.
+        presenter.isAtNotchHidden = false
 
         // Soft spring grow from notch-hidden → pillFrame. Matches the
         // motion language of the open spring but to a smaller end
@@ -1751,6 +1804,16 @@ final class PanelWindowController {
         // appear/disappear motion.
         let spring = SpringFrameAnimator(stiffness: 300, damping: 32, mass: 1.0)
         currentSpring = spring
+        // Flip to hardware-notch radii (0/4) BEFORE the spring starts
+        // so SwiftUI's animatableData interpolates radii (6→0, 8→4) in
+        // lockstep with the frame shrink (278→185 wide). Setting the
+        // flag in the spring's completion handler instead would snap
+        // the radii at the end — the user perceives this as "the corners
+        // popped sharper at the very end" rather than a continuous
+        // morph. With this ordering, the silhouette gradually transforms
+        // from a music-pill shape into a hardware-notch-shaped rect
+        // over the same ~270ms as the frame shrink — one fluid morph.
+        presenter.isAtNotchHidden = true
         spring.animate(panel: panel, from: start, to: target) { [weak self] in
             guard let self else { return }
             self.currentSpring = nil
