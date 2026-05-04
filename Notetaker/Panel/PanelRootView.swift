@@ -528,14 +528,14 @@ struct PanelRootView: View {
             // "endpoint not landing."
             //
             // Per-direction springs matched to the panel-frame
-            // SpringFrameAnimator on each side:
+            // SpringFrameAnimator on each side. Close timing
+            // calibrated against pixel-level measurement of
+            // Alcove's close (40 frames at 60fps = ~667ms).
             //   OPEN:  300/32  ratio≈0.92  ~270ms (slight bloom)
-            //   CLOSE: 150/28  ratio≈1.14  ~415ms (overdamped)
-            // Close is paced slower than open so the silhouette's
-            // retreat into the notch outline reads as deliberate.
+            //   CLOSE: 60/18   ratio≈1.16  ~680ms (matches Alcove)
             .animation(presenter.isShown
                        ? .interpolatingSpring(mass: 1.0, stiffness: 300, damping: 32, initialVelocity: 0)
-                       : .interpolatingSpring(mass: 1.0, stiffness: 150, damping: 28, initialVelocity: 0),
+                       : .interpolatingSpring(mass: 1.0, stiffness: 60, damping: 18, initialVelocity: 0),
                        value: presenter.isShown)
             .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
             // PERF GATE: both shadows render only when isShown=true.

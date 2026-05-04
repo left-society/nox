@@ -1503,22 +1503,30 @@ final class PanelWindowController {
         let notchOnly = PanelWindowController.notchOverlap(for: panel.screen)
         let isNotchHiddenTarget = abs(target.height - notchOnly) < halo / 2
 
-        // Close spring — moderate stiffness with just-over-critical
-        // damping for a deliberate "retreat into the notch" feel
-        // without overshoot:
-        //   ω_n   = √150 ≈ 12.25
-        //   ratio = 28/(2·12.25) ≈ 1.14 (overdamped)
-        //   95% settle ≈ 415ms
+        // Close spring calibrated against PIXEL-LEVEL measurement of
+        // Alcove's close (frames 2150-2190 in /Users/apple/Downloads/
+        // SS/SS 2, 40 frames at 60fps = ~667ms total close).
         //
-        // Slower than the open's 300/32 (~270ms) on purpose — the
-        // close gets more visible-motion time so the silhouette's
-        // retreat into the notch reads as deliberate. The slower
-        // pace pairs with the bezel-overlap end target (visual
-        // notch + 14pt each side) so the user sees the silhouette
-        // visibly LAND on the notch outline at end of motion.
+        //   Frame 2150: 448px wide (expanded)
+        //   Frame 2160: 344/442/445 (top contracts first — non-uniform)
+        //   Frame 2170: 267px (full contraction reached)
+        //   Frame 2180-2190: 253px (settled at resting pill)
+        //
+        //   Main motion (f2150→f2170): 20 frames = 333ms
+        //   Settle phase (f2170→f2190): 20 frames = 333ms
+        //   Total: ~667ms
+        //
+        // 60/18 spring matches this duration:
+        //   ω_n   = √60 ≈ 7.75
+        //   ratio = 18/(2·7.75) ≈ 1.16 (overdamped)
+        //   λ₁    = ω_n*(ζ - √(ζ²-1)) ≈ 4.42
+        //   95% settle ≈ 3/λ₁ ≈ 680ms
+        //
+        // Close is 2.5x slower than open (270ms) — same ratio as
+        // Alcove (open ~417ms / close ~667ms = 0.63).
         let spring: SpringFrameAnimator
         if isNotchHiddenTarget {
-            spring = SpringFrameAnimator(stiffness: 150, damping: 28, mass: 1.0)
+            spring = SpringFrameAnimator(stiffness: 60, damping: 18, mass: 1.0)
         } else {
             // Music close: lands punchy at the resting pill.
             spring = SpringFrameAnimator(stiffness: 380, damping: 44, mass: 1.0)
