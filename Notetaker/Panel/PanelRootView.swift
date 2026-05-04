@@ -1113,18 +1113,24 @@ struct PanelRootView: View {
                     .id("music")
             }
         }
-        // Bouncy spring on the content swap — gives the system
-        // event entrance a tactile "pop in" feel rather than a
-        // straight fade.
+        // Critically-damped spring on the content swap. Bouncy was
+        // overshooting on entrance AND exit — and on exit the
+        // opacity component races to 0 before the scale's bounce-
+        // back completes, so SwiftUI removes the view mid-animation
+        // and the user sees the motion get cut off. That was the
+        // "endpoints totally broken" complaint.
         //
-        // 2026-05-04 reduced extraBounce 0.45 → 0.18 because the
-        // 0.45 value was overshooting visibly past the resting
-        // pill silhouette before settling. 0.18 gives a tactile
-        // landing with one small rebound — like a real spring
-        // settling, not a rubber-ball flail.
-        .animation(.bouncy(duration: 0.42, extraBounce: 0.18),
+        // .smooth is a critically-damped interpolating spring: it
+        // runs from start to end and lands cleanly with zero
+        // overshoot, so the visible motion plays out fully on both
+        // sides. Combined with the bigger entrance/exit scale deltas
+        // (.pillEnter 0.65, .pillExit 0.7) the user sees a clear
+        // grow-in + shrink-out without any abrupt truncation.
+        // Duration matched between event swap and video candidate
+        // for one consistent rhythm across all transient pill swaps.
+        .animation(.smooth(duration: 0.45),
                    value: presenter.pendingSystemEvent)
-        .animation(.bouncy(duration: 0.42, extraBounce: 0.25),
+        .animation(.smooth(duration: 0.45),
                    value: presenter.pendingVideoCandidate)
         // Dictation pill MOUNT/UNMOUNT animation — only fires at
         // entrance (idle → non-idle) and exit (non-idle → idle).
@@ -3297,24 +3303,27 @@ extension AnyTransition {
     /// stays inside the visible silhouette envelope rather than
     /// sticking out.
     static var pillEnter: AnyTransition {
-        // 2026-05-04 added .scale alongside .opacity so the
-        // entrance has visible motion. Pure opacity (the previous
-        // form) produced a fade so subtle it read as no animation
-        // — the user's "animation end points are broken" complaint
-        // was rooted in this. Anchored at .center with a 0.78
-        // starting scale: same ratio Apple uses for SF Symbols'
-        // .symbolEffect(.bounce). The silhouette clip catches
-        // anything outside the envelope so this can't visibly bow
-        // past the menu bar.
-        .scale(scale: 0.78, anchor: .center).combined(with: .opacity)
+        // 2026-05-04 (rev 2): scale 0.65 starting, anchor .center.
+        // Earlier 0.78 was so close to 1.0 the entrance was just a
+        // fade with imperceptible scale change — the user reported
+        // "no animation at the endpoints." 0.65 gives a CLEAR
+        // "popping in from a tiny version" motion that lands at 1.0
+        // visibly. The .center anchor keeps the pivot inside the
+        // silhouette so any spring overshoot stays inside the
+        // visible envelope (anchor .top would put the pivot ABOVE
+        // the menu bar, which sounds right but breaks anchoring on
+        // the visible content's geometry).
+        .scale(scale: 0.65, anchor: .center).combined(with: .opacity)
     }
 
-    /// Pill exit transition. Scales DOWN + fades. Without the
-    /// scale component the exit was pure opacity — visually too
-    /// subtle to read as "landing." Scale to 0.85 + opacity gives
-    /// a clear "pulling back into the silhouette" exit.
+    /// Pill exit transition. Scales DOWN + fades. The scale delta
+    /// is INTENTIONALLY larger than the entrance so the exit reads
+    /// as "the pill retreats" rather than "the pill fades" — a
+    /// 1.0→0.7 scale path has 2× the visible motion of a 1.0→0.85
+    /// path, and the longer the visible motion, the more the eye
+    /// reads it as a deliberate animation instead of an abrupt cut.
     static var pillExit: AnyTransition {
-        .scale(scale: 0.85, anchor: .center).combined(with: .opacity)
+        .scale(scale: 0.7, anchor: .center).combined(with: .opacity)
     }
 
     /// Convenience: the asymmetric pair as a single transition.

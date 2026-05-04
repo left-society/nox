@@ -1395,27 +1395,17 @@ final class PanelWindowController {
         let spring = SpringFrameAnimator(stiffness: 280, damping: 30, mass: 1.0)
         currentSpring = spring
 
-        // Will the close orderOut the panel (no music) or keep it
-        // resting (music)? Decide BEFORE the spring runs so the alpha
-        // fade-out can start in parallel — without it, the panel
-        // would sit at full alpha through the whole shrink and then
-        // hard-cut at the end (mirror of the "pill flash" the open
-        // path used to have). Snapshot now: nowPlaying / isResting
-        // can change during the spring, but the close intent here
-        // should win.
-        let willOrderOut = !(self.presenter.isResting && self.presenter.nowPlaying != nil)
-        if willOrderOut {
-            // Fade alpha to 0 alongside the shrink. easeIn so most of
-            // the alpha drop happens at the end of the close — the
-            // user sees the slab shrink toward the notch, then dissolve
-            // away in the last frames. Mirrors the open's easeOut
-            // alpha-in for a symmetric materialize / dematerialize feel.
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.22
-                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-                self.panel.animator().alphaValue = 0
-            }
-        }
+        // 2026-05-04: tried fading alpha → 0 alongside the shrink to
+        // mirror the open path's fade-in, but the alpha drop made the
+        // panel vanish BEFORE the spring fully settled — the eye read
+        // that as a "fast pop-out" rather than the smooth shrink-into-
+        // the-notch the close should feel like. Reverted to spring-
+        // only close: the silhouette stays at full opacity through the
+        // entire shrink, then orderOut fires in the completion handler
+        // exactly when the spring lands at pill geometry. The hardware
+        // notch swallows the final pill frame visually so there's no
+        // visible "flash" at the end (closedPillBump = 0 → pill is
+        // mostly behind the notch hardware).
 
         spring.animate(panel: panel, from: start, to: target) { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
@@ -1438,19 +1428,12 @@ final class PanelWindowController {
             let hasMusic = self.presenter.nowPlaying != nil
             if self.presenter.isResting && hasMusic {
                 self.panel.setFrame(target, display: true)
-                // Music came back during the close — restore alpha
-                // in case the orderOut path's fade-out was running.
-                self.panel.alphaValue = 1
             } else {
                 // No music to anchor the pill → panel goes away.
                 // Clear isResting too so the next show() starts
-                // from a clean state. Reset alpha to 1 BEFORE
-                // orderOut so the next open doesn't inherit alpha=0
-                // (which would defeat the show() path's fade-in
-                // logic — it sets alpha=0 itself when wasFullyHidden).
+                // from a clean state.
                 self.presenter.isResting = false
                 self.panel.orderOut(nil)
-                self.panel.alphaValue = 1
             }
         }
     }
