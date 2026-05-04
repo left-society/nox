@@ -172,10 +172,16 @@ final class HoverActivator {
         // are basically gone." The fix is monitoring both event types.
         let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
         monitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
-            // Global monitors deliver on the main thread but the closure
-            // signature isn't `@MainActor`, so hop into the actor explicitly.
+            // Capture the event TYPE before hopping to the main actor —
+            // `.leftMouseDragged` definitively means a drag is in
+            // progress, and we use that to skip the dwell timer so the
+            // drop picker appears in time for the drag gesture.
+            // pressedMouseButtons isn't always reliable from a global
+            // monitor's perspective (depends on accessibility perms),
+            // so the event type is the more dependable signal.
+            let isDragEvent = (event.type == .leftMouseDragged)
             Task { @MainActor in
-                self?.handleMouseMoved()
+                self?.handleMouseMoved(isDragEvent: isDragEvent)
             }
         }
 
@@ -199,7 +205,7 @@ final class HoverActivator {
         pollTimer?.invalidate()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.handleMouseMoved()
+                self?.handleMouseMoved(isDragEvent: false)
             }
         }
 
@@ -229,7 +235,7 @@ final class HoverActivator {
 
     // MARK: - Event handling
 
-    private func handleMouseMoved() {
+    private func handleMouseMoved(isDragEvent: Bool = false) {
         let zone = currentHotZone()
         // Defensive: during display reconfigure or weird multi-monitor
         // states the screen frame could briefly be empty. Don't ever
@@ -244,25 +250,29 @@ final class HoverActivator {
         let location = NSEvent.mouseLocation
         let inside = zone.contains(location)
 
-        // Detect drag-in-progress: left mouse button held while
-        // cursor moves. NSEvent.pressedMouseButtons is a bitmask;
-        // bit 0 set means the left button is currently down.
-        // When dragging from Finder/Photos/anywhere, this is true.
+        // Detect drag-in-progress two ways for reliability:
+        //   1. Event type: this call came from a `.leftMouseDragged`
+        //      event — definitively a drag.
+        //   2. Polled state: NSEvent.pressedMouseButtons bit 0
+        //      means left button is currently down.
+        // Either signal is sufficient. Need both because:
+        //   • Event-type catches drags from other apps reliably
+        //     (drag events fire even without accessibility perms).
+        //   • Polled state covers the periodic timer wake-ups
+        //     (which don't have an event to inspect).
         //
         // The normal hover flow has ~50ms entry debounce + 270ms
         // dwell + ~270ms show animation = ~600ms before the drop
         // picker appears. That's longer than most drag gestures
         // last — by the time the picker would render, the user
-        // has already released the mouse. User reported "drop
-        // picker is gone." The actual cause: the picker comes up
-        // too late to be useful.
+        // has already released the mouse.
         //
         // Fix: when a drag is in progress, skip both debounces and
         // fire activate() IMMEDIATELY on cursor entry. The user's
         // intent is clear (they're holding a file and aiming at
         // the notch), so dwell-protection isn't needed — open
         // straight to the slab + drop picker.
-        let isDragging = (NSEvent.pressedMouseButtons & 1) != 0
+        let isDragging = isDragEvent || (NSEvent.pressedMouseButtons & 1) != 0
 
         if inside && !isInsideZone {
             isInsideZone = true
