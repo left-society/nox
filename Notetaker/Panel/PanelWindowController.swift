@@ -1217,43 +1217,54 @@ final class PanelWindowController {
     /// notch precisely, the silhouette is black-on-black with the
     /// hardware cutout and the close lands cleanly.
     ///
-    /// Frame matched EXACTLY to the hardware notch dimensions — width
-    /// derived from `NSScreen.auxiliaryTopLeftArea` /
-    /// `auxiliaryTopRightArea` (gap between them = notch width =
-    /// 185pt on this 16" MBP), height equal to `notchOverlap`
-    /// (= safeAreaInsets.top = 32pt).
+    /// Frame matched to the VISUAL notch hardware dimensions, not
+    /// just the auxiliary-area gap.
     ///
-    /// Used SYMMETRICALLY by the show / hide path:
-    ///   • OPEN (from fully hidden) starts at this frame and the
-    ///     spring grows it to the slab.
-    ///   • CLOSE (no music) starts at the slab and the spring shrinks
-    ///     it to this frame, then orderOut.
-    /// Same spring on both sides, same start/end shape — open and
-    /// close are mirror images of each other through the notch
-    /// hardware geometry.
+    /// Why the difference matters:
+    ///   • `NSScreen.auxiliaryTopLeftArea` / `auxiliaryTopRightArea`
+    ///     report the menu-bar regions where items can be SAFELY
+    ///     placed without bumping the notch bezel. The gap between
+    ///     them is 185pt on this 16" MBP.
+    ///   • The actual VISUAL notch hardware is wider (~200pt per
+    ///     Apple's docs and developer reports) because there's a
+    ///     ~8pt safety padding on each side of the bezel where
+    ///     menu bar items aren't placed but the hardware cutout
+    ///     still extends.
     ///
-    /// At rest here, the silhouette merges visually with the
-    /// physical notch (black silhouette over black hardware cutout,
-    /// same pixel boundaries). No alpha fade required — the panel
-    /// is simply at the same shape as the hardware.
+    /// Adding +8pt on each side (16pt total) brings our close
+    /// target from 185pt to ≈201pt — matches the visual notch.
+    /// Earlier the panel was ending narrower than the visual notch
+    /// and reading as "shrinking past it" instead of "attaching
+    /// to it."
+    ///
+    /// Used SYMMETRICALLY:
+    ///   • OPEN (from hidden) starts here and grows to slab
+    ///   • CLOSE (no music) shrinks here from slab, then orderOut
     private func notchHiddenFrame(for screen: NSScreen?) -> NSRect {
         let s = screen ?? NSScreen.main
         let frame = s?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let overlap = PanelWindowController.notchOverlap(for: screen)
-        let notchHardwareWidth: CGFloat = {
+
+        // Visual-notch padding: aux gap + 8pt each side.
+        // Bezel safety zone where menu bar items don't go but the
+        // hardware notch still extends.
+        let bezelPadding: CGFloat = 8
+        let auxGapWidth: CGFloat = {
             guard let s,
                   let auxL = s.auxiliaryTopLeftArea,
                   let auxR = s.auxiliaryTopRightArea
             else {
                 // Non-notched display — fall back to pill width.
-                return PanelWindowController.closedPillWidth
+                return PanelWindowController.closedPillWidth - 2 * bezelPadding
             }
             return s.frame.width - auxL.width - auxR.width
         }()
+        let visualNotchWidth = auxGapWidth + 2 * bezelPadding
+
         return NSRect(
-            x: frame.midX - notchHardwareWidth / 2,
+            x: frame.midX - visualNotchWidth / 2,
             y: frame.maxY - overlap,
-            width: notchHardwareWidth,
+            width: visualNotchWidth,
             height: overlap
         )
     }
