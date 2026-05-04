@@ -648,10 +648,29 @@ final class PanelWindowController {
         // cause a visible jump. Instead, let `animateOpen`'s animator
         // call take over from the panel's current frame — Core
         // Animation handles the velocity blend smoothly.
-        if !panel.isVisible {
+        //
+        // 2026-05-04: track whether we're opening from FULLY HIDDEN
+        // (no resting music pill, no in-flight close, panel was
+        // orderOut'd). In that case orderFrontRegardless makes the
+        // panel pop in at pill geometry for one frame before the
+        // spring starts — the user perceives that flash as a
+        // "music pill flash" because the pill is the only thing they
+        // remember the silhouette being. With music, the pill is
+        // CONTINUOUSLY visible so there's no flash; the eye just
+        // sees the spring run from where the pill already is.
+        //
+        // Fix: when opening from fully hidden, set alpha=0 BEFORE
+        // orderFront, then animate alpha back to 1 over the first
+        // ~180ms of the spring. The user sees the slab MATERIALIZE
+        // from the notch alongside the spring growth — no
+        // "pill flash" frame, motion is continuous from frame 1.
+        let wasFullyHidden = !panel.isVisible
+        if wasFullyHidden {
             panel.setFrame(pillFrame, display: false)
+            panel.alphaValue = 0
+        } else {
+            panel.alphaValue = 1
         }
-        panel.alphaValue = 1
         // Deliberately NOT writing `presenter.isShown = false` here.
         // It's already false (hide() flips it before the close morph),
         // and @Published.publisher emits on EVERY set regardless of
@@ -705,6 +724,23 @@ final class PanelWindowController {
         // panel.animator().setFrame at the window-server level — GPU-
         // accelerated, no SwiftUI body re-evaluation per frame.
         animateOpen(to: slabFrame)
+
+        // Fade in from invisibility ALONGSIDE the spring when we
+        // opened from a fully-hidden state. Window-server-level alpha
+        // animation, runs in parallel with animateOpen's Timer-driven
+        // spring on the panel's frame. Duration matches the spring's
+        // visible-motion window (~180ms is the front-loaded portion;
+        // beyond that the spring is settling sub-pixel deltas the eye
+        // doesn't catch). easeOut so the alpha ramp is concentrated
+        // at the start — by the time the user notices the panel exists
+        // it's already at full opacity, with the spring still running.
+        if wasFullyHidden {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().alphaValue = 1
+            }
+        }
 
         clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
@@ -1358,6 +1394,29 @@ final class PanelWindowController {
         // ~280ms with no overshoot.
         let spring = SpringFrameAnimator(stiffness: 280, damping: 30, mass: 1.0)
         currentSpring = spring
+
+        // Will the close orderOut the panel (no music) or keep it
+        // resting (music)? Decide BEFORE the spring runs so the alpha
+        // fade-out can start in parallel — without it, the panel
+        // would sit at full alpha through the whole shrink and then
+        // hard-cut at the end (mirror of the "pill flash" the open
+        // path used to have). Snapshot now: nowPlaying / isResting
+        // can change during the spring, but the close intent here
+        // should win.
+        let willOrderOut = !(self.presenter.isResting && self.presenter.nowPlaying != nil)
+        if willOrderOut {
+            // Fade alpha to 0 alongside the shrink. easeIn so most of
+            // the alpha drop happens at the end of the close — the
+            // user sees the slab shrink toward the notch, then dissolve
+            // away in the last frames. Mirrors the open's easeOut
+            // alpha-in for a symmetric materialize / dematerialize feel.
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.22
+                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                self.panel.animator().alphaValue = 0
+            }
+        }
+
         spring.animate(panel: panel, from: start, to: target) { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
             self.currentSpring = nil
@@ -1379,12 +1438,19 @@ final class PanelWindowController {
             let hasMusic = self.presenter.nowPlaying != nil
             if self.presenter.isResting && hasMusic {
                 self.panel.setFrame(target, display: true)
+                // Music came back during the close — restore alpha
+                // in case the orderOut path's fade-out was running.
+                self.panel.alphaValue = 1
             } else {
                 // No music to anchor the pill → panel goes away.
                 // Clear isResting too so the next show() starts
-                // from a clean state.
+                // from a clean state. Reset alpha to 1 BEFORE
+                // orderOut so the next open doesn't inherit alpha=0
+                // (which would defeat the show() path's fade-in
+                // logic — it sets alpha=0 itself when wasFullyHidden).
                 self.presenter.isResting = false
                 self.panel.orderOut(nil)
+                self.panel.alphaValue = 1
             }
         }
     }
