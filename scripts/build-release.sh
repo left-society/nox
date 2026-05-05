@@ -29,9 +29,13 @@ cd "$ROOT"
 
 SCHEME="Notetaker"
 CONFIG="Release"
+# Product name is `nox` (set in Xcode project settings), distinct
+# from the scheme name `Notetaker`. The .app file Xcode emits
+# matches the product name, not the scheme.
+PRODUCT_NAME="nox"
 BUILD_DIR="$ROOT/build"
 DIST_DIR="$ROOT/dist"
-APP_PATH="$BUILD_DIR/Build/Products/$CONFIG/$SCHEME.app"
+APP_PATH="$BUILD_DIR/Build/Products/$CONFIG/$PRODUCT_NAME.app"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Notetaker/Resources/Info.plist 2>/dev/null || echo 1.0)"
 DMG_PATH="$DIST_DIR/Notetaker-$VERSION.dmg"
 STAGE="$(mktemp -d -t notetaker-dmg)"
