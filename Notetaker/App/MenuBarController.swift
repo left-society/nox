@@ -200,6 +200,20 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         // ⌘, for Settings and ⌘Q for Quit match macOS conventions
         // so muscle memory works the moment the menu opens.
         menu.addItem(.separator())
+        // "Check for Updates…" — kicks off Sparkle's user-initiated
+        // check, which always shows feedback (either an "up to date"
+        // dialog or the "new version available" prompt). Without
+        // this menu item the user has no manual path to trigger an
+        // update; they have to wait for SUScheduledCheckInterval to
+        // fire (default 4h, set in Info.plist). User feedback after
+        // 1.5 install on a second Mac: "no notification ever came" —
+        // because Sparkle's first scheduled check hadn't fired yet
+        // when 1.6 went live.
+        let checkUpdatesItem = NSMenuItem(title: "Check for Updates…",
+                                          action: #selector(handleCheckForUpdates),
+                                          keyEquivalent: "")
+        checkUpdatesItem.target = self
+        menu.addItem(checkUpdatesItem)
         let settingsItem = NSMenuItem(title: "Settings…",
                                       action: #selector(handleOpenSettings),
                                       keyEquivalent: ",")
@@ -210,6 +224,16 @@ final class MenuBarController: NSObject, NSMenuDelegate {
                                   keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
+    }
+
+    @objc private func handleCheckForUpdates() {
+        // Route through Sparkle's standard updater. `checkForUpdates`
+        // is the user-initiated path: it always shows UI (either
+        // "you're up to date" or the update-available sheet) so
+        // the user gets clear feedback that a check happened, vs
+        // `checkForUpdatesInBackground()` which silently noops if
+        // there's nothing new.
+        AppDelegate.shared?.sparkleUpdaterController.updater.checkForUpdates()
     }
 
     @objc private func handleOpenSettings() {

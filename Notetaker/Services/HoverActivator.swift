@@ -37,16 +37,21 @@ final class HoverActivator {
 
     /// How long the cursor must remain inside the hot zone before we
     /// fire `onActivate`. Tuning history:
-    ///   • 0.12s/0.14s: hair-trigger — every cursor swing past the
-    ///     notch popped the panel open.
-    ///   • 0.40s: too slow.
-    ///   • 0.27s: the working middle ground.
-    /// Now reads from `@AppStorage("hoverDwellSeconds")` so users
-    /// can dial it from Settings → General → Open delay. Default
-    /// stays at 0.27s — the explored sweet spot.
+    ///   • 0.10s: snappy default per user direction (2026-05-06).
+    ///     Earlier exploration in this band:
+    ///       0.12s/0.14s: hair-trigger — every cursor swing past the
+    ///         notch popped the panel.
+    ///       0.27s: more conservative middle ground (the previous
+    ///         default before the user dialed the feel down).
+    ///       0.40s: too slow.
+    ///   • Users can still dial it from Settings → General → Open
+    ///     delay if they want it slower; the slider range
+    ///     (0.10–0.60s) covers everything that felt sane in testing.
+    /// Reads from `@AppStorage("hoverDwellSeconds")` — falling back
+    /// to this default when no user override is set.
     private var dwellSeconds: TimeInterval {
         let stored = UserDefaults.standard.double(forKey: "hoverDwellSeconds")
-        return stored > 0 ? stored : 0.27
+        return stored > 0 ? stored : 0.10
     }
 
     /// Lockout window after a fire. Without this, a user who just

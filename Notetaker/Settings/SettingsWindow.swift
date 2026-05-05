@@ -258,11 +258,18 @@ struct SettingsView: View {
 
     private var sidebar: some View {
         VStack(spacing: 0) {
-            // Inset header — mirrors macOS System Settings' branding band
+            // Inset header — mirrors macOS System Settings' branding band.
+            // Uses the running app's bundle icon (Assets.xcassets/AppIcon)
+            // so this stays in sync with whatever the user's seeing in
+            // Finder, Dock, and the Cmd-Tab switcher. Earlier this was
+            // Image(systemName: "scribble.variable") which read as
+            // "settings has the wrong icon" — generic SF Symbol where
+            // the actual brand mark belonged.
             HStack(spacing: 8) {
-                Image(systemName: "scribble.variable")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 18, height: 18)
                 Text("nox")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
@@ -474,7 +481,7 @@ private struct GeneralSettings: View {
     // are gone, no consumer ever read these keys. SettingsKey
     // constants are kept in the parent enum for now in case
     // we wire them properly in a later iteration.
-    @AppStorage(SettingsKey.hoverDwellSeconds) private var hoverDwellSeconds: Double = 0.27
+    @AppStorage(SettingsKey.hoverDwellSeconds) private var hoverDwellSeconds: Double = 0.10
     @AppStorage(SettingsKey.hoverHotZoneWidth) private var hoverHotZoneWidth: Double = 300
     @AppStorage(SettingsKey.hapticsEnabled) private var hapticsEnabled: Bool = true
     @AppStorage(SettingsKey.defaultTabRaw) private var defaultTabRaw: String = DefaultTab.last.rawValue

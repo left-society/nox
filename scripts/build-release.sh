@@ -168,11 +168,32 @@ shopt -u nullglob
 # Now seal the outer .app. NO --deep here — nested components are
 # already signed correctly; --deep would walk them again and could
 # corrupt the signatures we just applied.
+#
+# CRITICAL: --entitlements MUST be passed here. Earlier builds shipped
+# with hardened runtime ON and ZERO entitlements because:
+#   1. The xcodebuild call uses CODE_SIGNING_ALLOWED=NO so Xcode
+#      doesn't apply entitlements during build.
+#   2. The manual codesign step here didn't pass --entitlements.
+# Result: AppleScript bridge to Spotify/Music returned
+# errAEEventNotPermitted; MediaRemote dlopen failed library
+# validation; WhisperKit JIT crashed silently mid-transcription.
+# Users saw "I clicked dictate but nothing happened" with no error
+# bubbling up — the recording succeeded, the JIT-during-transcribe
+# step took the process down quietly. nox.entitlements declares the
+# four flags we need (cs.disable-library-validation,
+# automation.apple-events, cs.allow-jit, cs.allow-unsigned-
+# executable-memory). Apply them at sealing time.
+ENTITLEMENTS="$ROOT/Notetaker/Resources/nox.entitlements"
+if [ ! -f "$ENTITLEMENTS" ]; then
+  echo "✗ entitlements file missing: $ENTITLEMENTS"
+  exit 1
+fi
 codesign --force \
   --sign "$SIGN_IDENTITY" \
   --identifier com.aritradebnath.notetaker \
   --options runtime \
   --timestamp \
+  --entitlements "$ENTITLEMENTS" \
   "$APP_PATH"
 
 # Verify the signature so we catch failed signs before shipping a

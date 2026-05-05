@@ -468,6 +468,14 @@ private struct SetupPage: View {
     @State private var apiKey: String = ""
 
     @State private var micGranted: Bool = false
+    /// Track the full AVAuthorizationStatus so the button can
+    /// distinguish first-time `.notDetermined` (fire system prompt)
+    /// from `.denied` (the system has already refused once and only
+    /// System Settings can re-enable). Without this distinction the
+    /// "Allow" button silently does nothing for denied users — same
+    /// regression that triggered the "I can't give the permission
+    /// for some reason" report.
+    @State private var micStatus: AVAuthorizationStatus = .notDetermined
     @State private var axGranted: Bool = false
     @State private var keyValidating: Bool = false
     @State private var keyValid: Bool? = nil
@@ -508,9 +516,9 @@ private struct SetupPage: View {
                 SetupRow(
                     icon: "mic.fill",
                     title: "Microphone",
-                    subtitle: "Lets nox hear your voice when you dictate.",
+                    subtitle: micRowSubtitle,
                     status: micGranted ? .granted : .pending,
-                    actionLabel: micGranted ? "Done" : "Allow",
+                    actionLabel: micActionLabel,
                     action: requestMic
                 )
                 .modifier(EntranceMotion(visible: rowsVisible, delay: 0))
@@ -591,18 +599,70 @@ private struct SetupPage: View {
         }
     }
 
+    /// Subtitle that adapts to current mic state. The `.denied` case
+    /// is the one that previously fooled users — the row said
+    /// "Lets nox hear your voice…" with an "Allow" button that did
+    /// nothing on click. New copy spells out exactly where to go.
+    private var micRowSubtitle: String {
+        switch micStatus {
+        case .authorized: return "Granted — nox can hear your voice."
+        case .denied, .restricted:
+            return "Denied earlier. Open Settings → Privacy → Microphone to enable nox."
+        case .notDetermined: return "Lets nox hear your voice when you dictate."
+        @unknown default: return "Lets nox hear your voice when you dictate."
+        }
+    }
+
+    /// Button label that mirrors `micRowSubtitle` so the user
+    /// always knows what they'll get from a tap.
+    private var micActionLabel: String {
+        switch micStatus {
+        case .authorized: return "Done"
+        case .denied, .restricted: return "Open Settings"
+        case .notDetermined: return "Allow"
+        @unknown default: return "Allow"
+        }
+    }
+
     private func refreshPermissions() {
-        micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        micGranted = micStatus == .authorized
         axGranted = AXIsProcessTrusted()
     }
 
     private func requestMic() {
-        AVCaptureDevice.requestAccess(for: .audio) { granted in
-            DispatchQueue.main.async {
-                withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) {
-                    micGranted = granted
+        // macOS only fires the system permission prompt ONCE per app
+        // identity. After the user denies (or after .denied is read
+        // via TCC for any reason), `AVCaptureDevice.requestAccess`
+        // returns `false` immediately without re-prompting — the
+        // "Allow" button looks broken because nothing happens. The
+        // ONLY recovery path is System Settings.
+        //
+        // Branch on current status:
+        //   .notDetermined → fire the system prompt (one shot).
+        //   .denied/.restricted → deep-link to Privacy → Microphone
+        //     so the user can flip the nox toggle. Same fallback
+        //     SettingsWindow uses on the Permissions row.
+        //   .authorized → already granted; nothing to do (button
+        //     should be hidden, but guard anyway).
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        switch status {
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                DispatchQueue.main.async {
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) {
+                        micGranted = granted
+                    }
                 }
             }
+        case .denied, .restricted:
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                NSWorkspace.shared.open(url)
+            }
+        case .authorized:
+            micGranted = true
+        @unknown default:
+            break
         }
     }
 
