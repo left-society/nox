@@ -1,6 +1,6 @@
 # nox
 
-Auto update feed for the [nox](https://nox.app) macOS app. This repo holds the [Sparkle](https://sparkle-project.org) appcast and per release notes. The actual DMG files live as assets on each [GitHub Release](https://github.com/left-society/nox/releases).
+Auto update feed for the nox macOS app. This repo holds the [Sparkle](https://sparkle-project.org) appcast and per release notes. The actual DMG files live as assets on each [GitHub Release](https://github.com/left-society/nox/releases).
 
 The nox app polls `appcast.xml` daily and downloads new versions automatically.
 
