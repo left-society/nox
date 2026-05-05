@@ -83,6 +83,7 @@
 		B3E37B3CBA9C92C1D08C7ACC /* HotKey in Frameworks */ = {isa = PBXBuildFile; productRef = C16A2E7CC8B24487D4795D88 /* HotKey */; };
 		B43CD67A5223C11CCD653F9C /* FileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200887B134644E26FF57F8EE /* FileStore.swift */; };
 		B725B8563E4AD5E3CA0092AB /* EmptyDropState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7555B3D22555F4A30E9EE016 /* EmptyDropState.swift */; };
+		CC0AB1B2C3D4E5F60123456A /* ClearConfirmOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0AB1B2C3D4E5F60123456B /* ClearConfirmOverlay.swift */; };
 		BACKDROP01A1B2C3D4E5F0001 /* BackdropController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BACKDROP02A1B2C3D4E5F0002 /* BackdropController.swift */; };
 		BD41AD52A5D114B6148B8E88 /* FilesGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0953091096C505095E8DD8 /* FilesGridView.swift */; };
 		BE9C61D689F83C6E9399E285 /* BrowserURLService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ECB7D8944E98E9980E33DAE /* BrowserURLService.swift */; };
@@ -171,6 +172,7 @@
 		717E181C1DF1BF1637911A32 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		72FB0A59ADBCDA4DC7FCB846 /* PanelRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelRootView.swift; sourceTree = "<group>"; };
 		7555B3D22555F4A30E9EE016 /* EmptyDropState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EmptyDropState.swift; sourceTree = "<group>"; };
+		CC0AB1B2C3D4E5F60123456B /* ClearConfirmOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClearConfirmOverlay.swift; sourceTree = "<group>"; };
 		79F90973BEE70B054C42DF17 /* VideoDropCatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoDropCatcher.swift; sourceTree = "<group>"; };
 		7C727DFD4A4E2C994662FBCD /* RetentionServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetentionServiceTests.swift; sourceTree = "<group>"; };
 		7EB7784BF8F34942FA49CEF3 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -360,6 +362,7 @@
 				46AF7A62FF29F5DC6E5DF564 /* Typography.swift */,
 				C97BC580878C88D99FE7AB2F /* CelebrateIfRecent.swift */,
 				7555B3D22555F4A30E9EE016 /* EmptyDropState.swift */,
+				CC0AB1B2C3D4E5F60123456B /* ClearConfirmOverlay.swift */,
 			);
 			path = DesignSystem;
 			sourceTree = "<group>";
@@ -704,6 +707,7 @@
 				F06587A5DD26C878D18483CE /* DropPickerView.swift in Sources */,
 				20734AD228F94CD69FCC0C0E /* CelebrateIfRecent.swift in Sources */,
 				B725B8563E4AD5E3CA0092AB /* EmptyDropState.swift in Sources */,
+				CC0AB1B2C3D4E5F60123456A /* ClearConfirmOverlay.swift in Sources */,
 				A9536CA4EE17C7CF54562EB9 /* MediaRemoteAdapterService.swift in Sources */,
 				5499A9601CB963C14FB01FD9 /* LocalWhisperService.swift in Sources */,
 				SECKEY00002A1B2C3D4E5F04 /* SecureKeyStore.swift in Sources */,

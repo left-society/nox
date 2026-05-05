@@ -29,6 +29,13 @@ struct MarkdownTextEditor: NSViewRepresentable {
     /// so the parent view can route toolbar taps directly into the
     /// text view's cursor-aware insertion logic.
     let coordinatorRef: CoordinatorRef
+    /// Optional body-text color override. Defaults to nil → editor
+    /// uses `DS.Color.textPrimary` (lavender-tinted white, designed
+    /// for the dark slab background). Pass an explicit color when
+    /// embedding the editor in a light surface like the popout's
+    /// white-paper pane — without this override the text would render
+    /// as near-invisible white-on-white.
+    var bodyTextColor: Color? = nil
 
     final class CoordinatorRef {
         var insertHeading: (() -> Void)?
@@ -64,8 +71,13 @@ struct MarkdownTextEditor: NSViewRepresentable {
         textView.isAutomaticLinkDetectionEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.drawsBackground = false
-        textView.textColor = NSColor(DS.Color.textPrimary)
+        textView.textColor = NSColor(bodyTextColor ?? DS.Color.textPrimary)
         textView.insertionPointColor = NSColor(DS.Color.accent)
+        // Cache on the coordinator so the styling pass uses the
+        // override too (otherwise applyStyling resets to
+        // DS.Color.textPrimary and the override is wiped on first
+        // keystroke).
+        context.coordinator.bodyTextColorOverride = bodyTextColor
         textView.font = .systemFont(ofSize: 14)
         textView.textContainerInset = NSSize(width: 12, height: 8)
         textView.string = text
@@ -113,6 +125,16 @@ struct MarkdownTextEditor: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding var text: String
         weak var textView: NSTextView?
+        /// Override color for body text. Set by `makeNSView` from
+        /// the parent struct's `bodyTextColor` parameter. nil →
+        /// fall back to `DS.Color.textPrimary` (the dark-slab
+        /// editor's white-on-dark default).
+        var bodyTextColorOverride: Color?
+
+        /// Resolved body-text color used by all styling passes.
+        var primaryNSColor: NSColor {
+            NSColor(bodyTextColorOverride ?? DS.Color.textPrimary)
+        }
 
         init(text: Binding<String>) {
             self._text = text
@@ -284,7 +306,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
             let bodyFont = NSFont.systemFont(ofSize: 14)
             let headingFont = NSFont.systemFont(ofSize: 18, weight: .semibold)
             let subheadFont = NSFont.systemFont(ofSize: 16, weight: .semibold)
-            let primary = NSColor(DS.Color.textPrimary)
+            let primary = primaryNSColor
             let secondary = NSColor(DS.Color.textSecondary)
             let dim = NSColor(DS.Color.textTertiary).withAlphaComponent(0.55)
 
@@ -342,7 +364,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
             let bodyFont = NSFont.systemFont(ofSize: 14)
             let headingFont = NSFont.systemFont(ofSize: 18, weight: .semibold)
             let subheadFont = NSFont.systemFont(ofSize: 16, weight: .semibold)
-            let primary = NSColor(DS.Color.textPrimary)
+            let primary = primaryNSColor
             let secondary = NSColor(DS.Color.textSecondary)
             let dim = NSColor(DS.Color.textTertiary).withAlphaComponent(0.55)
 

@@ -40,18 +40,29 @@ VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Noteta
 DMG_PATH="$DIST_DIR/Notetaker-$VERSION.dmg"
 STAGE="$(mktemp -d -t notetaker-dmg)"
 
-# Detect the dev cert. We check by certificate presence in the
-# login keychain rather than `find-identity -p codesigning -v`,
-# because the latter is more strict and sometimes reports "0
-# valid identities" for self-signed certs even when codesign can
-# successfully use them. `find-certificate` is the lookup that
-# matches what codesign itself does.
-SIGN_IDENTITY="-"
-if security find-certificate -c NotetakerDevCert ~/Library/Keychains/login.keychain-db >/dev/null 2>&1; then
-  SIGN_IDENTITY="NotetakerDevCert"
-  echo "▸ Using stable cert: NotetakerDevCert"
-else
-  echo "▸ NotetakerDevCert not found — falling back to ad-hoc signing"
+# Signing identity selection, in priority order:
+#   1. Developer ID Application (Apple-issued, notarization-eligible)
+#      — proper shipping cert. Use this for any DMG that goes to
+#      paying customers / public download.
+#   2. NotetakerDevCert (self-signed dev cert) — used during
+#      iteration so TCC permissions persist across builds, but
+#      not notarization-eligible. Triggers Gatekeeper warnings.
+#   3. Ad-hoc ("-") — fallback for fresh checkouts/CI without
+#      either cert. Definitely not shippable.
+#
+# Override via env: BUILD_RELEASE_IDENTITY="..." bash build-release.sh
+SIGN_IDENTITY="${BUILD_RELEASE_IDENTITY:-}"
+if [ -z "$SIGN_IDENTITY" ]; then
+  if security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID Application"; then
+    SIGN_IDENTITY="$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')"
+    echo "▸ Using Developer ID Application: $SIGN_IDENTITY"
+  elif security find-certificate -c NotetakerDevCert ~/Library/Keychains/login.keychain-db >/dev/null 2>&1; then
+    SIGN_IDENTITY="NotetakerDevCert"
+    echo "▸ Using dev cert: NotetakerDevCert (NOT notarizable — dev builds only)"
+  else
+    SIGN_IDENTITY="-"
+    echo "▸ No signing cert found — ad-hoc signing (DEFINITELY not shippable)"
+  fi
 fi
 
 echo "▸ Clean + build Release…"

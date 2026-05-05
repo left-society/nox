@@ -97,13 +97,14 @@ struct VideosGridView: View {
                 withAnimation(.selection) { playingRecord = nil }
             }
         }
-        .alert("Clear all videos?", isPresented: $showClearConfirm) {
-            Button("Cancel", role: .cancel) {}
-            Button("Clear", role: .destructive) {
+        .overlay {
+            ClearConfirmOverlay(
+                isPresented: $showClearConfirm,
+                title: "Clear all videos?",
+                message: "This removes all \(videoStore.videos.count) video\(videoStore.videos.count == 1 ? "" : "s") from the panel."
+            ) {
                 try? videoStore.trashAll()
             }
-        } message: {
-            Text("This removes all \(videoStore.videos.count) videos from the panel.")
         }
     }
 

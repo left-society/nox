@@ -94,14 +94,21 @@ struct ImagesGridView: View {
         // Drag-and-drop handling lives at PanelRootView level now (see
         // PanelDropCatcher) so users can drop onto any tab and the panel
         // routes to the correct store + switches to the right tab.
-        .alert("Clear all images?", isPresented: $showClearConfirm) {
-            Button("Cancel", role: .cancel) {}
-            Button("Clear", role: .destructive) {
+        //
+        // 2026-05-06: replaced SwiftUI's `.alert()` with an in-panel
+        // ClearConfirmOverlay. Native alerts on a `.nonactivatingPanel`
+        // anchor to whatever app's window happens to be key (often
+        // Finder), so the dialog appeared center-screen disconnected
+        // from the panel — user reported as "weird glitch."
+        .overlay {
+            ClearConfirmOverlay(
+                isPresented: $showClearConfirm,
+                title: "Clear all images?",
+                message: "This removes all \(imageStore.images.count) image\(imageStore.images.count == 1 ? "" : "s") from the panel."
+            ) {
                 try? imageStore.trashAll()
                 selected.removeAll()
             }
-        } message: {
-            Text("This removes all \(imageStore.images.count) images from the panel.")
         }
     }
 

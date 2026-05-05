@@ -149,15 +149,16 @@ struct NotesListView: View {
         // ImagesGridView uses so the destructive moment feels
         // identical across tabs. Soft-trash (recoverable from
         // the trashed pool) rather than hard-delete.
-        .alert("Clear all notes?", isPresented: $showClearConfirm) {
-            Button("Cancel", role: .cancel) {}
-            Button("Clear", role: .destructive) {
+        .overlay {
+            ClearConfirmOverlay(
+                isPresented: $showClearConfirm,
+                title: "Clear all notes?",
+                message: "This moves all \(noteStore.notes.count) note\(noteStore.notes.count == 1 ? "" : "s") to Trash."
+            ) {
                 try? noteStore.trashAll()
                 editingNoteId = nil
                 searchText = ""
             }
-        } message: {
-            Text("This moves all \(noteStore.notes.count) notes to Trash.")
         }
     }
 
