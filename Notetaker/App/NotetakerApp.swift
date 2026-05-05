@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct NotetakerApp: App {
+struct NoxApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {

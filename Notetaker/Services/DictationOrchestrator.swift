@@ -160,9 +160,9 @@ final class DictationOrchestrator: ObservableObject {
     /// reach the unified `log show` predicate filter on modern
     /// macOS, which makes diagnosing dictation failures from
     /// outside Xcode painful. Writing every important event to a
-    /// known file path means `tail -f /tmp/notetaker-dictation.log`
+    /// known file path means `tail -f /tmp/nox-dictation.log`
     /// always works.
-    static let debugLogPath = "/tmp/notetaker-dictation.log"
+    static let debugLogPath = "/tmp/nox-dictation.log"
     nonisolated static func dlog(_ message: String) {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let line = "[\(timestamp)] \(message)\n"
@@ -175,7 +175,7 @@ final class DictationOrchestrator: ObservableObject {
                 FileManager.default.createFile(atPath: debugLogPath, contents: data, attributes: nil)
             }
         }
-        NSLog("Notetaker: %@", message)
+        NSLog("nox: %@", message)
     }
 
     init() {
@@ -495,7 +495,7 @@ final class DictationOrchestrator: ObservableObject {
 
     /// Install a CGEventTap watching `flagsChanged` events for the
     /// Fn key. Requires Accessibility permission — without it, this
-    /// tap silently fails. Logs status to /tmp/notetaker-dictation.log
+    /// tap silently fails. Logs status to /tmp/nox-dictation.log
     /// either way so we can diagnose.
     ///
     /// CRITICAL: this is `zachlatta/freeflow`'s exact pattern from
@@ -620,7 +620,7 @@ final class DictationOrchestrator: ObservableObject {
         var hotKeyRef: EventHotKeyRef?
         let status = RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
         guard status == noErr, let hotKeyRef = hotKeyRef else {
-            NSLog("Notetaker: Dictation — failed to register Carbon hotkey (status \(status)).")
+            NSLog("nox: Dictation — failed to register Carbon hotkey (status \(status)).")
             return
         }
         carbonHotKeyRef = hotKeyRef
@@ -648,7 +648,7 @@ final class DictationOrchestrator: ObservableObject {
         } else {
             // Handler install failed — release the retained self ref.
             Unmanaged<DictationOrchestrator>.fromOpaque(unmanagedSelf).release()
-            NSLog("Notetaker: Dictation — failed to install Carbon event handler (status \(installStatus)).")
+            NSLog("nox: Dictation — failed to install Carbon event handler (status \(installStatus)).")
         }
     }
 

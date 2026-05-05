@@ -61,12 +61,13 @@ final class LockMusicCardWindowController {
     init(presenter: PanelPresenter) {
         self.presenter = presenter
 
-        // Card geometry: 420×160 — matches Alcove's lock-screen
-        // music card. Was 190 initially; trimmed because the
-        // visible content fits in ~155pt and the extra 30pt of
-        // padding made the card look stretched compared to
-        // Alcove's tighter proportions.
-        let initialFrame = NSRect(x: 0, y: 0, width: 420, height: 160)
+        // Card geometry: 520×190 — measured against Alcove's
+        // lock-screen card (user 2026-05-06 photo with both apps
+        // open simultaneously showed our 420×160 card noticeably
+        // smaller than Alcove's). 520 is the new horizontal width
+        // and 190 the new height; the y-anchor (18% from screen
+        // bottom) stays — only the dimensions changed.
+        let initialFrame = NSRect(x: 0, y: 0, width: 520, height: 190)
         self.panel = LockMusicCardPanel(
             contentRect: initialFrame,
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView, .hudWindow, .utilityWindow],

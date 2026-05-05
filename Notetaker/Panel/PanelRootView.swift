@@ -2094,7 +2094,7 @@ struct PanelRootView: View {
             refreshPillArtworkImage()
         }
         .onChange(of: presenter.nowPlaying) { newInfo in
-            NSLog("Notetaker: 📻 nowPlaying changed title=\(newInfo?.title ?? "nil") artwork=\(newInfo?.artworkData?.count ?? 0)b oldKey=\(displayedTrackKey)")
+            NSLog("nox: 📻 nowPlaying changed title=\(newInfo?.title ?? "nil") artwork=\(newInfo?.artworkData?.count ?? 0)b oldKey=\(displayedTrackKey)")
             // Single dispatcher for every now-playing update.
             // Branches:
             //  1. Same track, content fields refreshed (artwork
@@ -2307,7 +2307,7 @@ struct PanelRootView: View {
     /// on the path the @Published update came through. Explicit
     /// state-based phase control fires deterministically every time.
     private func triggerSongChange(newKey: String) {
-        NSLog("Notetaker: 🎵 triggerSongChange firing newKey=\(newKey) oldKey=\(displayedTrackKey)")
+        NSLog("nox: 🎵 triggerSongChange firing newKey=\(newKey) oldKey=\(displayedTrackKey)")
         // Smoother two-phase animation. User reported the previous
         // version had the thumbnail "getting delated suddenly" mid-
         // transition — that was caused by `easeIn` (which spends
@@ -2389,7 +2389,7 @@ struct PanelRootView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + safetyDeadline) {
             guard gen == trackSwapGeneration else { return }
             if trackSwapPhase != 0 {
-                NSLog("Notetaker: ⚠️ song-change safety reset firing (phase=\(trackSwapPhase))")
+                NSLog("nox: ⚠️ song-change safety reset firing (phase=\(trackSwapPhase))")
                 withAnimation(.smooth(duration: 0.18)) {
                     trackSwapPhase = 0
                 }
@@ -3687,7 +3687,7 @@ private struct SettingsButton: View {
         // into it via `NSHostingController` — bypassing the scene
         // plumbing entirely.
         Button {
-            NSLog("Notetaker: gear button tapped")
+            NSLog("nox: gear button tapped")
             SettingsWindow.open()
         } label: {
             Image(systemName: "gearshape")

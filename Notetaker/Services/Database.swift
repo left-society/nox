@@ -46,15 +46,13 @@ final class Database {
     }
 
     static func defaultDatabaseURL() throws -> URL {
-        let fm = FileManager.default
-        let appSupport = try fm.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let dir = appSupport.appendingPathComponent("Notetaker", isDirectory: true)
-        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        // Folder name resolution lives on AppEnvironment so the
+        // legacy-folder migration (Notetaker/ → nox/) has a single
+        // source of truth. Database file name stays as `notetaker.db`
+        // intentionally — it's never user-visible (lives inside the
+        // Application Support folder), and renaming the SQLite file
+        // would force another migration step with zero user benefit.
+        let dir = try AppEnvironment.applicationSupportDirectory()
         return dir.appendingPathComponent("notetaker.db")
     }
 

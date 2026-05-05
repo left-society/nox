@@ -478,13 +478,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Details: \(error.localizedDescription)
 
             To recover, quit nox and remove the folder at:
-            ~/Library/Application Support/Notetaker
+            ~/Library/Application Support/nox
+
+            (On older installs that haven't migrated yet the
+            folder may still be named "Notetaker" — same data,
+            same recovery step.)
 
             That'll reset the database to a fresh state. Your
             Spotify history, screenshots, and AirDrops will be
             untouched — only nox's own notes / images / videos
-            cache lives there. (The folder is named "Notetaker"
-            for legacy reasons; it's still nox's data.)
+            cache lives there.
             """
             alert.addButton(withTitle: "Quit")
             alert.runModal()
@@ -573,7 +576,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyService = HotkeyService { [weak self] event in
             switch event {
             case .togglePanel:
-                NSLog("Notetaker: toggle() called, panel=\(self?.panelController != nil ? "exists" : "nil")")
+                NSLog("nox: toggle() called, panel=\(self?.panelController != nil ? "exists" : "nil")")
                 self?.panelController?.toggle()
             case .grabCurrentTab:
                 Task { @MainActor in self?.grabCurrentBrowserTab() }
@@ -979,17 +982,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // toolbar renders for screencapture verification.
                 // No real-world equivalent — purely a test path.
                 if testKind == "selectNotes" {
-                    NSLog("Notetaker: selectNotes test starting")
+                    NSLog("nox: selectNotes test starting")
                     guard let env = self?.environment else {
-                        NSLog("Notetaker: selectNotes — env nil, abort")
+                        NSLog("nox: selectNotes — env nil, abort")
                         return
                     }
                     self?.panelController?.show()
                     self?.panelController?.presenter.activeTab = .notes
-                    NSLog("Notetaker: selectNotes — show + tab set, scheduling seed")
+                    NSLog("nox: selectNotes — show + tab set, scheduling seed")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                         let firstThree = env.noteStore.notes.prefix(3).map(\.id)
-                        NSLog("Notetaker: selectNotes — seeding \(firstThree.count) ids")
+                        NSLog("nox: selectNotes — seeding \(firstThree.count) ids")
                         UserDefaults.standard.set(Array(firstThree),
                                                    forKey: "Notetaker.testSelectedNoteIds")
                         NotificationCenter.default.post(
@@ -1024,7 +1027,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     )
                     panel.presenter.nowPlaying = track1
                     panel.enterRestingMode()
-                    NSLog("Notetaker: TEST stage 1 — track1 with red artwork")
+                    NSLog("nox: TEST stage 1 — track1 with red artwork")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                         let track2NoArt = NowPlayingInfo(
                             title: "Track Two", artist: "Artist Green",
@@ -1033,7 +1036,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             duration: 240, elapsedTime: 0, infoTimestamp: Date()
                         )
                         panel.presenter.nowPlaying = track2NoArt
-                        NSLog("Notetaker: TEST stage 2 — track2 metadata, NO artwork")
+                        NSLog("nox: TEST stage 2 — track2 metadata, NO artwork")
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
                         let track2WithArt = NowPlayingInfo(
@@ -1043,7 +1046,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             duration: 240, elapsedTime: 0, infoTimestamp: Date()
                         )
                         panel.presenter.nowPlaying = track2WithArt
-                        NSLog("Notetaker: TEST stage 3 — track2 same-track with green artwork")
+                        NSLog("nox: TEST stage 3 — track2 same-track with green artwork")
                     }
                 }
                 // Synthetic music + skip flow. Injects a fake
@@ -1081,7 +1084,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // in the Xcode scheme or launch env to exercise the code path.
         if let testURL = ProcessInfo.processInfo.environment["NOTETAKER_TEST_URL"],
            !testURL.isEmpty {
-            NSLog("Notetaker: NOTETAKER_TEST_URL set — firing startDownload in 1.5s for \(testURL)")
+            NSLog("nox: NOTETAKER_TEST_URL set — firing startDownload in 1.5s for \(testURL)")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
                 self?.environment?.videoStore.startDownload(url: testURL)
                 self?.panelController?.showOnTab(.videos)
@@ -1090,7 +1093,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif // DEBUG — closes the BUG-008 gate
 
         // First-launch onboarding. Runs ONCE per machine (gated
-        // by `UserDefaults.onboardingCompletedV1`); subsequent
+        // by `UserDefaults.onboardingCompletedV2`); subsequent
         // launches skip it. Briefly delayed so the panel /
         // resting pill have a chance to settle before the
         // onboarding window claims focus — avoids a flash of
@@ -1129,7 +1132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///    we revert to `.accessory` on close so the Dock icon doesn't
     ///    linger.
     func openSettings() {
-        NSLog("Notetaker: openSettings() entered, env=\(environment != nil), cached=\(settingsWindow != nil)")
+        NSLog("nox: openSettings() entered, env=\(environment != nil), cached=\(settingsWindow != nil)")
         panelController?.hide()
 
         NSApp.setActivationPolicy(.regular)
@@ -1145,7 +1148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         guard let env = environment else {
-            NSLog("Notetaker: openSettings called before environment ready")
+            NSLog("nox: openSettings called before environment ready")
             return
         }
 
@@ -1155,7 +1158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
         window.center()
-        window.setFrameAutosaveName("NotetakerSettingsWindow")
+        window.setFrameAutosaveName("NoxSettingsWindow")
         // Drop back to menu-bar-only when the user closes Settings, so
         // we don't strand a Dock icon for an `LSUIElement` app.
         // Per BUG-015 fix: capture the observer token + clear the
@@ -1179,7 +1182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         settingsWindow = window
         window.makeKeyAndOrderFront(nil)
-        NSLog("Notetaker: settings window ordered front, level=\(window.level.rawValue) visible=\(window.isVisible)")
+        NSLog("nox: settings window ordered front, level=\(window.level.rawValue) visible=\(window.isVisible)")
     }
 
     /// Forward the orchestrator's now-playing snapshot to the panel,
@@ -1352,13 +1355,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func grabCurrentBrowserTab() {
-        NSLog("Notetaker: ⌥⌘V fired")
+        NSLog("nox: ⌥⌘V fired")
         guard let panel = panelController else {
-            NSLog("Notetaker: panel nil")
+            NSLog("nox: panel nil")
             return
         }
         let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "nil"
-        NSLog("Notetaker: frontmost=\(front)")
+        NSLog("nox: frontmost=\(front)")
         // Surface the URL via the pending-video pill (with Download
         // button) instead of starting the download immediately. The
         // user has been explicit: nothing should download until they
@@ -1371,23 +1374,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             if let urlString = await BrowserURLService.currentTabURL(),
                let url = URL(string: urlString) {
-                NSLog("Notetaker: got URL=\(urlString) — surfacing pending-video pill")
+                NSLog("nox: got URL=\(urlString) — surfacing pending-video pill")
                 panel.presenter.setPendingVideo(url)
                 panel.enterRestingMode()
             } else {
-                NSLog("Notetaker: currentTabURL returned nil")
+                NSLog("nox: currentTabURL returned nil")
             }
         }
     }
 
     private func handleNewScreenshot(at url: URL) {
-        NSLog("Notetaker: handleNewScreenshot fired for \(url.path)")
+        NSLog("nox: handleNewScreenshot fired for \(url.path)")
         guard let env = environment, let panel = panelController else {
-            NSLog("Notetaker: handleNewScreenshot bail — env or panel nil")
+            NSLog("nox: handleNewScreenshot bail — env or panel nil")
             return
         }
         guard let data = try? Data(contentsOf: url) else {
-            NSLog("Notetaker: handleNewScreenshot bail — couldn't read data at \(url.path)")
+            NSLog("nox: handleNewScreenshot bail — couldn't read data at \(url.path)")
             return
         }
         let mime = Self.mime(forExtension: url.pathExtension.lowercased())

@@ -34,7 +34,7 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.center()
-        window.setFrameAutosaveName("NotetakerOnboardingWindow")
+        window.setFrameAutosaveName("NoxOnboardingWindow")
         // Dark traffic lights look right on the dark background;
         // light controls would clash. Setting the appearance
         // explicitly makes the lights match regardless of system
@@ -97,7 +97,7 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func completeOnboarding() {
-        UserDefaults.standard.set(true, forKey: "onboardingCompletedV1")
+        UserDefaults.standard.set(true, forKey: "onboardingCompletedV2")
         onComplete()
         window?.performClose(nil)
     }
@@ -109,7 +109,7 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
         // as "shown" so we don't pester them every launch. The
         // unfinished flow is fine; everything's reachable from
         // Settings.
-        UserDefaults.standard.set(true, forKey: "onboardingCompletedV1")
+        UserDefaults.standard.set(true, forKey: "onboardingCompletedV2")
         // Drop back to menu-bar-only mode (matches Settings close
         // behavior so we don't leak a Dock icon).
         NSApp.setActivationPolicy(.accessory)
@@ -127,7 +127,7 @@ final class OnboardingManager {
     /// Returns `true` if the window was shown.
     @discardableResult
     func presentIfNeeded() -> Bool {
-        let alreadyDone = UserDefaults.standard.bool(forKey: "onboardingCompletedV1")
+        let alreadyDone = UserDefaults.standard.bool(forKey: "onboardingCompletedV2")
         DictationOrchestrator.dlog("OnboardingManager.presentIfNeeded — alreadyDone=\(alreadyDone)")
         guard !alreadyDone else {
             return false

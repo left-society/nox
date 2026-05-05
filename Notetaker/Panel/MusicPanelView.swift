@@ -1321,7 +1321,7 @@ struct MusicPanelView: View {
         config.activates = true
         NSWorkspace.shared.openApplication(at: url, configuration: config) { _, error in
             if let error {
-                NSLog("Notetaker: failed to open \(bundleID): \(error)")
+                NSLog("nox: failed to open \(bundleID): \(error)")
             }
         }
     }

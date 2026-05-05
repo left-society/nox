@@ -42,28 +42,28 @@ final class HotkeyService {
         //      that something might be wrong.
         toggleHotkey = HotKey(key: .space, modifiers: [.option])
         toggleHotkey?.keyDownHandler = { [weak self] in
-            NSLog("Notetaker: ⌥Space fired")
+            NSLog("nox: ⌥Space fired")
             self?.observedToggleFire = true
             self?.handler(.togglePanel)
         }
-        NSLog("Notetaker: registered ⌥Space (toggle=\(toggleHotkey != nil))")
+        NSLog("nox: registered ⌥Space (toggle=\(toggleHotkey != nil))")
 
         // Primary: ⌥⌘V — often gets swallowed by Chrome / extensions.
         grabTabHotkey = HotKey(key: .v, modifiers: [.option, .command])
         grabTabHotkey?.keyDownHandler = { [weak self] in
-            NSLog("Notetaker: ⌥⌘V fired")
+            NSLog("nox: ⌥⌘V fired")
             self?.handler(.grabCurrentTab)
         }
-        NSLog("Notetaker: registered ⌥⌘V (grabTab=\(grabTabHotkey != nil))")
+        NSLog("nox: registered ⌥⌘V (grabTab=\(grabTabHotkey != nil))")
 
         // Fallback: ⌃⌥V — almost never bound by other apps, so it's a
         // reliable escape hatch when ⌥⌘V is blocked.
         grabTabAltHotkey = HotKey(key: .v, modifiers: [.control, .option])
         grabTabAltHotkey?.keyDownHandler = { [weak self] in
-            NSLog("Notetaker: ⌃⌥V fired")
+            NSLog("nox: ⌃⌥V fired")
             self?.handler(.grabCurrentTab)
         }
-        NSLog("Notetaker: registered ⌃⌥V (grabTabAlt=\(grabTabAltHotkey != nil))")
+        NSLog("nox: registered ⌃⌥V (grabTabAlt=\(grabTabAltHotkey != nil))")
 
         // Heuristic conflict warning at the 5-minute mark. If
         // the user hasn't triggered the panel by then AND has
@@ -73,7 +73,7 @@ final class HotkeyService {
         // can search for.
         DispatchQueue.main.asyncAfter(deadline: .now() + 300) { [weak self] in
             guard let self, !self.observedToggleFire else { return }
-            NSLog("Notetaker: ⚠️ ⌥Space hasn't fired in 5 min — possible hotkey conflict (Character Viewer or another app may have claimed it). Use the Notetaker menu-bar icon to open the panel manually.")
+            NSLog("nox: ⚠️ ⌥Space hasn't fired in 5 min — possible hotkey conflict (Character Viewer or another app may have claimed it). Use the Notetaker menu-bar icon to open the panel manually.")
         }
     }
 }

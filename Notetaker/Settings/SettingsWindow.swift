@@ -1556,7 +1556,7 @@ enum SettingsWindow {
     /// AppDelegate, which owns the window directly via `NSHostingController`.
     @MainActor
     static func open() {
-        NSLog("Notetaker: SettingsWindow.open invoked, shared=\(AppDelegate.shared != nil) appDelegate=\(NSApp.delegate.map { String(describing: type(of: $0)) } ?? "nil")")
+        NSLog("nox: SettingsWindow.open invoked, shared=\(AppDelegate.shared != nil) appDelegate=\(NSApp.delegate.map { String(describing: type(of: $0)) } ?? "nil")")
         if let app = AppDelegate.shared {
             app.openSettings()
             return
@@ -1565,6 +1565,6 @@ enum SettingsWindow {
             app.openSettings()
             return
         }
-        NSLog("Notetaker: SettingsWindow.open could not reach AppDelegate")
+        NSLog("nox: SettingsWindow.open could not reach AppDelegate")
     }
 }

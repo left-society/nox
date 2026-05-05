@@ -74,7 +74,7 @@ final class NotchSpaceManager {
             kCFAllocatorDefault,
             NSURL(fileURLWithPath: "/System/Library/PrivateFrameworks/SkyLight.framework")
         ) else {
-            NSLog("Notetaker: SkyLight.framework load failed — lock-screen visibility disabled")
+            NSLog("nox: SkyLight.framework load failed — lock-screen visibility disabled")
             return nil
         }
 
@@ -90,7 +90,7 @@ final class NotchSpaceManager {
             let p_hide = CFBundleGetFunctionPointerForName(bundle, "SLSHideSpaces" as CFString),
             let p_add = CFBundleGetFunctionPointerForName(bundle, "SLSSpaceAddWindowsAndRemoveFromSpaces" as CFString)
         else {
-            NSLog("Notetaker: SkyLight symbol resolution failed — lock-screen visibility disabled")
+            NSLog("nox: SkyLight symbol resolution failed — lock-screen visibility disabled")
             return nil
         }
 
@@ -117,7 +117,7 @@ final class NotchSpaceManager {
         // compositor doesn't draw it.
         _ = SLSShowSpaces(connection, [space] as CFArray)
 
-        NSLog("Notetaker: NotchSpaceManager — created space \(space) at level \(Self.notificationCenterAtScreenLockLevel)")
+        NSLog("nox: NotchSpaceManager — created space \(space) at level \(Self.notificationCenterAtScreenLockLevel)")
     }
 
     deinit {
@@ -151,6 +151,6 @@ final class NotchSpaceManager {
             [window.windowNumber] as CFArray,
             0  // mask 0 = ADD ONLY, don't remove from any space
         )
-        NSLog("Notetaker: attached window #\(window.windowNumber) to NotchSpace (additive, mask=0)")
+        NSLog("nox: attached window #\(window.windowNumber) to NotchSpace (additive, mask=0)")
     }
 }

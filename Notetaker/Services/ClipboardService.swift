@@ -174,7 +174,7 @@ final class ScreenshotWatcher: NSObject {
                 markSeen((watchedDir.path as NSString).appendingPathComponent(name))
             }
         }
-        NSLog("Notetaker: ScreenshotWatcher watching \(watchedDir.path), seeded \(seenPaths.count) existing files")
+        NSLog("nox: ScreenshotWatcher watching \(watchedDir.path), seeded \(seenPaths.count) existing files")
 
         // Per BUG-003 fix (matches AirDropWatcher's BUG-001 fix):
         // FSEventStreamContext now uses proper retain/release
@@ -243,13 +243,13 @@ final class ScreenshotWatcher: NSObject {
             0.3,
             createFlags
         ) else {
-            NSLog("Notetaker: ScreenshotWatcher FSEventStreamCreate failed")
+            NSLog("nox: ScreenshotWatcher FSEventStreamCreate failed")
             return
         }
         FSEventStreamSetDispatchQueue(stream, DispatchQueue.main)
         FSEventStreamStart(stream)
         self.stream = stream
-        NSLog("Notetaker: ScreenshotWatcher started FSEvents stream")
+        NSLog("nox: ScreenshotWatcher started FSEvents stream")
     }
 
     func stop() {
@@ -269,7 +269,7 @@ final class ScreenshotWatcher: NSObject {
         guard FileManager.default.fileExists(atPath: path) else { return }
         guard Self.looksLikeScreenshot(path: path) else { return }
         markSeen(path)
-        NSLog("Notetaker: ScreenshotWatcher new screenshot at \(path)")
+        NSLog("nox: ScreenshotWatcher new screenshot at \(path)")
         onNewScreenshot(URL(fileURLWithPath: path))
     }
 

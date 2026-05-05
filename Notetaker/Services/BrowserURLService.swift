@@ -67,11 +67,11 @@ enum BrowserURLService {
         guard let app = NSWorkspace.shared.frontmostApplication,
               let bundleID = app.bundleIdentifier
         else {
-            NSLog("Notetaker: currentTabURL no frontmost app")
+            NSLog("nox: currentTabURL no frontmost app")
             return nil
         }
         guard browserBundleIDs.contains(bundleID) else {
-            NSLog("Notetaker: frontmost not a browser, bundleID=\(bundleID)")
+            NSLog("nox: frontmost not a browser, bundleID=\(bundleID)")
             return nil
         }
 
@@ -79,7 +79,7 @@ enum BrowserURLService {
         // First call prompts the user and returns false until they toggle
         // us on under Privacy & Security > Accessibility.
         if !AXIsProcessTrusted() {
-            NSLog("Notetaker: not AX-trusted — requesting prompt")
+            NSLog("nox: not AX-trusted — requesting prompt")
             let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
             _ = AXIsProcessTrustedWithOptions(opts as CFDictionary)
             return nil
@@ -93,7 +93,7 @@ enum BrowserURLService {
         // watched. Checking the AX element under the cursor is the only
         // way to disambiguate.
         if let hovered = urlUnderMouse() {
-            NSLog("Notetaker: got URL from mouse hover=\(hovered)")
+            NSLog("nox: got URL from mouse hover=\(hovered)")
             return hovered
         }
 
@@ -148,16 +148,16 @@ enum BrowserURLService {
         }
 
         guard let raw = raw, !raw.isEmpty else {
-            NSLog("Notetaker: pasteboard empty after ⌘L⌘C")
+            NSLog("nox: pasteboard empty after ⌘L⌘C")
             return nil
         }
         guard let url = URL(string: raw),
               (url.scheme == "http" || url.scheme == "https")
         else {
-            NSLog("Notetaker: URL bar contents don't parse: \(raw)")
+            NSLog("nox: URL bar contents don't parse: \(raw)")
             return nil
         }
-        NSLog("Notetaker: got URL=\(url.absoluteString)")
+        NSLog("nox: got URL=\(url.absoluteString)")
         return url.absoluteString
     }
 
@@ -179,7 +179,7 @@ enum BrowserURLService {
         var elementRef: AXUIElement?
         let hitResult = AXUIElementCopyElementAtPosition(sys, Float(axX), Float(axY), &elementRef)
         guard hitResult == .success, var current = elementRef else {
-            NSLog("Notetaker: urlUnderMouse hit-test failed code=\(hitResult.rawValue)")
+            NSLog("nox: urlUnderMouse hit-test failed code=\(hitResult.rawValue)")
             return nil
         }
 

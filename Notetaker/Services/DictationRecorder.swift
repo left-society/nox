@@ -241,7 +241,7 @@ final class DictationRecorder: NSObject {
         converter = nil
 
         session.startRunning()
-        NSLog("Notetaker: Dictation recorder started, file=\(url.lastPathComponent)")
+        NSLog("nox: Dictation recorder started, file=\(url.lastPathComponent)")
     }
 
     private func stopRecordingOnSessionQueue() {
@@ -263,7 +263,7 @@ final class DictationRecorder: NSObject {
             if frames >= minimumFrames, let url = url {
                 self?.onRecordingReady?(url)
             } else {
-                NSLog("Notetaker: Dictation discarded — captured \(frames) frames (< 0.3s)")
+                NSLog("nox: Dictation discarded — captured \(frames) frames (< 0.3s)")
                 if let url = url {
                     try? FileManager.default.removeItem(at: url)
                 }
@@ -296,7 +296,7 @@ final class DictationRecorder: NSObject {
         captureFlagLock.unlock()
 
         teardownSessionLocked()
-        NSLog("Notetaker: Dictation recorder error — \(error.localizedDescription)")
+        NSLog("nox: Dictation recorder error — \(error.localizedDescription)")
         DispatchQueue.main.async { [weak self] in
             self?.onRecordingFailure?(error)
         }
@@ -335,7 +335,7 @@ extension DictationRecorder: AVCaptureAudioDataOutputSampleBufferDelegate {
                 try file.write(from: pcmBuffer)
                 self.totalFramesWritten += AVAudioFramePosition(pcmBuffer.frameLength)
             } catch {
-                NSLog("Notetaker: Dictation — write error \(error.localizedDescription)")
+                NSLog("nox: Dictation — write error \(error.localizedDescription)")
             }
         }
     }
@@ -364,7 +364,7 @@ extension DictationRecorder: AVCaptureAudioDataOutputSampleBufferDelegate {
             into: pcmBuffer.mutableAudioBufferList
         )
         guard status == noErr else {
-            NSLog("Notetaker: Dictation — CMSampleBufferCopyPCMDataIntoAudioBufferList failed (OSStatus \(status))")
+            NSLog("nox: Dictation — CMSampleBufferCopyPCMDataIntoAudioBufferList failed (OSStatus \(status))")
             return nil
         }
         return pcmBuffer

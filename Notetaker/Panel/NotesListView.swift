@@ -130,7 +130,7 @@ struct NotesListView: View {
             // Used by the `selectNotes` test pill in AppDelegate
             // to capture the multi-select toolbar in screenshots.
             if let ids = UserDefaults.standard.stringArray(forKey: "Notetaker.testSelectedNoteIds") {
-                NSLog("Notetaker: NotesListView received test selection seed, ids=\(ids.count)")
+                NSLog("nox: NotesListView received test selection seed, ids=\(ids.count)")
                 selectedNoteIds = Set(ids)
             }
         }
@@ -141,7 +141,7 @@ struct NotesListView: View {
             if let ids = UserDefaults.standard.stringArray(forKey: "Notetaker.testSelectedNoteIds"),
                !ids.isEmpty,
                selectedNoteIds.isEmpty {
-                NSLog("Notetaker: NotesListView onAppear seed, ids=\(ids.count)")
+                NSLog("nox: NotesListView onAppear seed, ids=\(ids.count)")
                 selectedNoteIds = Set(ids)
             }
         }
@@ -576,9 +576,9 @@ struct NotesListView: View {
             case .success(let summary):
                 try? noteStore.updateSummary(id: id, summary: summary)
             case .missingAPIKey:
-                NSLog("Notetaker: skipping summarize — no Gemini key")
+                NSLog("nox: skipping summarize — no Gemini key")
             case .failure(let reason):
-                NSLog("Notetaker: summarize failed for \(id): \(reason)")
+                NSLog("nox: summarize failed for \(id): \(reason)")
             }
         }
     }

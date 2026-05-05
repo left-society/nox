@@ -144,11 +144,11 @@ actor LocalWhisperService {
             self.isReady = true
             self.isLoading = false
             let dt = Date().timeIntervalSince(started)
-            NSLog("Notetaker: LocalWhisper ready model=\(model) loadTime=\(String(format: "%.1f", dt))s")
+            NSLog("nox: LocalWhisper ready model=\(model) loadTime=\(String(format: "%.1f", dt))s")
         } catch {
             self.lastError = error
             self.isLoading = false
-            NSLog("Notetaker: LocalWhisper FAILED to load \(model): \(error)")
+            NSLog("nox: LocalWhisper FAILED to load \(model): \(error)")
         }
     }
 
@@ -187,7 +187,7 @@ actor LocalWhisperService {
             decodeOptions: options
         )
         let dt = Date().timeIntervalSince(started)
-        NSLog("Notetaker: LocalWhisper transcribe done in \(String(format: "%.2f", dt))s")
+        NSLog("nox: LocalWhisper transcribe done in \(String(format: "%.2f", dt))s")
 
         let text = results.map { $0.text }.joined(separator: " ")
         return text.trimmingCharacters(in: .whitespacesAndNewlines)

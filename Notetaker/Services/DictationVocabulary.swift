@@ -34,7 +34,7 @@ final class DictationVocabulary {
     // even on a fresh install before the user has typed anything.
 
     private let appTerms: [String] = [
-        "Notetaker", "Alcove", "Tahoe",
+        "nox", "Alcove", "Tahoe",
         "MediaRemote", "AppleScript", "Spotify", "Apple Music",
         "AirPods", "AirDrop", "Whisper",
         "macOS", "Sonoma", "Ventura"

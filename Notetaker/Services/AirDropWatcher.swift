@@ -82,7 +82,7 @@ final class AirDropWatcher: NSObject {
                 }
             }
         }
-        NSLog("Notetaker: AirDropWatcher watching \(watchedDirectories.count) dirs, seeded \(seenPaths.count) existing files")
+        NSLog("nox: AirDropWatcher watching \(watchedDirectories.count) dirs, seeded \(seenPaths.count) existing files")
 
         // Per BUG-001 fix: FSEventStreamContext now uses proper
         // retain/release callbacks so FSEventStream holds a
@@ -162,13 +162,13 @@ final class AirDropWatcher: NSObject {
             0.3,
             createFlags
         ) else {
-            NSLog("Notetaker: AirDropWatcher FSEventStreamCreate failed")
+            NSLog("nox: AirDropWatcher FSEventStreamCreate failed")
             return
         }
         FSEventStreamSetDispatchQueue(stream, DispatchQueue.main)
         FSEventStreamStart(stream)
         streams.append(stream)
-        NSLog("Notetaker: AirDropWatcher started FSEvents stream")
+        NSLog("nox: AirDropWatcher started FSEvents stream")
     }
 
     /// Stop the watcher. Idempotent.
@@ -197,12 +197,12 @@ final class AirDropWatcher: NSObject {
             // re-check if we previously failed to identify it AS an
             // AirDrop file (still in pendingChecks).
             if pendingChecks[path] != nil {
-                NSLog("Notetaker: AirDropWatcher re-checking pending file \(basename)")
+                NSLog("nox: AirDropWatcher re-checking pending file \(basename)")
                 checkAirDrop(path: path)
             }
             return
         }
-        NSLog("Notetaker: AirDropWatcher new file \(basename)")
+        NSLog("nox: AirDropWatcher new file \(basename)")
         markSeen(path)
         checkAirDrop(path: path)
     }
@@ -251,7 +251,7 @@ final class AirDropWatcher: NSObject {
             // to 3 times at 0.5s intervals before giving up.
             let attempts = pendingChecks[path] ?? 0
             if attempts >= 3 {
-                NSLog("Notetaker: AirDropWatcher giving up on \(basename) — no quarantine after 3 retries")
+                NSLog("nox: AirDropWatcher giving up on \(basename) — no quarantine after 3 retries")
                 pendingChecks.removeValue(forKey: path)
                 return
             }
@@ -263,7 +263,7 @@ final class AirDropWatcher: NSObject {
         }
 
         pendingChecks.removeValue(forKey: path)
-        NSLog("Notetaker: AirDropWatcher quarantine for \(basename): \(quarantine)")
+        NSLog("nox: AirDropWatcher quarantine for \(basename): \(quarantine)")
 
         // Quarantine format: FLAGS;hex_timestamp;Agent;UUID
         // Confirmed on macOS 26 (Tahoe): "0081;...;sharingd;UUID"
@@ -272,11 +272,11 @@ final class AirDropWatcher: NSObject {
         // with the same pill.
         let lower = quarantine.lowercased()
         guard lower.contains("sharingd") || lower.contains("airdrop") else {
-            NSLog("Notetaker: AirDropWatcher \(basename) not from AirDrop, ignoring")
+            NSLog("nox: AirDropWatcher \(basename) not from AirDrop, ignoring")
             return
         }
 
-        NSLog("Notetaker: AirDropWatcher firing pill for \(basename)")
+        NSLog("nox: AirDropWatcher firing pill for \(basename)")
         let url = URL(fileURLWithPath: path)
         onArrival?(url)
     }

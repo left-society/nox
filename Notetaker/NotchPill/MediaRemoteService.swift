@@ -235,11 +235,11 @@ final class MediaRemoteService {
 
         let url = URL(fileURLWithPath: "/System/Library/PrivateFrameworks/MediaRemote.framework")
         guard let cfBundle = CFBundleCreate(kCFAllocatorDefault, url as CFURL) else {
-            NSLog("Notetaker: MediaRemote framework not found at \(url.path)")
+            NSLog("nox: MediaRemote framework not found at \(url.path)")
             return
         }
         guard CFBundleLoadExecutable(cfBundle) else {
-            NSLog("Notetaker: MediaRemote framework failed to load")
+            NSLog("nox: MediaRemote framework failed to load")
             return
         }
         bundle = cfBundle
@@ -275,7 +275,7 @@ final class MediaRemoteService {
         if let ptr = CFBundleGetFunctionPointerForName(cfBundle, "MRMediaRemoteGetNowPlayingApplicationDisplayID" as CFString) {
             getNowPlayingApplicationDisplayID = unsafeBitCast(ptr, to: (@convention(c) (DispatchQueue, @escaping (String?) -> Void) -> Void).self)
         }
-        NSLog("Notetaker: MediaRemote symbols — getInfo=\(getNowPlayingInfo != nil) getIsPlaying=\(getIsPlaying != nil) sendCommand=\(sendCommand != nil) registerNotifs=\(registerForNotifications != nil) getDisplayID=\(getNowPlayingApplicationDisplayID != nil)")
+        NSLog("nox: MediaRemote symbols — getInfo=\(getNowPlayingInfo != nil) getIsPlaying=\(getIsPlaying != nil) sendCommand=\(sendCommand != nil) registerNotifs=\(registerForNotifications != nil) getDisplayID=\(getNowPlayingApplicationDisplayID != nil)")
 
         // Subscribe to the three notifications we care about. Names are
         // stable since macOS 10.13. We listen on DistributedNotificationCenter
@@ -497,7 +497,7 @@ final class MediaRemoteService {
             )
             await MainActor.run {
                 guard let self else { return }
-                NSLog("Notetaker: initial AppleScript probe \(appName) title=\"\(title)\" artist=\"\(artist)\" state=\(state)")
+                NSLog("nox: initial AppleScript probe \(appName) title=\"\(title)\" artist=\"\(artist)\" state=\(state)")
                 self.applyAppNotification(note, sourceBundleID: sourceBundleID)
             }
         }
@@ -526,7 +526,7 @@ final class MediaRemoteService {
         let stateRaw = (userInfo["Player State"] as? String) ?? ""
         let isPlaying = stateRaw.caseInsensitiveCompare("Playing") == .orderedSame
 
-        NSLog("Notetaker: app-notif source=\(sourceBundleID) title=\"\(title)\" artist=\"\(artist)\" state=\(stateRaw)")
+        NSLog("nox: app-notif source=\(sourceBundleID) title=\"\(title)\" artist=\"\(artist)\" state=\(stateRaw)")
 
         // Stopped state with no track payload → schedule a deferred
         // session-end clear (500ms grace period). Don't tear down
@@ -833,13 +833,13 @@ final class MediaRemoteService {
         }
         let source = "tell application \"\(app)\" to \(verb)"
         guard let script = NSAppleScript(source: source) else {
-            NSLog("Notetaker: AppleScript construction failed for \(app)/\(verb)")
+            NSLog("nox: AppleScript construction failed for \(app)/\(verb)")
             return
         }
         var error: NSDictionary?
         script.executeAndReturnError(&error)
         if let error {
-            NSLog("Notetaker: AppleScript error for \(app)/\(verb): \(error)")
+            NSLog("nox: AppleScript error for \(app)/\(verb): \(error)")
             // Fall back to MediaRemote so a denied automation prompt
             // doesn't leave the user with totally-broken transport.
             _ = sendCommand?(command.rawValue, nil)
@@ -855,7 +855,7 @@ final class MediaRemoteService {
         guard let getInfo = getNowPlayingInfo else {
             // Without GetNowPlayingInfo there's nothing to publish.
             // This is the post-15.4 restricted path — fail closed.
-            NSLog("Notetaker: MediaRemote.refresh() bailed — getNowPlayingInfo is nil (likely restricted on this macOS)")
+            NSLog("nox: MediaRemote.refresh() bailed — getNowPlayingInfo is nil (likely restricted on this macOS)")
             return
         }
 
@@ -876,7 +876,7 @@ final class MediaRemoteService {
 
     private func applyInfoDict(_ dict: [String: Any]) {
         let keysPreview = dict.keys.sorted().prefix(8).joined(separator: ",")
-        NSLog("Notetaker: MediaRemote.applyInfoDict empty=\(dict.isEmpty) keys=\(keysPreview)")
+        NSLog("nox: MediaRemote.applyInfoDict empty=\(dict.isEmpty) keys=\(keysPreview)")
         // Empty dict → treat as "nothing playing". Some apps (Safari
         // tabs) clear the dict instead of explicitly publishing
         // isPlaying=false, so we have to handle this edge case.
@@ -1108,7 +1108,7 @@ final class MediaRemoteService {
             )
         }
 
-        NSLog("Notetaker: MediaRemote.publish title=\"\(info.title)\" artist=\"\(info.artist)\" isPlaying=\(info.isPlaying) hasArt=\(info.artworkData != nil) source=\(info.sourceBundleID ?? "nil")")
+        NSLog("nox: MediaRemote.publish title=\"\(info.title)\" artist=\"\(info.artist)\" isPlaying=\(info.isPlaying) hasArt=\(info.artworkData != nil) source=\(info.sourceBundleID ?? "nil")")
         // Dedup — many notifications fire spurious refreshes (every
         // ~1s for elapsed-time updates on some sources). Without this
         // check the HUD would re-bloom every second during playback.
@@ -1435,7 +1435,7 @@ final class MediaRemoteService {
                   data.count > 5000 else {
                 return nil
             }
-            NSLog("Notetaker: YouTube thumb fetched videoID=\(videoID) bytes=\(data.count)")
+            NSLog("nox: YouTube thumb fetched videoID=\(videoID) bytes=\(data.count)")
             return data
         } catch {
             return nil
@@ -1496,7 +1496,7 @@ final class MediaRemoteService {
                   let results = json["results"] as? [[String: Any]],
                   let first = results.first,
                   let artUrl100 = first["artworkUrl100"] as? String else {
-                NSLog("Notetaker: artwork lookup miss for \"\(term)\"")
+                NSLog("nox: artwork lookup miss for \"\(term)\"")
                 return nil
             }
             // 100×100 → 600×600. iTunes serves the larger asset off the
@@ -1504,10 +1504,10 @@ final class MediaRemoteService {
             let upscaled = artUrl100.replacingOccurrences(of: "100x100bb", with: "600x600bb")
             guard let imageURL = URL(string: upscaled) else { return nil }
             let (imgData, _) = try await artworkURLSession.data(from: imageURL)
-            NSLog("Notetaker: artwork lookup hit for \"\(term)\" (\(imgData.count) bytes)")
+            NSLog("nox: artwork lookup hit for \"\(term)\" (\(imgData.count) bytes)")
             return imgData
         } catch {
-            NSLog("Notetaker: artwork lookup error for \"\(term)\": \(error)")
+            NSLog("nox: artwork lookup error for \"\(term)\": \(error)")
             return nil
         }
     }
@@ -1553,7 +1553,7 @@ final class MediaRemoteService {
             guard let osa = NSAppleScript(source: script) else { return nil }
             let result = osa.executeAndReturnError(&error)
             if let err = error {
-                NSLog("Notetaker: Spotify artwork-url AS error: \(err)")
+                NSLog("nox: Spotify artwork-url AS error: \(err)")
                 return nil
             }
             guard let str = result.stringValue, !str.isEmpty else { return nil }
@@ -1573,10 +1573,10 @@ final class MediaRemoteService {
         do {
             let (imgData, _) = try await artworkURLSession.data(from: url)
             guard !imgData.isEmpty else { return nil }
-            NSLog("Notetaker: Spotify AS artwork hit (\(imgData.count) bytes) URL=\(httpsURL)")
+            NSLog("nox: Spotify AS artwork hit (\(imgData.count) bytes) URL=\(httpsURL)")
             return imgData
         } catch {
-            NSLog("Notetaker: Spotify AS artwork fetch error: \(error)")
+            NSLog("nox: Spotify AS artwork fetch error: \(error)")
             return nil
         }
     }

@@ -39,12 +39,9 @@ final class ImageStore: ObservableObject {
         if let rootURL = rootURL {
             self.rootURL = rootURL
         } else {
-            self.rootURL = try FileManager.default.url(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: true
-            ).appendingPathComponent("Notetaker", isDirectory: true)
+            // Routed through AppEnvironment so the Notetaker → nox
+            // legacy-folder migration has a single source of truth.
+            self.rootURL = try AppEnvironment.applicationSupportDirectory()
         }
         try FileManager.default.createDirectory(
             at: self.rootURL.appendingPathComponent("images"),

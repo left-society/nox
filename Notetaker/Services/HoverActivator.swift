@@ -163,7 +163,7 @@ final class HoverActivator {
                 self?.cachedHotZone = nil
                 self?.isInsideZone = false
                 self?.cancelTease()
-                NSLog("Notetaker: HoverActivator screen params changed, hot zone invalidated")
+                NSLog("nox: HoverActivator screen params changed, hot zone invalidated")
             }
         }
 
@@ -214,7 +214,7 @@ final class HoverActivator {
             }
         }
 
-        NSLog("Notetaker: HoverActivator started zone=\(cachedHotZone.map { "\($0)" } ?? "nil")")
+        NSLog("nox: HoverActivator started zone=\(cachedHotZone.map { "\($0)" } ?? "nil")")
     }
 
     /// Tear down the global monitor and any pending dwell work. Idempotent.
@@ -314,7 +314,7 @@ final class HoverActivator {
             let work = DispatchWorkItem { [weak self] in
                 guard let self, self.isInsideZone, !self.teaseFired else { return }
                 self.teaseFired = true
-                NSLog("Notetaker: HoverActivator → tease")
+                NSLog("nox: HoverActivator → tease")
                 self.onTeaseStart()
                 self.armDwellTimer()
             }
@@ -380,7 +380,7 @@ final class HoverActivator {
             self.teaseFired = false
             self.dwellWorkItem = nil
             self.cooldownUntil = Date().addingTimeInterval(self.cooldownSeconds)
-            NSLog("Notetaker: HoverActivator → activate")
+            NSLog("nox: HoverActivator → activate")
             self.onActivate()
         }
         dwellWorkItem = work

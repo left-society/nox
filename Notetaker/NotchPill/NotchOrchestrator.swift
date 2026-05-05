@@ -175,7 +175,7 @@ final class NotchOrchestrator {
         config.activates = true
         NSWorkspace.shared.openApplication(at: url, configuration: config) { _, error in
             if let error {
-                NSLog("Notetaker: failed to open \(bundleID): \(error)")
+                NSLog("nox: failed to open \(bundleID): \(error)")
             }
         }
     }
@@ -455,7 +455,7 @@ final class NotchOrchestrator {
         // audio watcher so its richer payloads suppress the
         // fallback gates from the first emit.
         let adapterStarted = mediaRemoteAdapter.start()
-        NSLog("Notetaker: MRA adapter start \(adapterStarted ? "succeeded" : "failed — falling back to dlopen path")")
+        NSLog("nox: MRA adapter start \(adapterStarted ? "succeeded" : "failed — falling back to dlopen path")")
         browserProbe.start()
         audioWatcher.start()
         lockScreenWatcher.start()

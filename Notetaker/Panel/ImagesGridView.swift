@@ -750,12 +750,12 @@ struct ImageCell: View {
                     ClipboardService.copy(text: text)
                     HapticFeedback.alignment()
                 case .success:
-                    NSLog("Notetaker: Gemini extract returned no messages for \(record.id)")
+                    NSLog("nox: Gemini extract returned no messages for \(record.id)")
                     HapticFeedback.levelChange()
                 case .missingAPIKey:
                     promptForGeminiKey()
                 case .failure(let message):
-                    NSLog("Notetaker: Gemini extract failed: \(message)")
+                    NSLog("nox: Gemini extract failed: \(message)")
                     HapticFeedback.levelChange()
                 }
             }

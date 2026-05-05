@@ -65,7 +65,7 @@ enum SystemAudioMuter {
     /// Read the device's transport type. We use this to detect
     /// Bluetooth output (headphones / wireless speakers) — those
     /// devices have notoriously unreliable volume-property sync
-    /// with macOS. Verified via /tmp/notetaker-mute.log on the
+    /// with macOS. Verified via /tmp/nox-mute.log on the
     /// user's soundcore Space One: we write vol=1.0, postVol
     /// reads back 1.0 confirming the write — yet 4 seconds later
     /// the next silence() read is back at 0.0. The device's
@@ -244,7 +244,7 @@ enum SystemAudioMuter {
         // honor CoreAudio volume writes — the property API
         // accepts the write and reports the new value, but the
         // device's internal state often reverts within seconds.
-        // Verified end-to-end in /tmp/notetaker-mute.log on the
+        // Verified end-to-end in /tmp/nox-mute.log on the
         // user's soundcore Space One:
         //   silence wrote vol=0 successfully
         //   restore wrote vol=1.0 successfully (postVol=1.0 confirmed)
@@ -300,7 +300,7 @@ enum SystemAudioMuter {
     }
 
     private static func audioLog(_ msg: String) {
-        let path = "/tmp/notetaker-mute.log"
+        let path = "/tmp/nox-mute.log"
         let ts = ISO8601DateFormatter().string(from: Date())
         let line = "[\(ts)] \(msg)\n"
         if let data = line.data(using: .utf8) {

@@ -24,11 +24,11 @@ enum AirDropService {
     @discardableResult
     static func send(urls: [URL]) -> Bool {
         guard !urls.isEmpty else {
-            NSLog("Notetaker: AirDropService.send — no URLs supplied")
+            NSLog("nox: AirDropService.send — no URLs supplied")
             return false
         }
         guard let service = NSSharingService(named: .sendViaAirDrop) else {
-            NSLog("Notetaker: AirDropService.send — service unavailable")
+            NSLog("nox: AirDropService.send — service unavailable")
             return false
         }
         // canPerform() pre-flights the items. If macOS isn't going to
@@ -36,10 +36,10 @@ enum AirDropService {
         // drop), better to know now than to enqueue a sheet that
         // immediately errors.
         guard service.canPerform(withItems: urls) else {
-            NSLog("Notetaker: AirDropService.send — canPerform=false for \(urls.count) item(s)")
+            NSLog("nox: AirDropService.send — canPerform=false for \(urls.count) item(s)")
             return false
         }
-        NSLog("Notetaker: AirDropService.send → \(urls.count) item(s)")
+        NSLog("nox: AirDropService.send → \(urls.count) item(s)")
         service.perform(withItems: urls)
         return true
     }
@@ -68,7 +68,7 @@ enum AirDropService {
         do {
             try data.write(to: url, options: .atomic)
         } catch {
-            NSLog("Notetaker: AirDropService.send(data:) — write failed: \(error.localizedDescription)")
+            NSLog("nox: AirDropService.send(data:) — write failed: \(error.localizedDescription)")
             return false
         }
         return send(url: url)

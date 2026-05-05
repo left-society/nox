@@ -121,7 +121,7 @@ final class MediaRemoteAdapterService {
         // Resources directory; the build's "Copy Bundle Resources"
         // phase puts them there.
         guard let resourceURL = Bundle.main.resourceURL else {
-            NSLog("Notetaker: MRA — Bundle.main.resourceURL is nil")
+            NSLog("nox: MRA — Bundle.main.resourceURL is nil")
             return false
         }
         // Resolve resource paths. Xcode's "Copy Bundle Resources"
@@ -139,11 +139,11 @@ final class MediaRemoteAdapterService {
             return nil
         }
         guard let scriptURL = resolve("mediaremote-adapter.pl") else {
-            NSLog("Notetaker: MRA — script not found in Resources/")
+            NSLog("nox: MRA — script not found in Resources/")
             return false
         }
         guard let frameworkURL = resolve("MediaRemoteAdapter.framework") else {
-            NSLog("Notetaker: MRA — framework not found in Resources/")
+            NSLog("nox: MRA — framework not found in Resources/")
             return false
         }
 
@@ -218,11 +218,11 @@ final class MediaRemoteAdapterService {
             let chunk = handle.availableData
             guard !chunk.isEmpty,
                   let str = String(data: chunk, encoding: .utf8) else { return }
-            NSLog("Notetaker: MRA stderr: \(str.trimmingCharacters(in: .whitespacesAndNewlines))")
+            NSLog("nox: MRA stderr: \(str.trimmingCharacters(in: .whitespacesAndNewlines))")
         }
 
         process.terminationHandler = { [weak self] proc in
-            NSLog("Notetaker: MRA perl exited status=\(proc.terminationStatus) reason=\(proc.terminationReason.rawValue)")
+            NSLog("nox: MRA perl exited status=\(proc.terminationStatus) reason=\(proc.terminationReason.rawValue)")
             Task { @MainActor in
                 self?.isRunning = false
             }
@@ -231,7 +231,7 @@ final class MediaRemoteAdapterService {
         do {
             try process.run()
         } catch {
-            NSLog("Notetaker: MRA failed to spawn perl: \(error)")
+            NSLog("nox: MRA failed to spawn perl: \(error)")
             return false
         }
 
@@ -239,7 +239,7 @@ final class MediaRemoteAdapterService {
         self.stdoutPipe = stdoutPipe
         self.stderrPipe = stderrPipe
         self.isRunning = true
-        NSLog("Notetaker: MRA started (pid=\(process.processIdentifier))")
+        NSLog("nox: MRA started (pid=\(process.processIdentifier))")
         return true
     }
 
@@ -299,11 +299,11 @@ final class MediaRemoteAdapterService {
         onSnapshot?(info)
     }
 
-    /// Diagnostic file logger to /tmp/notetaker-mra.log. Re-enabled
+    /// Diagnostic file logger to /tmp/nox-mra.log. Re-enabled
     /// 2026-04-29 to trace why Spotify thumbnails aren't reaching
     /// the pill. Will be reset to no-op once we find the drop point.
     static func fileLog(_ message: String) {
-        let path = "/tmp/notetaker-mra.log"
+        let path = "/tmp/nox-mra.log"
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let line = "[\(timestamp)] \(message)\n"
         if let data = line.data(using: .utf8) {

@@ -924,7 +924,7 @@ final class PanelWindowController {
         // `KeyablePanel.canBecomeKey` is true), so the search bar still
         // accepts input — it just doesn't grab focus the moment we appear.
         let screens = NSScreen.screens.map { "\($0.frame)" }.joined(separator: " | ")
-        NSLog("Notetaker: show() pill=\(pillFrame) slab=\(slabFrame) main=\(NSScreen.main?.frame ?? .zero) screens=\(screens)")
+        NSLog("nox: show() pill=\(pillFrame) slab=\(slabFrame) main=\(NSScreen.main?.frame ?? .zero) screens=\(screens)")
 
         isVisible = true
 
@@ -1020,10 +1020,10 @@ final class PanelWindowController {
             let activeDownload = self.environment.videoStore.jobs
                 .contains { !$0.state.isTerminal }
             if activeDownload {
-                NSLog("Notetaker: global mouse-down → keep panel up (download in flight)")
+                NSLog("nox: global mouse-down → keep panel up (download in flight)")
                 return
             }
-            NSLog("Notetaker: global mouse-down → hide")
+            NSLog("nox: global mouse-down → hide")
             self.hide()
         }
 
@@ -1164,7 +1164,7 @@ final class PanelWindowController {
     }
 
     func hide() {
-        NSLog("Notetaker: hide() called, isVisible=\(isVisible)")
+        NSLog("nox: hide() called, isVisible=\(isVisible)")
         guard isVisible else { return }
         // Snapshot the clipboard so the next show() can tell whether
         // the user copied something new in between.
@@ -1467,7 +1467,7 @@ final class PanelWindowController {
     @discardableResult
     private func applyAutoRouting() -> Bool {
         let decision = ClipboardRouter.decide()
-        NSLog("Notetaker: auto-route decision = \(decision)")
+        NSLog("nox: auto-route decision = \(decision)")
         switch decision {
         case .none:
             return false
@@ -1477,7 +1477,7 @@ final class PanelWindowController {
                 try environment.noteStore.updateBody(id: note.id, body: text)
                 presenter.activeTab = .notes
             } catch {
-                NSLog("Notetaker: auto-route notes failed: \(error)")
+                NSLog("nox: auto-route notes failed: \(error)")
             }
         case .images(let data, let mime):
             environment.imageStore.saveImageDeferred(
@@ -2147,7 +2147,7 @@ final class PanelWindowController {
         // flare that reads as a "triangle" at this small width.
         presenter.isAtNotchHidden = true
 
-        NSLog("Notetaker: parkAtNotchHidden — panel alive at \(target)")
+        NSLog("nox: parkAtNotchHidden — panel alive at \(target)")
         // Mirror to dlog so we can verify from /tmp/notetaker-dictation.log
         // whether the park ran (NSLog content is private-redacted in
         // unified logging by default, so it never shows in `log show`).
@@ -2321,7 +2321,7 @@ final class PanelWindowController {
             self?.updateShadowPath()
         }
 
-        NSLog("Notetaker: enterRestingMode — animating notchHidden → pillFrame=\(pillFrame)")
+        NSLog("nox: enterRestingMode — animating notchHidden → pillFrame=\(pillFrame)")
     }
 
     /// Tear down the persistent pill — music has stopped or the source
@@ -2378,7 +2378,7 @@ final class PanelWindowController {
             guard let self else { return }
             self.currentSpring = nil
             self.panel.setFrame(target, display: true)
-            NSLog("Notetaker: exitRestingMode — settled at notch-hidden (alive as drag target)")
+            NSLog("nox: exitRestingMode — settled at notch-hidden (alive as drag target)")
         }
     }
 

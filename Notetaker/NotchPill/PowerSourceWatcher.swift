@@ -77,7 +77,7 @@ final class PowerSourceWatcher {
             // Source creation failed — release the +1 we just took
             // so `self` doesn't leak.
             unmanaged.release()
-            NSLog("Notetaker: PowerSourceWatcher failed to create runloop source")
+            NSLog("nox: PowerSourceWatcher failed to create runloop source")
             return
         }
 

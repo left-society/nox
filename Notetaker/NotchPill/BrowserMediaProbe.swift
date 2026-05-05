@@ -100,7 +100,7 @@ final class BrowserMediaProbe {
         // suspend the timer during system UI interactions.
         RunLoop.main.add(t, forMode: .common)
         timer = t
-        NSLog("Notetaker: BrowserMediaProbe started (interval=\(interval)s)")
+        NSLog("nox: BrowserMediaProbe started (interval=\(interval)s)")
     }
 
     func stop() {
@@ -192,7 +192,7 @@ final class BrowserMediaProbe {
             elapsedTime: nil,
             infoTimestamp: Date()
         )
-        NSLog("Notetaker: BrowserMediaProbe → \(bundleID) title=\"\(cleaned)\"")
+        NSLog("nox: BrowserMediaProbe → \(bundleID) title=\"\(cleaned)\"")
         onChange?(info)
     }
 
