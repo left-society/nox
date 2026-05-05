@@ -5,5 +5,18 @@
         <link>https://left-society.github.io/nox/appcast.xml</link>
         <description>nox app updates</description>
         <language>en</language>
+        <item>
+            <title>nox 1.4</title>
+            <pubDate>Wed, 06 May 2026 02:51:14 +0600</pubDate>
+            <sparkle:version>5</sparkle:version>
+            <sparkle:shortVersionString>1.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://left-society.github.io/nox/release-notes-1.4.html</sparkle:releaseNotesLink>
+            <enclosure
+                url="https://github.com/left-society/nox/releases/download/v1.4/nox.1.4.dmg"
+                length="75032843"
+                type="application/octet-stream"
+                sparkle:edSignature="2ONi0kiIothiTjpeZhaLMshTQICYMGKCUPb0J83FwdinuEDCaAD3PsjqFEpq6raYL3bJ30/EGP96uFycphpgCQ==" />
+        </item>
     </channel>
 </rss>
