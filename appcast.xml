@@ -2,16 +2,29 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
     <channel>
         <title>nox</title>
-        <link>https://trynox.app/appcast.xml</link>
+        <link>https://left-society.github.io/nox/appcast.xml</link>
         <description>nox app updates</description>
         <language>en</language>
+        <item>
+            <title>nox 1.5</title>
+            <pubDate>Wed, 06 May 2026 04:19:13 +0600</pubDate>
+            <sparkle:version>6</sparkle:version>
+            <sparkle:shortVersionString>1.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://trynox.app/release-notes-1.5.html</sparkle:releaseNotesLink>
+            <enclosure
+                url="https://github.com/left-society/nox/releases/download/v1.5/nox.1.5.dmg"
+                length="74369794"
+                type="application/octet-stream"
+                sparkle:edSignature="N7ayA/o/xLhC3oosOD4Tz1yfYWg1cno/oNi9ACGII51DKASupbILxayfANhBOM21D0nrMRSnHBxV0k/CwBwaBw==" />
+        </item>
         <item>
             <title>nox 1.4</title>
             <pubDate>Wed, 06 May 2026 02:51:14 +0600</pubDate>
             <sparkle:version>5</sparkle:version>
             <sparkle:shortVersionString>1.4</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://trynox.app/release-notes-1.4.html</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink>https://left-society.github.io/nox/release-notes-1.4.html</sparkle:releaseNotesLink>
             <enclosure
                 url="https://github.com/left-society/nox/releases/download/v1.4/nox.1.4.dmg"
                 length="75032843"
