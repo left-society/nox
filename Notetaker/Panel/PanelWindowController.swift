@@ -518,6 +518,27 @@ final class PanelWindowController {
                     presenter.activeTab = .files
                     self.show(mode: .hover)
                 }
+                // **Drop-freeze fix.** During a system drag-drop
+                // session, the cursor's events are delivered through
+                // NSDraggingDestination — NOT through the local/global
+                // NSEvent.mouseMoved monitors that drive
+                // hoverHasEnteredPanel. So the panel auto-expands on
+                // drag-enter but `hoverHasEnteredPanel` stays false for
+                // the whole drag. After the drag ends and the cursor
+                // moves elsewhere, the hover-leave global monitor
+                // short-circuits on `guard hoverHasEnteredPanel else {
+                // return }`, hide() never schedules, and the panel
+                // sits frozen with the picker overlay on screen.
+                //
+                // Treating drag-enter as an explicit panel-entry plugs
+                // the gap: the eventual cursor-out then runs through
+                // the normal hover-leave path and dismisses the panel
+                // cleanly. Only flips on `flag == true` so a spurious
+                // exit-debounce commit can't accidentally arm leave-
+                // dismissal mid-drag.
+                if flag, let self {
+                    self.hoverHasEnteredPanel = true
+                }
             },
             onZoneHover: { [weak presenter] zone in
                 presenter?.dropPickerHoveredZone = zone
@@ -1160,6 +1181,17 @@ final class PanelWindowController {
         // animates OUT in parallel with the close morph (close was
         // already smooth without sequencing — opposite of open).
         presenter.cascadeReady = false
+        // Backstop drop-picker state. The picker visibility gate is
+        // `dropPickerActive && isShown` — once isShown flips false the
+        // overlay hides anyway, but if a drag's exit-debounce ever got
+        // canceled mid-cycle by a frame-morph re-enter, dropPickerActive
+        // can stick true. Wiping the slot on every hide() guarantees
+        // the next show() doesn't briefly render a stale picker before
+        // a fresh drag arrives.
+        presenter.dropPickerActive = false
+        presenter.dropPickerHoveredZone = nil
+        presenter.dropPickerFileCount = 0
+        presenter.isDropTargeted = false
         isVisible = false
 
         // Music-aware close target.
