@@ -91,9 +91,11 @@ else
     cat "$DIST_DIR/notarize-$VERSION.json"
     exit 1
   fi
-  STATUS="$(/usr/libexec/PlistBuddy -c 'Print :status' /dev/stdin \
-    <<< "$(cat "$DIST_DIR/notarize-$VERSION.json")" 2>/dev/null \
-    || python3 -c 'import sys,json;print(json.load(sys.stdin).get("status",""))' < "$DIST_DIR/notarize-$VERSION.json")"
+  # notarytool emits JSON, not plist. PlistBuddy can't parse JSON —
+  # the previous "PlistBuddy || python3" fallback mixed PlistBuddy's
+  # error message ("Error Reading File: /dev/stdin") with python's
+  # output, breaking the equality check below. Just use python.
+  STATUS="$(python3 -c 'import sys,json;print(json.load(sys.stdin).get("status",""))' < "$DIST_DIR/notarize-$VERSION.json")"
   if [ "$STATUS" != "Accepted" ]; then
     echo "✗ notarization status: $STATUS"
     cat "$DIST_DIR/notarize-$VERSION.json"

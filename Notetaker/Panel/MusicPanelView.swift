@@ -739,21 +739,32 @@ struct MusicPanelView: View {
 
     @ViewBuilder
     private func titleText(_ value: String) -> some View {
-        // .fixedSize(horizontal: true, vertical: false) — the text
-        // renders at its full intrinsic width regardless of parent
-        // bounds. Combined with .clipped() on the parent VStack,
-        // the right-side overflow is just visually clipped — there's
-        // no per-frame truncation re-evaluation as panel.frame
-        // animates. That's what was creating the "writing coming
-        // from right side" appearance: lineLimit(1).truncationMode
-        // had to recompute the truncation point every CADisplayLink
-        // tick as available width grew.
+        // Plain truncating text — `lineLimit(1)` + `truncationMode(.tail)`
+        // respect parent width and ellipsize cleanly.
+        //
+        // 2026-05-06 REGRESSION FIX: previously this used
+        // `.fixedSize(horizontal: true, vertical: false)` to dodge
+        // per-frame truncation re-evaluation during the panel-frame
+        // morph (the "writing comes from right side" effect). The
+        // tradeoff turned out catastrophic: any title longer than
+        // the visible width forced the WHOLE music card to lay out
+        // at the title's full intrinsic width, overflowing the
+        // panel. Long YouTube video titles broke the card's
+        // background, pushed artwork off-screen, and stranded the
+        // transport row at the wrong width — user reported the
+        // entire music UI as "looking like this and full of lags."
+        //
+        // The morph-time truncation jitter is a much smaller cost
+        // than a broken layout for any non-trivial title, so we
+        // take it. If it ever becomes visible again, the right
+        // counter is to gate text opacity on `isMorphing` (hide
+        // during morph, fade in after settle) — NOT fixedSize,
+        // which trades morph jitter for permanent layout breakage.
         let base = Text(value)
             .font(.system(size: 16, weight: .semibold))
             .foregroundStyle(.white)
             .lineLimit(1)
             .truncationMode(.tail)
-            .fixedSize(horizontal: true, vertical: false)
             .help(value)
         if #available(macOS 14.0, *) {
             base.contentTransition(.opacity)
@@ -764,12 +775,12 @@ struct MusicPanelView: View {
 
     @ViewBuilder
     private func artistText(text: String, isHint: Bool, artist: String) -> some View {
+        // No fixedSize — see titleText() for the regression rationale.
         let base = Text(text)
             .font(.system(size: 13, weight: .medium))
             .foregroundStyle(.white.opacity(isHint ? 0.55 : 0.85))
             .lineLimit(1)
             .truncationMode(.tail)
-            .fixedSize(horizontal: true, vertical: false)
             .help(artist)
             .opacity(isHint || !artist.isEmpty ? 1 : 0)
         if #available(macOS 14.0, *) {
@@ -781,12 +792,12 @@ struct MusicPanelView: View {
 
     @ViewBuilder
     private func albumText(_ value: String) -> some View {
+        // No fixedSize — see titleText() for the regression rationale.
         let base = Text(value.isEmpty ? " " : value)
             .font(.system(size: 11, weight: .regular))
             .foregroundStyle(.white.opacity(0.55))
             .lineLimit(1)
             .truncationMode(.tail)
-            .fixedSize(horizontal: true, vertical: false)
             .help(value)
             .opacity(value.isEmpty ? 0 : 1)
         if #available(macOS 14.0, *) {

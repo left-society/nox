@@ -80,10 +80,99 @@ xcodebuild \
   clean build >/dev/null
 
 echo "▸ Sign with $SIGN_IDENTITY…"
-codesign --force --deep \
+# Sign nested binaries FIRST, then the outer app. `--deep` is
+# deprecated for Developer ID + notarization (Apple's notary service
+# rejects bundles where it was used) — it silently leaves nested
+# binaries adhoc-signed, which Apple flags as
+# "binary is not signed with a valid Developer ID certificate".
+#
+# Order matters: inner-out. If you sign the outer .app first, the
+# embedded signature is invalidated when you re-sign the nested
+# binaries afterwards, and re-signing the outer to fix that strips
+# the inner signatures Apple just verified.
+NESTED_BINS=(
+  "$APP_PATH/Contents/Resources/bin/ffmpeg"
+  "$APP_PATH/Contents/Resources/bin/yt-dlp"
+)
+for bin in "${NESTED_BINS[@]}"; do
+  if [ -f "$bin" ]; then
+    echo "  ↳ sign nested: $(basename "$bin")"
+    codesign --force \
+      --sign "$SIGN_IDENTITY" \
+      --options runtime \
+      --timestamp \
+      "$bin"
+  fi
+done
+
+# Re-sign every framework under Contents/Frameworks/. We do this
+# generically (rather than hard-coding Sparkle) because frameworks
+# come and go: MediaRemoteAdapter.framework, Sparkle.framework,
+# anything we add later. Apple's notary requires every nested
+# Mach-O in the bundle to carry Developer ID + hardened runtime +
+# secure timestamp; and Xcode's Release build strips Headers/
+# Modules/ from frameworks, breaking their `_CodeSignature` seal.
+#
+# For each framework:
+#   1. Sign every helper Mach-O underneath (XPCServices, nested apps,
+#      command-line helpers, .dylibs) — deepest first.
+#   2. Re-seal the framework itself so its CodeResources manifest
+#      matches the files actually present.
+#
+# Order is critical: parent signatures are invalidated when child
+# signatures change, so we always go inner→outer.
+# Walk the WHOLE bundle for frameworks — not just Contents/Frameworks/.
+# MediaRemoteAdapter.framework lives under Contents/Resources/ (it's
+# embedded as a resource, not a linked framework), and any other
+# helper bundle could end up anywhere. A bundle-wide walk catches all.
+shopt -s nullglob
+while IFS= read -r -d '' fw; do
+  fw_name="$(basename "$fw")"
+  echo "  ↳ re-sign $fw_name (nested helpers)"
+  # Find every Mach-O binary, .dylib, .xpc, and nested .app inside
+  # the framework. Each gets its own signature with the same flags
+  # Apple's notary requires.
+  while IFS= read -r -d '' nested; do
+    # Skip the framework's main binary — it's signed last (with the
+    # framework itself) so its signature seals everything beneath it.
+    fw_main="$fw/Versions/Current/$(basename "$fw" .framework)"
+    fw_main_resolved="$(cd "$(dirname "$fw_main")" 2>/dev/null && pwd)/$(basename "$fw_main")"
+    [ "$nested" = "$fw_main_resolved" ] && continue
+    # Skip non-Mach-O regular files (resource assets, plists, etc.)
+    file -b "$nested" 2>/dev/null | grep -q "Mach-O" || continue
+    codesign --force \
+      --sign "$SIGN_IDENTITY" \
+      --options runtime \
+      --timestamp \
+      "$nested" 2>&1 | sed 's/^/      /'
+  done < <(find "$fw" \( -type f -o -type l \) -print0)
+  # Also walk nested .app and .xpc bundles — they need bundle-level
+  # signatures, not just their executables.
+  for bundle in "$fw"/Versions/*/XPCServices/*.xpc "$fw"/Versions/*/Updater.app; do
+    [ -e "$bundle" ] || continue
+    codesign --force \
+      --sign "$SIGN_IDENTITY" \
+      --options runtime \
+      --timestamp \
+      "$bundle" 2>&1 | sed 's/^/      /'
+  done
+  echo "  ↳ re-sign $fw_name (outer)"
+  codesign --force \
+    --sign "$SIGN_IDENTITY" \
+    --options runtime \
+    --timestamp \
+    "$fw"
+done < <(find "$APP_PATH" -type d -name "*.framework" -print0)
+shopt -u nullglob
+
+# Now seal the outer .app. NO --deep here — nested components are
+# already signed correctly; --deep would walk them again and could
+# corrupt the signatures we just applied.
+codesign --force \
   --sign "$SIGN_IDENTITY" \
   --identifier com.aritradebnath.notetaker \
   --options runtime \
+  --timestamp \
   "$APP_PATH"
 
 # Verify the signature so we catch failed signs before shipping a
