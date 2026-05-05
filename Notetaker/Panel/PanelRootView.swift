@@ -88,7 +88,6 @@ enum PanelTab: String, CaseIterable, Identifiable {
 
 struct PanelRootView: View {
     @EnvironmentObject var presenter: PanelPresenter
-    @Namespace private var segmentedPill
 
     /// Cached on first appear so body re-evals don't poke
     /// NSScreen.main / safeAreaInsets every time. The morph itself
@@ -173,6 +172,26 @@ struct PanelRootView: View {
     /// `displayedNowPlaying` changes — re-renders this state when
     /// the cache completes a decode.
     @State private var pillArtworkImage: NSImage? = nil
+
+    /// 2026-05-04 (user feedback: "i can still see some lag when i am
+    /// onto different tabs"): tab content was being re-mounted from
+    /// scratch on every tab switch (because of the `.id(activeTab)`
+    /// modifier on the content Group). Each tab is heavy — NotesListView
+    /// has LazyVStack + ScrollView + composer; ImagesGridView has
+    /// thumbnail loaders; VideosGridView has video previews. First
+    /// instantiation on switch costs ~30-60ms which lands as visible
+    /// jank.
+    ///
+    /// Solution: a "visited tabs" cache. The first time a tab becomes
+    /// active, it gets added to this set. From then on, it stays mounted
+    /// in a ZStack, hidden via opacity when inactive. Subsequent
+    /// switches just fade between already-laid-out trees — instant.
+    ///
+    /// Memory tradeoff: each tab tree is ~few hundred KB of view state
+    /// once mounted. A user who visits all 5 tabs holds all 5 alive
+    /// for the lifetime of the panel. Negligible vs the user-facing
+    /// smoothness gain.
+    @State private var visitedTabs: Set<PanelTab> = [.notes]
 
     // (Motion-blur snapshot now lives on PanelPresenter, cached
     // by PanelWindowController after each settled state. Removed
@@ -295,46 +314,60 @@ struct PanelRootView: View {
         if presenter.isShown {
             return PanelWindowController.innerCornerRadius
         }
-        // At notch-hidden geometry (no-music close target, 185×32):
-        // PROPORTIONALLY SCALED music-pill bottom radius. Music pill
-        // is 278×32 with bottomR=8 (per-side taper from inverse-bow
-        // + bottom = 14pt = 5% of width). At 185 wide the same 8pt
-        // bottom + 6pt top = 14pt taper becomes 7.6% of width — eye
-        // reads it as a wedge ("triangle"). Scaling radii by the
-        // width ratio (185/278 ≈ 0.665) gives bottomR=5, which
-        // preserves the music-pill silhouette character at the
-        // smaller hardware-notch size. User asked: "Just think there
-        // is a build, but it is the size of that hardware of this
-        // Mac" — same flared pill character, sized to hardware notch.
-        if presenter.isAtNotchHidden {
-            return 5
+        // Music-playing resting state keeps its locked character
+        // (8pt bottom rounded corners). User 2026-05-05: "don't
+        // touch the music pill or the bigger pill — the size was
+        // perfect." Previous unified-character attempt expanded
+        // the music pill's apparent width (no inverse-bow + bigger
+        // bottom), which user perceived as "expanded."
+        if presenter.nowPlaying != nil {
+            return PanelWindowController.pillCornerRadius
         }
-        // Music-pill resting state (visible 278×32 silhouette): 8pt
-        // bottom corners read as a clean pill shape at this width.
-        return PanelWindowController.pillCornerRadius
+        // No music: notch hardware character (6pt rounded bottom).
+        return 6
     }
 
     /// Inverse-bow shoulder radius at the top corners — drives the
     /// concave "S-curve" where the slab tucks under the menu bar.
-    /// Smaller for the resting pill (subtle chamfer at the corners)
-    /// and larger for the open slab (visible shoulder curve).
-    /// Both values land in OutwardFlaredShape.path's `topR` clamp.
-    /// Interpolated alongside `panelBottomRadius` via the shape's
-    /// `animatableData` for a smooth pill→slab morph of both
-    /// radii in lockstep.
+    ///
+    /// User direction (multiple rounds): "we need the shape while
+    /// closing exactly like apple macbook notch does have." The
+    /// MacBook Pro notch hardware is a rectangle with SHARP 90° top
+    /// corners (where it meets the screen edge bezel) — no flares,
+    /// no shoulders. Any non-zero topR gives the silhouette an
+    /// inverse-bow "shoulder" that DURING THE CLOSE morphs through
+    /// intermediate values which read as triangular wedges as the
+    /// rect shrinks (the inverse-bow eats a percentage of width that
+    /// grows as width shrinks).
+    ///
+    /// Setting topR=0 EVERYWHERE — open slab and closed states alike
+    /// — gives the entire app one consistent shape language: a
+    /// rectangle with sharp 90° top corners and rounded bottom
+    /// corners. Just like the actual notch hardware. The slab
+    /// becomes "a giant notch shape" growing out of the actual notch.
+    /// Close is just that same shape shrinking to actual-notch size.
+    /// No interpolation through wedge geometry, ever.
+    ///
+    /// (Music pill is unchanged at 6pt for now — locked dimensions
+    /// per user memory: "do not tweak the unified resting pill".)
     private var panelTopRadius: CGFloat {
-        if presenter.isShown { return 22 }
-        // At notch-hidden geometry: PROPORTIONALLY SCALED music-pill
-        // top inverse-bow. Music pill uses topR=6 at 278 wide (chamfer
-        // shoulder character). Scaling by width ratio (185/278): 4pt
-        // — same ratio of inverse-bow shoulder relative to width as
-        // the music pill, so the silhouette reads as a "smaller
-        // version of the music pill" rather than a wedge. Combined
-        // with bottomR=5, total per-side narrowing is 9pt = 4.86% of
-        // width (essentially identical to the music pill's 5%).
-        if presenter.isAtNotchHidden { return 4 }
-        // Music-pill resting state: 6pt subtle inverse-bow chamfer.
-        return 6
+        // Slab open: 22pt inverse-bow shoulder — restored 2026-05-05.
+        // User noted the slab was rendering with sharp edges at the
+        // top corners, missing the smooth shoulder curve that flows
+        // into the menu bar. The 22pt inverse-bow gives the slab
+        // its signature "tucks under the menu bar" look.
+        if presenter.isShown {
+            return 22
+        }
+        // Music-playing resting state: 6pt subtle chamfer (locked
+        // music pill character, do not tweak).
+        if presenter.nowPlaying != nil {
+            return 6
+        }
+        // No-music closed (notch-hidden): sharp 90° top corners
+        // matching the actual MacBook notch hardware boundary.
+        // Silhouette merges invisibly with the physical cutout.
+        return 0
     }
 
     // MARK: - Body
@@ -475,24 +508,38 @@ struct PanelRootView: View {
             // (notchOverlap on top to clear the menu bar zone,
             // panelTopRadius on the sides to match the slab body).
             .overlay {
-                if presenter.dropPickerActive && presenter.isShown {
-                    DropPickerView(
-                        hoveredZone: presenter.dropPickerHoveredZone,
-                        fileCount: presenter.dropPickerFileCount
-                    )
-                        // Picker fills the ENTIRE silhouette edge-
-                        // to-edge — no padding. The panelSilhouette
-                        // clip catches the rounded corners and notch
-                        // cutout so the picker's two halves inherit
-                        // the panel's shape automatically. User
-                        // confirmed: "cover the entire thing not
-                        // only down side."
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .transition(.opacity.combined(with: .scale(scale: 0.97)))
-                        .allowsHitTesting(false)  // AppKit layer handles drops
-                }
+                // 2026-05-04 ALWAYS-MOUNTED. The previous gated form
+                // (`if presenter.dropPickerActive && presenter.isShown
+                // { DropPickerView(...) }`) caused a fresh SwiftUI
+                // mount on every single drag-enter event — confirmed
+                // in /tmp/notetaker-dictation.log by recurring
+                // `🎨 DropPickerView.onAppear` lines paired with
+                // morph entries at avgDt=30ms (3× slower than the
+                // 10ms baseline). Heavy SwiftUI tree reconciliation
+                // + the panel.frame morph triggered by isDropTargeted
+                // were colliding on the main thread, choking the
+                // spring tick.
+                //
+                // Always-mounted moves the mount cost to app launch.
+                // Drag enter/exit then becomes just an opacity +
+                // scale flip animated by Core Animation — same trick
+                // we used for contentOverlay and VisualEffectBlur.
+                DropPickerView(
+                    hoveredZone: presenter.dropPickerHoveredZone,
+                    fileCount: presenter.dropPickerFileCount
+                )
+                    // Picker fills the ENTIRE silhouette edge-
+                    // to-edge — no padding. The panelSilhouette
+                    // clip catches the rounded corners and notch
+                    // cutout so the picker's two halves inherit
+                    // the panel's shape automatically.
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .opacity(presenter.dropPickerActive && presenter.isShown ? 1 : 0)
+                    .scaleEffect(presenter.dropPickerActive && presenter.isShown ? 1.0 : 0.97)
+                    .allowsHitTesting(false)  // AppKit layer handles drops
+                    .animation(.easeOut(duration: 0.18),
+                               value: presenter.dropPickerActive && presenter.isShown)
             }
-            .animation(.easeOut(duration: 0.18), value: presenter.dropPickerActive)
             .overlay { borderStroke }
             // Re-clip the entire stack (background + every overlay)
             // to the panel silhouette. Without this, scrollable
@@ -555,16 +602,62 @@ struct PanelRootView: View {
             // while panel frame is still morphing → user sees
             // "endpoint not landing."
             //
-            // Per-direction springs matched to the panel-frame
-            // SpringFrameAnimator on each side. Close timing
-            // calibrated against pixel-level measurement of
-            // Alcove's close (40 frames at 60fps = ~667ms).
-            //   OPEN:  300/32  ratio≈0.92  ~270ms (slight bloom)
-            //   CLOSE: 60/18   ratio≈1.16  ~680ms (matches Alcove)
+            // SwiftUI radii animation — overdamped, matches the
+            // frame spring's ~362ms duration without overshoot.
+            //
+            // Frame spring (in PanelWindowController) is 182/22
+            // (ratio 0.815, ~1.2% overshoot — subtle bloom).
+            // Radii spring (here) is 167/28 (ratio 1.083, no
+            // overshoot, ~362ms settle). Both finish on the same
+            // beat so the silhouette lands together with the frame.
+            //
+            // Why radii doesn't bounce even though frame does:
+            // OutwardFlaredShape's path clamps `max(0, topR)` —
+            // when the spring overshoots to negative, the rendered
+            // value is clipped to 0 while bottomR still shows its
+            // positive overshoot. That asymmetry was the "weird
+            // shapes during bounce" the user reported earlier.
+            // Keeping radii strictly overdamped avoids this.
+            //
+            //   FRAME: 182/22  ratio≈0.815  ~1.2% bloom  ~364ms
+            //   RADII OPEN:  167/28  ratio≈1.10  clean   ~362ms
+            //   RADII CLOSE: 100/22  ratio≈1.10  clean   ~440ms
+            // Radii snap quickly to slab character on open (~120ms)
+            // while frame grows slowly (~286ms). User 2026-05-05:
+            // "when opening the big pill it's getting into another
+            // shape first before going into full pill" — was caused
+            // by radii animating from music-pill character (6, 8)
+            // to slab character (22, 34) at the SAME RATE as the
+            // frame, making mid-open shapes match neither icon.
+            //
+            // Now: radii reach slab character within ~120ms while
+            // frame is still ~40% grown. Remaining ~166ms shows the
+            // panel growing in slab character throughout — no more
+            // transitional "wrong" shape phase.
+            //
+            //   OPEN radii:  1000/65 (overdamped, ~120ms settle)
+            //   CLOSE radii: 158/25 (Apple .smooth(0.50), ~320ms)
             .animation(presenter.isShown
-                       ? .interpolatingSpring(mass: 1.0, stiffness: 300, damping: 32, initialVelocity: 0)
-                       : .interpolatingSpring(mass: 1.0, stiffness: 60, damping: 18, initialVelocity: 0),
+                       ? .interpolatingSpring(mass: 1.0, stiffness: 1000, damping: 65, initialVelocity: 0)
+                       : .interpolatingSpring(mass: 1.0, stiffness: 158, damping: 25, initialVelocity: 0),
                        value: presenter.isShown)
+            // 2026-05-04 (user feedback after Alcove SS audit:
+            // "the dropshadow only comes when you open... but
+            // doesn't last"): smooth the shadow radius transition
+            // when isMorphing flips. Previously the radius jumped
+            // 6/12 → 18/36 instantly at settle (no animation
+            // modifier on this value), which read as "shadow pops
+            // to a different size mid-frame" → user perceived as
+            // "shadow disappears." Animating the change makes the
+            // shadow GROW smoothly into its settled radius
+            // matching how Alcove's shadow grows with the
+            // silhouette throughout the open (visible in SS
+            // frames 215-285 of their reference recording — the
+            // shadow is continuously visible, never popping).
+            // 0.22s easeOut tracks the panel.frame settle so the
+            // shadow finishes "growing into" its full radius
+            // about 200ms after the spring settles.
+            .animation(.easeOut(duration: 0.22), value: presenter.isMorphing)
             .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
             // PERF GATE: both shadows render only when isShown=true.
             // During the morph itself both radii are 0 — SwiftUI's
@@ -596,18 +689,44 @@ struct PanelRootView: View {
             // changed the depth feel without fixing the bug.
             // Original values from the last known-good
             // production build, preserved:
-            .shadow(
-                color: Color.black.opacity(presenter.isShown ? 0.42 : 0),
-                radius: presenter.isShown ? (presenter.isMorphing ? 10 : 18) : 0,
-                x: 0,
-                y: presenter.isShown ? 14 : 0
-            )
-            .shadow(
-                color: Color.black.opacity(presenter.isShown ? 0.22 : 0),
-                radius: presenter.isShown ? (presenter.isMorphing ? 18 : 36) : 0,
-                x: 0,
-                y: presenter.isShown ? 28 : 0
-            )
+            // 2026-05-04 KEEPER FIX: SwiftUI .shadow() REMOVED.
+            // Shadow now drawn by panel.contentView's CALayer with
+            // shadowPath set to the silhouette CGPath. The
+            // diagnostic confirmed SwiftUI's .shadow() was the
+            // residual lag cause — drops clustered at fraction
+            // 0.85-1.00 disappeared when shadow was disabled.
+            //
+            // Implementation in PanelWindowController:
+            //   • silhouetteCGPath() — mirrors OutwardFlaredShape
+            //     in raw CGPath form for shadowPath
+            //   • updateShadowPath() — rebuilds + assigns the path
+            //     wrapped in a CATransaction with disabled actions
+            //   • updateShadowAppearance() — animates shadowOpacity
+            //     0 ⇄ 0.55 on isShown changes
+            //   • shadowTickHandler on SpringFrameAnimator — fires
+            //     updateShadowPath() each spring tick so the shadow
+            //     follows the morphing panel.frame in real time
+            //
+            // Documented 50-80% perf gain per CALayer docs:
+            // shadowPath skips the offscreen alpha-analysis pass
+            // SwiftUI's .shadow() was forcing every frame.
+    }
+
+    // MARK: - Cascade animation curve
+
+    /// Snappy spring with a defined endpoint — bounce in the motion
+    /// phase, clean settle at the duration boundary, no sub-pixel
+    /// tail. Used by the cascade modifiers in renderableContent and
+    /// MusicPanelView. Apple's WWDC23 `.snappy` preset is designed
+    /// exactly for this; fallback for macOS 13 uses an interpolating
+    /// spring tuned to the same character (≈10% bounce, ~360ms).
+    private var cascadeAnimation: Animation {
+        if #available(macOS 14.0, *) {
+            return .snappy(duration: 0.32, extraBounce: 0.15)
+        } else {
+            // ω_n=18.7, ratio=0.59 → ~10% overshoot, ~360ms settle
+            return .interpolatingSpring(mass: 1.0, stiffness: 350, damping: 22)
+        }
     }
 
     // MARK: - Content overlay (header / segmented / grid)
@@ -781,9 +900,16 @@ struct PanelRootView: View {
         // unidentifiable, and 200ms easeOut tracks the panel's
         // 230-270ms frame morph so the blur clears as the panel
         // settles instead of trailing behind it.
-        .blur(radius: presenter.isShown ? 0 : 18)
-        .scaleEffect(presenter.isShown ? 1.0 : 0.92, anchor: .top)
-        .animation(.easeOut(duration: 0.20), value: presenter.isShown)
+        // 2026-05-04: parent overlay blur RESTORED (4pt → 0). The
+        // per-element diagnostic confirmed blur wasn't the lag
+        // cause; with shadow on GPU we have budget for this back.
+        .blur(radius: presenter.isShown ? 0 : 4)
+        // Direction-aware spring matching the panel's close timing
+        // so content doesn't trail behind the panel.
+        .animation(presenter.isShown
+                   ? .interpolatingSpring(mass: 1.0, stiffness: 195, damping: 28, initialVelocity: 0)
+                   : .interpolatingSpring(mass: 1.0, stiffness: 380, damping: 36, initialVelocity: 0),
+                   value: presenter.isShown)
         // No blur on the content overlay. Earlier attempts:
         //   • `.blur(radius: 4)` (gaussian) — wrong character;
         //     reads as soft-focus / out-of-focus rather than
@@ -1165,17 +1291,20 @@ struct PanelRootView: View {
         // and the user sees the motion get cut off. That was the
         // "endpoints totally broken" complaint.
         //
-        // .smooth is a critically-damped interpolating spring: it
-        // runs from start to end and lands cleanly with zero
-        // overshoot, so the visible motion plays out fully on both
-        // sides. Combined with the bigger entrance/exit scale deltas
-        // (.pillEnter 0.65, .pillExit 0.7) the user sees a clear
-        // grow-in + shrink-out without any abrupt truncation.
-        // Duration matched between event swap and video candidate
-        // for one consistent rhythm across all transient pill swaps.
-        .animation(.smooth(duration: 0.45),
+        // Match the panel exit duration EXACTLY (270ms) using
+        // easeOut. SwiftUI animation system runs alongside the
+        // CADisplayLink-driven SpringFrameAnimator for panel.frame.
+        // Both finish at t=270ms so content + panel.frame land at
+        // the notch on the same beat — no orphaned content, no
+        // overlapping mismatch.
+        //
+        // easeOut(0.27) has the same character as a critically
+        // damped spring without the overshoot/wobble physics
+        // that interpolatingSpring sometimes introduces. Cleaner
+        // landing for transient pill dismiss.
+        .animation(.easeOut(duration: 0.27),
                    value: presenter.pendingSystemEvent)
-        .animation(.smooth(duration: 0.45),
+        .animation(.easeOut(duration: 0.27),
                    value: presenter.pendingVideoCandidate)
         // Dictation pill MOUNT/UNMOUNT animation — only fires at
         // entrance (idle → non-idle) and exit (non-idle → idle).
@@ -2121,18 +2250,28 @@ struct PanelRootView: View {
         .frame(height: notchOverlap)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .opacity(presenter.isResting && !presenter.isShown ? 1 : 0)
-        .blur(radius: presenter.isResting && !presenter.isShown ? 0 : 6)
-        // **Override** the panel-wide `.bouncy` animation (set on
-        // panelBackground) for THIS subtree. Bouncy springs overshoot
-        // their target, which is fine for shape/position but causes
-        // visible artifacts on opacity (clamping at 0/1 produces a
-        // brief "stuck" frame) and on blur (negative radius is
-        // invalid, the renderer can flicker). Use a tight smooth
-        // animation here so the pill content fades cleanly without
-        // the bounce. Fixes the user's report that "the small pills
-        // thumbnails sometime gliching in background while opening
-        // the main pill."
-        .animation(.easeOut(duration: 0.18), value: presenter.isShown)
+        // 2026-05-04: 14→8 — same FPS optimization as the slab cascade.
+        // This blur fires when the music pill morphs into the slab, the
+        // single most GPU-heavy moment of the open animation.
+        .blur(radius: presenter.isResting && !presenter.isShown ? 0 : 8)
+        // Direction-aware spring on isShown change (open/close).
+        .animation(presenter.isShown
+                   ? .interpolatingSpring(mass: 1.0, stiffness: 195, damping: 28, initialVelocity: 0)
+                   : .interpolatingSpring(mass: 1.0, stiffness: 380, damping: 36, initialVelocity: 0),
+                   value: presenter.isShown)
+        // ALSO animate on isResting change (music start/stop).
+        // User 2026-05-05: "there is no animation between the small
+        // pill and no pill ... when it's transitioning between the
+        // small pill (music) to silent."
+        //
+        // exitRestingMode animates panel.frame 302→185 over ~270ms
+        // (300/32 spring), but without this the music pill CONTENT
+        // (artwork + waveform) was snapping to invisible because the
+        // animation above only fires on isShown change. Now the
+        // content fades+blurs smoothly with the panel shrink — same
+        // spring as exitRestingMode for synced motion.
+        .animation(.interpolatingSpring(mass: 1.0, stiffness: 300, damping: 32, initialVelocity: 0),
+                   value: presenter.isResting)
         .allowsHitTesting(false)
     }
 
@@ -2385,28 +2524,69 @@ struct PanelRootView: View {
     /// not from any internal lift. Keeps the slab reading as a piece
     /// of premium dark hardware, not a tinted glass panel.
     private var panelBackground: some View {
-        Group {
-            if presenter.isShown {
-                // Slab (expanded) state: vibrancy + dark tint for
-                // depth. The blur samples the desktop / windows
-                // behind the panel via NSVisualEffectView's
-                // .behindWindow blending; the dark tint keeps the
-                // slab reading as a premium dark surface.
-                ZStack {
-                    VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
-                    Color.black.opacity(0.65)
-                }
-            } else {
-                // Resting pill state: SOLID BLACK to match the
-                // physical camera-notch hardware. The pill is
-                // ambient and tiny — vibrancy on this surface
-                // looked off, like the notch itself was glowing
-                // with the wallpaper. User: "This pill thing
-                // should always look dark (black) cause it's
-                // matching the hardware you got me?"
-                Color.black
-            }
-        }
+        // 2026-05-04 BIG FPS FIX: VisualEffectBlur is now
+        // ALWAYS-MOUNTED. The previous gated form (`if presenter.isShown
+        // { ZStack { VisualEffectBlur ... } } else { Color.black }`)
+        // was creating a FRESH `NSVisualEffectView` on every show
+        // and destroying it on every hide — same anti-pattern that
+        // caused the contentOverlay mount-hitch fixed earlier in
+        // this project (see comment at line 660). Each fresh
+        // NSVisualEffectView allocation costs:
+        //   • NSView alloc + AppKit hierarchy registration
+        //   • Window-server negotiation for the blur material
+        //   • Metal-backed layer creation + first-frame compositing
+        //   • First desktop sample at the panel's current bounds
+        // All of that landing right as the spring starts integrating
+        // produces the visible hitch the user reported as "lag at
+        // the start of open."
+        //
+        // Always-mounted amortizes those costs to app launch. show()
+        // / hide() then just animates the dark-tint opacity, which
+        // Core Animation handles on a single CALayer alpha update —
+        // essentially free.
+        //
+        // Idle cost: in pill state the blur covers ~185×32 = 5920pt
+        // (~24k Retina pixels). One gaussian per vsync over 24k
+        // pixels is in microseconds — vastly cheaper than the
+        // create/destroy cycle that was hitching every open.
+        //
+        // 2026-05-04 REFINEMENT (research session):
+        // The earlier `.withinWindow ⇄ .behindWindow` swap on
+        // `isMorphing` was causing a visible end-of-morph hitch.
+        // When the spring settles and isMorphing flips false,
+        // NSVisualEffectView re-negotiates the material with the
+        // window server (fresh desktop sample at the panel's final
+        // bounds), and that one-frame work was landing AT the
+        // settle — exactly the wrong moment.
+        //
+        // New strategy: blendingMode is now constant `.behindWindow`
+        // (no swap), so there's no negotiation hit. The dark tint
+        // does the morph-hiding work instead: opacity 1.0 (opaque
+        // black, covers the blur entirely) while the spring is in
+        // flight, opacity 0.65 (translucent, blur shows through)
+        // only after isMorphing flips false. The transition is a
+        // simple CALayer alpha animation — essentially free —
+        // and reads as a soft 180ms wallpaper "bloom" once the
+        // panel has settled, which actually adds to the premium
+        // feel rather than hitching at the end.
+        // 2026-05-04 FINAL: pure Color.black. User feedback after
+        // testing both glass and solid: "we don't need glass; we
+        // needed pure black, so it's better, the animation feels
+        // much smoother."
+        //
+        // Even when the GPU shadow fix made the FPS data identical
+        // between glass and solid-black, the eye still registers
+        // the per-frame desktop re-sampling that NSVisualEffectView
+        // does as visual "noise" during motion — a kind of
+        // render-server compositing pressure that doesn't show up
+        // as CADisplayLink drops but is perceptible.
+        //
+        // Pure black eliminates that entirely: zero desktop
+        // sampling, zero gaussian compositing, zero render-server
+        // pressure. The panel reads as a confident dark surface
+        // (matching the camera-notch hardware) rather than a
+        // translucent floating window.
+        Color.black
     }
 
     /// Quiet 0.5pt rim around the silhouette — Alcove's signature
@@ -2573,50 +2753,34 @@ struct PanelRootView: View {
     /// with per-icon backgrounds, the active tab is signaled by
     /// a brighter gradient + opaque glyph instead.
     private var segmented: some View {
-        HStack(spacing: 8) {
+        // 2026-05-05 marker-scribble redesign. Naked text labels
+        // in a row; the active tab gets a hand-drawn wavy underline
+        // in brandLavender that sketches itself in via stroke-trim
+        // animation. No container, no chip — the underline IS the
+        // active state. Inactive labels sit at 40% white, hovered
+        // labels brighten to 85%, active is full white.
+        //
+        // Reads as a sketchnote / Procreate journal heading rather
+        // than the iOS toolbar pattern that was here before. Removed:
+        // capsule background, blur material, halo shadow, the
+        // matchedGeometryEffect "sliding pill" namespace — none of
+        // those are needed because the underline is per-tab and
+        // animates itself.
+        HStack(spacing: 18) {
             ForEach(presenter.visibleTabs) { tab in
-                DockTabButton(
+                ScribbleTabButton(
                     tab: tab,
                     isSelected: presenter.activeTab == tab
                 ) {
-                    // No haptic on tab switch. Earlier we fired
-                    // `HapticFeedback.generic()` on every change so
-                    // the click felt tactile, but the user reported
-                    // it reads as a stutter / double-click — the
-                    // brief vibration registers as a second input.
-                    // The visual selection animation alone is the
-                    // confirmation; haptic stays reserved for
-                    // genuinely physical events (charging, BT
-                    // connect, screenshot save, etc).
                     withAnimation(.selection) { presenter.activeTab = tab }
                 }
             }
         }
-        .compositingGroup()
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            // Layered frosted pill. Same material as before but
-            // with slightly bumped padding so the per-icon
-            // squares have room to breathe inside it.
-            ZStack {
-                VisualEffectBlur(material: .hudWindow, blendingMode: .withinWindow)
-                Color.black.opacity(0.30)
-            }
-            .clipShape(Capsule(style: .continuous))
-        )
-        .overlay(
-            Capsule(style: .continuous)
-                .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
-        )
-        // Soft halo for the dock pill — 14pt radius at 28%
-        // opacity reads as ambient depth, not a defined edge
-        // ring. The previous 6pt was too sharp (visible "ghost"
-        // outline) and 12pt was too expensive on hover-lift
-        // frames. 14pt + lower opacity is the sweet spot —
-        // diffuse falloff, no visible boundary, half the
-        // gaussian cost of the original 12pt × 0.5 opacity.
-        .shadow(color: Color.black.opacity(0.28), radius: 14, x: 0, y: 6)
+        // Center the tab cluster within the panel's content width
+        // (was spreading edge-to-edge because the parent added
+        // horizontal padding around a max-width row).
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, 4)
         .animation(.selection, value: presenter.visibleTabs)
     }
 
@@ -2656,18 +2820,32 @@ struct PanelRootView: View {
         // workaround the user explicitly didn't want). Content
         // appears at full opacity the moment the active tab's
         // body materializes.
-        switch presenter.activeTab {
-        case .music:
-            MusicPanelView()
-        case .notes:
-            NotesListView()
-        case .images:
-            ImagesGridView()
-        case .videos:
-            VideosGridView()
-        case .files:
-            FilesGridView()
+        //
+        // 2026-05-04 REVERTED — visited-tabs cache regressed open/close
+        // smoothness (multiple alive tab views meant @Published changes
+        // re-evaluated more bodies during the morph). Back to lazy
+        // mount via switch; will re-approach tab-switch lag separately
+        // after researching the right technique.
+        Group {
+            switch presenter.activeTab {
+            case .music:
+                MusicPanelView()
+            case .notes:
+                NotesListView()
+            case .images:
+                ImagesGridView()
+            case .videos:
+                VideosGridView()
+            case .files:
+                FilesGridView()
+            }
         }
+        .id(presenter.activeTab)
+        .transition(.asymmetric(
+            insertion: .opacity.combined(with: .offset(y: 8)),
+            removal: .opacity.combined(with: .offset(y: -4))
+        ))
+        .animation(.easeOut(duration: 0.22), value: presenter.activeTab)
     }
 
     /// Single source of truth for the panel's inner content layout.
@@ -2677,14 +2855,107 @@ struct PanelRootView: View {
     /// the exact same view tree at the same dimensions, so the
     /// blurred ghost aligns 1:1 with the live content underneath.
     private var renderableContent: some View {
+        // GPU-ACCELERATED CONTENT MATERIALIZATION + DROP-FROM-TOP.
+        // User 2026-05-05: "i think it's missing frame ... can we
+        // use gpu and cpu both on this?"
+        //
+        // `.drawingGroup()` on the VStack forces SwiftUI to render
+        // the entire content tree to an offscreen Metal texture
+        // (GPU-side) per frame. Without it, each per-element
+        // .blur() spawns its own Metal blur pass + the layer
+        // compositor reblends them per frame on the CPU side —
+        // that's the dropped-frame cost on 120Hz ProMotion.
+        //
+        // With drawingGroup, all 4 elements + their blurs + opacity
+        // + offsets are computed once into one Metal texture, then
+        // the spring animates that texture's parameters. Reduces
+        // per-frame cost from 4× blur passes to 1× passes.
+        //
+        // Each element starts ABOVE the panel's top edge (where
+        // it's clipped by the silhouette mask) and slides DOWN
+        // into its final position. Combined with the pill's clipShape,
+        // elements appear to "drop in through the top of the pill"
+        // as if cascading through a slot.
+        //
+        // Y-offsets bumped 2-3× from initial subtle values for the
+        // "premium drop-in" effect:
+        //   header:    -28pt y-offset (clipped above when closed)
+        //   segmented: -32pt y-offset (more dramatic for tab cascade)
+        //   divider:   -28pt y-offset
+        //   content:   -40pt y-offset (most pronounced — the main material)
+        // 2026-05-04 PER-FRAME COST FIX: cascade now gates on
+        // `isShown && !isMorphing` instead of just `isShown`. Real
+        // frame-drop data showed cluster of drops in the second
+        // half of the morph (fraction 0.4+, max dt 235ms) — caused
+        // by panel.frame growth + cascade animations + blur passes
+        // all competing for the same frame budget AT THE SAME TIME.
+        //
+        // New strategy is sequential:
+        //   1. Panel.frame morphs (cascade stays at "hidden" state)
+        //   2. Spring settles → isMorphing flips false
+        //   3. Cascade fires with the panel already at full size
+        //
+        // During phase 1, the only per-frame work is the panel
+        // silhouette + dark background. Cheap. During phase 2,
+        // panel is static and only the content cascade is animating
+        // — also cheap. The two heavy operations no longer overlap.
+        // 2026-05-04: cascade blurs RESTORED. The diagnostic
+        // confirmed they weren't the lag cause (shadow was). Now
+        // that shadow is GPU-accelerated via CALayer.shadowPath,
+        // we have budget for the cascade blurs again, and the
+        // visual "materialization" feel is preserved.
+        // 2026-05-04 (user feedback: "bounce at first like normal
+        // spring, but easy ease curve at the end where it feels
+        // laggy usually"): cascade now uses `.snappy(duration:
+        // extraBounce:)`. Apple's WWDC23 preset designed exactly
+        // for this case — spring physics with bounce in the
+        // motion phase, but settles cleanly at the duration
+        // boundary with NO sub-pixel tail.
+        //
+        // duration: 0.32  → perceptual settle time (lands by here)
+        // extraBounce: 0.15 → ~10% overshoot in the motion phase
+        //
+        // Falls back to .interpolatingSpring tuned for similar
+        // character on macOS 13 (no .snappy preset). Stiffness 350
+        // / damping 22 → ω_n=18.7, ratio=0.59 → ~10% bounce, lands
+        // ~360ms.
         VStack(spacing: 0) {
             header
+                .blur(radius: presenter.cascadeReady ? 0 : 8)
+                .opacity(presenter.cascadeReady ? 1 : 0)
+                .offset(y: presenter.cascadeReady ? 0 : -28)
+                .animation(cascadeAnimation, value: presenter.cascadeReady)
             segmented
                 .padding(.horizontal, DS.Spacing.md)
+                .blur(radius: presenter.cascadeReady ? 0 : 10)
+                .opacity(presenter.cascadeReady ? 1 : 0)
+                .offset(y: presenter.cascadeReady ? 0 : -32)
+                .animation(cascadeAnimation.delay(0.04), value: presenter.cascadeReady)
             divider
                 .padding(.top, DS.Spacing.sm)
+                .blur(radius: presenter.cascadeReady ? 0 : 4)
+                .opacity(presenter.cascadeReady ? 1 : 0)
+                .offset(y: presenter.cascadeReady ? 0 : -28)
+                .animation(cascadeAnimation.delay(0.06), value: presenter.cascadeReady)
             content
+                .blur(radius: presenter.cascadeReady ? 0 : 12)
+                .opacity(presenter.cascadeReady ? 1 : 0)
+                .offset(y: presenter.cascadeReady ? 0 : -40)
+                .animation(cascadeAnimation.delay(0.08), value: presenter.cascadeReady)
         }
+        // GPU-friendly compositing without breaking hit testing.
+        // .drawingGroup() was tried but flattened content into a
+        // Metal texture that lost drag-and-drop interactions on
+        // the segmented bar (user 2026-05-05: "not allowed" icon
+        // on image tab while dragging).
+        //
+        // .compositingGroup() is less aggressive: it groups the
+        // children into a single compositing layer (so opacity/
+        // blur effects apply uniformly to the group), but PRESERVES
+        // SwiftUI's hit-test tree underneath. Helps batch the per-
+        // element blur passes into a single GPU compositing
+        // operation while keeping segmented-bar drops working.
+        .compositingGroup()
     }
 
     // (Motion-blur snapshot lifecycle now in PanelWindowController.
@@ -2710,104 +2981,281 @@ struct PanelRootView: View {
 // screenshot count ticking from 1 to 2). This way burst-screenshot
 // counts don't re-blur on every shot — the blur fires once at the
 // initial swap and then the count animates in place.
-/// Single rounded-square dock button. Per-icon hover state lets
-/// each button independently lift + scale on cursor entry without
-/// affecting its neighbours — the macOS Tahoe Dock affordance.
-/// Spec mirrors the user's Tailwind reference (2026-04-29):
-///   • 32×32 frame, 10pt corner radius
-///   • Top-to-bottom subtle white-opacity gradient (active brighter)
-///   • 0.5pt white-10% ring
-///   • Soft drop shadow (always-on for depth)
-///   • Hover: -2pt y-offset + 1.05 scale, 0.18s spring
-///   • Active: brighter gradient + bolder glyph weight
-private struct DockTabButton: View {
+/// Dock tab button. Inactive = clean SF Symbol at low opacity, no
+/// background. Active = same icon, bolder weight + bright color,
+/// PLUS a soft white highlight pill rendered BEHIND it via
+/// `matchedGeometryEffect` so the pill smoothly slides between
+/// positions when the active tab changes.
+///
+/// 2026-05-04 redesign per user inspiration (creative VR layout
+/// reference). Replaces the previous "per-button bordered tile"
+/// pattern that made the bar read as heavy and uniform regardless
+/// of selection state. The new pattern is the modern macOS Tahoe /
+/// iOS pattern — inactive states are quiet, only the active state
+/// has visual weight. The sliding pill is what makes the
+/// interaction feel alive.
+/// Hand-drawn marker stroke used by `ScribbleTabButton`. There are
+/// 15 distinct path variants so each activation picks a different
+/// mark — reads as the user's pen drawing a slightly different
+/// squiggle every time, never the same exact line twice. All paths
+/// are normalized to a 60×8 reference rect; SwiftUI scales them to
+/// the rendered frame.
+///
+/// Animatable via `.trim(from:to:)` for the draw-on stroke effect.
+/// `variant` is NOT animatable — switching variants snaps the path
+/// shape, which is the desired behavior (each new selection draws
+/// a fresh mark from scratch).
+private struct MarkerStroke: Shape {
+    let variant: Int  // 0..<MarkerStroke.variantCount
+
+    static let variantCount = 15
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let sx = rect.width / 60
+        let sy = rect.height / 8
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: x * sx, y: y * sy)
+        }
+
+        switch variant % Self.variantCount {
+        case 0:  // wavy — the original four-bump squiggle
+            p.move(to: pt(1, 5))
+            p.addQuadCurve(to: pt(15, 4), control: pt(8, 2))
+            p.addQuadCurve(to: pt(30, 5), control: pt(22, 6))
+            p.addQuadCurve(to: pt(45, 5), control: pt(38, 2))
+            p.addQuadCurve(to: pt(59, 4), control: pt(52, 8))
+
+        case 1:  // zigzag — sharp triangle wave
+            p.move(to: pt(1, 5))
+            p.addLine(to: pt(9, 1))
+            p.addLine(to: pt(17, 6))
+            p.addLine(to: pt(25, 1))
+            p.addLine(to: pt(33, 6))
+            p.addLine(to: pt(41, 1))
+            p.addLine(to: pt(49, 6))
+            p.addLine(to: pt(57, 2))
+            p.addLine(to: pt(59, 4))
+
+        case 2:  // double-wave — two stacked smaller crests
+            p.move(to: pt(1, 5))
+            p.addQuadCurve(to: pt(14, 5), control: pt(7, 2))
+            p.addQuadCurve(to: pt(28, 5), control: pt(21, 7))
+            p.addQuadCurve(to: pt(42, 5), control: pt(35, 2))
+            p.addQuadCurve(to: pt(56, 5), control: pt(49, 7))
+            p.addLine(to: pt(59, 5))
+
+        case 3:  // tilde — gentle long wavelength
+            p.move(to: pt(1, 4))
+            p.addQuadCurve(to: pt(30, 4), control: pt(15, 0))
+            p.addQuadCurve(to: pt(59, 4), control: pt(45, 8))
+
+        case 4:  // single hump — one big arc up
+            p.move(to: pt(1, 6))
+            p.addQuadCurve(to: pt(59, 6), control: pt(30, 0))
+
+        case 5:  // single dip — one big arc down
+            p.move(to: pt(1, 2))
+            p.addQuadCurve(to: pt(59, 2), control: pt(30, 8))
+
+        case 6:  // rough line — slightly wobbly straight
+            p.move(to: pt(1, 4))
+            p.addLine(to: pt(12, 4))
+            p.addLine(to: pt(20, 5))
+            p.addLine(to: pt(30, 4))
+            p.addLine(to: pt(40, 5))
+            p.addLine(to: pt(48, 4))
+            p.addLine(to: pt(59, 4))
+
+        case 7:  // slope up — rising
+            p.move(to: pt(1, 7))
+            p.addLine(to: pt(12, 6))
+            p.addLine(to: pt(20, 5))
+            p.addLine(to: pt(30, 4))
+            p.addLine(to: pt(40, 3))
+            p.addLine(to: pt(48, 2))
+            p.addLine(to: pt(59, 1))
+
+        case 8:  // slope down — falling
+            p.move(to: pt(1, 1))
+            p.addLine(to: pt(12, 2))
+            p.addLine(to: pt(20, 3))
+            p.addLine(to: pt(30, 4))
+            p.addLine(to: pt(40, 5))
+            p.addLine(to: pt(48, 6))
+            p.addLine(to: pt(59, 7))
+
+        case 9:  // S-curve — rise then fall
+            p.move(to: pt(1, 6))
+            p.addQuadCurve(to: pt(30, 4), control: pt(15, 1))
+            p.addQuadCurve(to: pt(59, 2), control: pt(45, 8))
+
+        case 10:  // triple peak — three small zigzag peaks
+            p.move(to: pt(1, 5))
+            p.addLine(to: pt(9, 2))
+            p.addLine(to: pt(17, 5))
+            p.addLine(to: pt(25, 2))
+            p.addLine(to: pt(33, 5))
+            p.addLine(to: pt(41, 2))
+            p.addLine(to: pt(49, 5))
+            p.addLine(to: pt(59, 4))
+
+        case 11:  // asymmetric — varying amplitudes
+            p.move(to: pt(1, 5))
+            p.addQuadCurve(to: pt(14, 4), control: pt(8, 2))
+            p.addQuadCurve(to: pt(25, 4), control: pt(19, 6))
+            p.addQuadCurve(to: pt(35, 4), control: pt(30, 1))
+            p.addQuadCurve(to: pt(45, 4), control: pt(40, 7))
+            p.addQuadCurve(to: pt(59, 5), control: pt(52, 2))
+
+        case 12:  // cursive flourish — exaggerated mid-loop
+            p.move(to: pt(1, 5))
+            p.addQuadCurve(to: pt(18, 4), control: pt(12, 2))
+            p.addQuadCurve(to: pt(28, 4), control: pt(24, 6))
+            p.addQuadCurve(to: pt(38, 4), control: pt(32, 0))
+            p.addQuadCurve(to: pt(50, 4), control: pt(44, 6))
+            p.addQuadCurve(to: pt(59, 5), control: pt(56, 2))
+
+        case 13:  // sharp wave — angular peaks (between zigzag and wavy)
+            p.move(to: pt(1, 5))
+            p.addLine(to: pt(8, 1))
+            p.addLine(to: pt(14, 5))
+            p.addLine(to: pt(22, 1))
+            p.addLine(to: pt(28, 5))
+            p.addLine(to: pt(36, 1))
+            p.addLine(to: pt(42, 5))
+            p.addLine(to: pt(50, 1))
+            p.addLine(to: pt(56, 5))
+            p.addLine(to: pt(59, 5))
+
+        case 14:  // tapered — amplitude grows then shrinks
+            p.move(to: pt(1, 4))
+            p.addQuadCurve(to: pt(18, 4), control: pt(10, 3))
+            p.addQuadCurve(to: pt(30, 4), control: pt(26, 1))
+            p.addQuadCurve(to: pt(38, 4), control: pt(34, 7))
+            p.addQuadCurve(to: pt(59, 4), control: pt(46, 5))
+
+        default:
+            p.move(to: pt(1, 4))
+            p.addLine(to: pt(59, 4))
+        }
+        return p
+    }
+}
+
+/// Marker-scribble tab button. Plain-text label with a wavy
+/// hand-drawn underline that sketches itself in (stroke-trim
+/// animation, ~0.55s ease-out) when the tab becomes active. No
+/// chrome around the label — the underline IS the active state.
+private struct ScribbleTabButton: View {
     let tab: PanelTab
     let isSelected: Bool
     let action: () -> Void
 
     @State private var isHovered: Bool = false
+    @State private var drawProgress: CGFloat = 0
+    /// Currently displayed marker variant (0..<MarkerStroke.variantCount).
+    /// Re-rolled on every activation so each pick draws a different
+    /// squiggle. Initial value is randomized so the first paint
+    /// already feels hand-drawn rather than a default shape.
+    @State private var variant: Int = Int.random(in: 0..<MarkerStroke.variantCount)
+    /// Last variant used — kept so re-roll can avoid drawing the
+    /// same mark twice in a row. If we picked variant 7 last time,
+    /// the next roll is from {0..14} \ {7}, ensuring perceptible
+    /// variety on every click.
+    @State private var lastVariant: Int = -1
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: tab.icon)
-                .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
-                .foregroundStyle(
-                    isSelected
-                        ? Color.white.opacity(0.95)
-                        : Color.white.opacity(0.65)
-                )
-                .frame(width: 34, height: 34)
-                .background(
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(isSelected ? 0.16 : 0.08),
-                                    Color.white.opacity(isSelected ? 0.08 : 0.03)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
+            // Single Text element with bottom padding to reserve
+            // space for the underline, plus a bottom-aligned overlay
+            // for the underline itself. This keeps the underline
+            // sized to the TEXT's natural width — the previous
+            // VStack/ZStack pattern let the underline expand to
+            // whatever width SwiftUI's layout gave the parent
+            // (resulting in a single underline that spanned multiple
+            // tabs' worth of width).
+            Text(tab.title.lowercased())
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(textColor)
+                .fixedSize()
+                .padding(.bottom, 8)
+                .overlay(alignment: .bottom) {
+                    if isSelected {
+                        MarkerStroke(variant: variant)
+                            .trim(from: 0, to: drawProgress)
+                            .stroke(
+                                DS.Color.brandLavender,
+                                style: StrokeStyle(lineWidth: 1.8,
+                                                   lineCap: .round,
+                                                   lineJoin: .round)
                             )
-                        )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .strokeBorder(
-                            Color.white.opacity(isSelected ? 0.18 : 0.10),
-                            lineWidth: 0.5
-                        )
-                )
-                // Hover-reveal label — floats ABOVE the icon as a
-                // small frosted capsule when the cursor is over it,
-                // disappears when the cursor leaves. Matches the
-                // macOS Dock's tooltip behavior. Less visual clutter
-                // than persistent labels under each icon, but still
-                // discoverable. Active tab is identified by the
-                // brighter gradient + bolder glyph weight.
-                .overlay(alignment: .top) {
-                    if isHovered {
-                        Text(tab.title)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color.white.opacity(0.95))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(
-                                ZStack {
-                                    VisualEffectBlur(material: .hudWindow, blendingMode: .withinWindow)
-                                    Color.black.opacity(0.55)
-                                }
-                                .clipShape(Capsule(style: .continuous))
-                            )
-                            .overlay(
-                                Capsule(style: .continuous)
-                                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
-                            )
-                            .fixedSize()
-                            .offset(y: -34)
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .offset(y: 4)),
-                                removal: .opacity
-                            ))
-                            .allowsHitTesting(false)
+                            .shadow(color: DS.Color.brandLavender.opacity(0.45),
+                                    radius: 4)
+                            .frame(height: 6)
+                            // 3pt sweep past each text edge so the
+                            // mark reads as a hand gesture, not a
+                            // ruler-perfect cap.
+                            .padding(.horizontal, -3)
                     }
                 }
-                .scaleEffect(isHovered ? 1.05 : 1.0)
-                .offset(y: isHovered ? -2 : 0)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(tab.title)
         .help(tab.title)
         .onHover { hovering in
-            // Lighter spring (response 0.18, damping 0.85) — no
-            // overshoot, settles in ~120ms instead of 220ms. Hover
-            // is a high-frequency gesture; cutting the per-tick
-            // animation duration nearly halves the time the
-            // animation system is interpolating geometry per
-            // frame.
             withAnimation(.spring(response: 0.18, dampingFraction: 0.85)) {
                 isHovered = hovering
             }
         }
+        .onChange(of: isSelected) { newValue in
+            // Single-arg closure form — the deployment target is
+            // macOS 13. The two-arg `(oldValue, newValue)` overload
+            // is macOS 14+ only and breaks the build at -target
+            // arm64-apple-macos13.0.
+            if newValue {
+                // Roll a fresh variant — different from the last
+                // one drawn — so consecutive activations always
+                // show a different squiggle.
+                variant = nextVariant(excluding: lastVariant)
+                lastVariant = variant
+                // Re-arm the draw-on. Reset to 0 instantly,
+                // then animate to 1 over ~550ms — the marker
+                // sketches in left-to-right.
+                drawProgress = 0
+                withAnimation(.easeOut(duration: 0.55)) {
+                    drawProgress = 1
+                }
+            } else {
+                drawProgress = 0
+            }
+        }
+        .onAppear {
+            // First-paint: if this tab is already active when
+            // the panel mounts, show the underline at full draw
+            // (no animation — animations on first paint look
+            // like glitches, not gestures).
+            if isSelected {
+                lastVariant = variant
+                drawProgress = 1
+            }
+        }
+    }
+
+    private var textColor: Color {
+        if isSelected { return Color.white }
+        return isHovered ? Color.white.opacity(0.85) : Color.white.opacity(0.4)
+    }
+
+    /// Pick a random variant from `0..<MarkerStroke.variantCount`
+    /// while avoiding `excluding`. If the only remaining choice IS
+    /// the excluded value (shouldn't happen with 15 variants), falls
+    /// through to a plain random pick.
+    private func nextVariant(excluding: Int) -> Int {
+        let candidates = (0..<MarkerStroke.variantCount).filter { $0 != excluding }
+        return candidates.randomElement() ?? Int.random(in: 0..<MarkerStroke.variantCount)
     }
 }
 
@@ -3348,27 +3796,30 @@ extension AnyTransition {
     /// stays inside the visible silhouette envelope rather than
     /// sticking out.
     static var pillEnter: AnyTransition {
-        // 2026-05-04 (rev 2): scale 0.65 starting, anchor .center.
-        // Earlier 0.78 was so close to 1.0 the entrance was just a
-        // fade with imperceptible scale change — the user reported
-        // "no animation at the endpoints." 0.65 gives a CLEAR
-        // "popping in from a tiny version" motion that lands at 1.0
-        // visibly. The .center anchor keeps the pivot inside the
-        // silhouette so any spring overshoot stays inside the
-        // visible envelope (anchor .top would put the pivot ABOVE
-        // the menu bar, which sounds right but breaks anchoring on
-        // the visible content's geometry).
-        .scale(scale: 0.65, anchor: .center).combined(with: .opacity)
+        // 2026-05-05: anchor changed to .top so transient pill
+        // content emerges FROM THE NOTCH HARDWARE BOUNDARY (top
+        // edge of pill = the notch zone) rather than from the
+        // center. User: "when a screenshot is taken in empty
+        // state the animation comes from up. it should be from
+        // INSIDE OF THE NOTCH and after the animation finishes
+        // it should return to the notch."
+        //
+        // With .center anchor: content scaled from middle of pill,
+        // looking like it appeared "from up" (since the pill is
+        // at top of screen).
+        // With .top anchor: scale pivot is at the notch boundary,
+        // so content emerges DOWNWARD from the notch hardware —
+        // matching the "drops out of the notch" feel.
+        .scale(scale: 0.65, anchor: .top).combined(with: .opacity)
     }
 
-    /// Pill exit transition. Scales DOWN + fades. The scale delta
-    /// is INTENTIONALLY larger than the entrance so the exit reads
-    /// as "the pill retreats" rather than "the pill fades" — a
-    /// 1.0→0.7 scale path has 2× the visible motion of a 1.0→0.85
-    /// path, and the longer the visible motion, the more the eye
-    /// reads it as a deliberate animation instead of an abrupt cut.
+    /// Pill exit transition — scales DOWN to .top (returns INTO
+    /// the notch hardware) + fades. User wants the transient pill
+    /// to "return to the notch" after auto-dismiss. .top anchor
+    /// makes the exit shrink TOWARD the notch boundary, mirroring
+    /// the entry direction.
     static var pillExit: AnyTransition {
-        .scale(scale: 0.7, anchor: .center).combined(with: .opacity)
+        .scale(scale: 0.7, anchor: .top).combined(with: .opacity)
     }
 
     /// Convenience: the asymmetric pair as a single transition.

@@ -194,20 +194,25 @@ final class PanelWindowController {
     /// 8 → 34 via `.smooth` interpolation.
     static let pillCornerRadius: CGFloat = 8
     /// Tease (hover-intent) geometry. When the cursor enters the notch
-    /// hot zone, we animate the panel from resting closed-pill geometry
-    /// to a slightly-wider, slightly-taller pill to give immediate visual
-    /// feedback that the system noticed. If the cursor stays for
-    /// `HoverActivator.dwellSeconds`, the tease promotes to a full slab
-    /// open. If the cursor leaves first, the tease retracts to closed.
+    /// hot zone, the panel grows from resting → tease pill to give
+    /// immediate visual feedback. User direction 2026-05-05: "when I
+    /// move my cursor there it should feel like I am working on the
+    /// notch, not like it's coming from up."
     ///
-    /// The size delta is small on purpose — the user described the
-    /// reference behavior (Alcove / Elkhob) as "it just moves a little
-    /// bit; it doesn't open the whole thing." Bumped from 220×24 →
-    /// 340×40 to track the new 320×32 closed pill: the proportional
-    /// delta (~6% width, +25% height) is what reads as "noticed you"
-    /// without misfiring as a full open.
-    static let teasePillWidth: CGFloat = 340
-    static let teasePillBump: CGFloat = 40
+    /// Previous 340×40 (340pt wide, 32 overlap + 40pt bump = 72pt
+    /// total) was too big — read as "panel descending from above"
+    /// rather than "notch reacting to cursor." 340 ≈ 1.7× the actual
+    /// notch hardware width (~200pt), making it feel like a separate
+    /// pill below the notch.
+    ///
+    /// Now 220×8 — 220pt wide is just slightly past the notch
+    /// boundary (10pt visible past hardware on each side), 8pt bump
+    /// is a barely-perceptible visible tail below the menu bar.
+    /// Reads as "the notch hardware itself nudged slightly forward
+    /// in response to my cursor" — what the user described as
+    /// "working on the notch."
+    static let teasePillWidth: CGFloat = 220
+    static let teasePillBump: CGFloat = 8
     private static let edgeGap: CGFloat = 10
     private static let topGap: CGFloat = 40
     /// True Alcove-style placement: the NSPanel's TOP edge sits AT the
@@ -529,6 +534,30 @@ final class PanelWindowController {
 
         panel.contentView = container
 
+        // 2026-05-04 GPU-accelerated shadow via CALayer.shadowPath.
+        // Replaces the SwiftUI .shadow() modifiers in PanelRootView,
+        // which were doing CPU-side gaussian convolution every frame
+        // because SwiftUI couldn't tell Core Animation what shape
+        // was being shadowed (the silhouette is custom Bezier).
+        //
+        // With shadowPath set, CA short-circuits the offscreen
+        // alpha-analysis pass and renders the shadow directly on
+        // the GPU as a single fill-with-blur operation. Documented
+        // 50-80% performance gain. Confirmed by our diagnostic:
+        // disabling SwiftUI .shadow() eliminated the 100ms+ frame
+        // drops; this implementation keeps the shadow's lift but
+        // moves the cost off the CPU.
+        container.wantsLayer = true
+        if let layer = container.layer {
+            layer.masksToBounds = false  // critical: shadow extends beyond bounds
+            layer.shadowColor = NSColor.black.cgColor
+            layer.shadowOpacity = 0  // start hidden; flipped on by show/hide
+            layer.shadowRadius = 24
+            layer.shadowOffset = CGSize(width: 0, height: -14)
+        }
+        // Set initial shadowPath for the parked notch-hidden geometry.
+        updateShadowPath()
+
         // Resize the slab when the user switches tabs while the panel
         // is open. The music tab gets a much shorter inner height than
         // the data-tab grids; without this hook, switching from .notes
@@ -541,6 +570,179 @@ final class PanelWindowController {
             .sink { [weak self] newTab in
                 self?.handleActiveTabChange(to: newTab)
             }
+
+        // 2026-05-04 (user feedback: "the end point seems lower
+        // in pt"): shadow opacity fade is now decoupled from the
+        // isShown @Published flag. Earlier the Combine sink fired
+        // updateShadowAppearance on every isShown change, which
+        // ran the shadow opacity fade 0.55 → 0 in 200ms STARTING
+        // at hide() entry. But the close spring takes 270-320ms,
+        // so the last 70-120ms of the close had silhouette
+        // visible WITHOUT its shadow halo. The user reads
+        // (silhouette + shadow) as one visual boundary; without
+        // shadow at the tail of close, the panel appeared to end
+        // at a different (higher) point.
+        //
+        // New: this subscription only refreshes shadowPath when
+        // silhouette character changes. Shadow opacity is set
+        // manually at the right moments (open start, close
+        // completion) so the shadow stays visible THROUGH the
+        // entire close spring and fades only after the panel
+        // actually arrives at notch-hidden.
+        shadowStateSubscription = Publishers.CombineLatest4(
+            presenter.$isShown,
+            presenter.$isResting,
+            presenter.$isAtNotchHidden,
+            presenter.$nowPlaying
+        )
+        .sink { [weak self] _, _, _, _ in
+            self?.updateShadowPath()
+        }
+    }
+
+    private var shadowStateSubscription: AnyCancellable?
+
+    /// Builds the silhouette CGPath in CALayer non-flipped coordinates
+    /// (origin at bottom-left). The silhouette is the same shape
+    /// rendered by `OutwardFlaredShape` in SwiftUI, but produced as a
+    /// raw CGPath so CALayer can use it as `shadowPath` and skip the
+    /// expensive alpha-analysis pass.
+    ///
+    /// Geometry mirrors `OutwardFlaredShape.path(in:)`:
+    ///   • Inverse-bow shoulders at TOP (under the menu bar)
+    ///   • Standard convex rounded corners at BOTTOM
+    private static func silhouetteCGPath(
+        in rect: CGRect,
+        topFlareRadius: CGFloat,
+        bottomCornerRadius: CGFloat
+    ) -> CGPath {
+        let path = CGMutablePath()
+        let topR = max(0, min(topFlareRadius, rect.height / 2, rect.width / 2))
+        let bottomR = max(0, min(bottomCornerRadius,
+                                 rect.height - topR,
+                                 max(0, rect.width / 2 - topR)))
+        // CALayer non-flipped: y=0 at bottom, y=height at top
+        let leftX = rect.minX
+        let rightX = rect.maxX
+        let topY = rect.maxY        // top edge in non-flipped
+        let bottomY = rect.minY     // bottom edge in non-flipped
+        let bodyLeftX = leftX + topR
+        let bodyRightX = rightX - topR
+
+        // Start at top-left rect corner (full width, at top edge)
+        path.move(to: CGPoint(x: leftX, y: topY))
+
+        // Top-left inverse-bow shoulder — quadratic curve down and in
+        path.addQuadCurve(
+            to: CGPoint(x: bodyLeftX, y: topY - topR),
+            control: CGPoint(x: bodyLeftX, y: topY)
+        )
+
+        // Left body — vertical line down to bottom-left arc start
+        path.addLine(to: CGPoint(x: bodyLeftX, y: bottomY + bottomR))
+
+        // Bottom-left rounded corner (180° → 270° in non-flipped)
+        path.addArc(
+            center: CGPoint(x: bodyLeftX + bottomR, y: bottomY + bottomR),
+            radius: bottomR,
+            startAngle: .pi,
+            endAngle: 3 * .pi / 2,
+            clockwise: false
+        )
+
+        // Bottom edge
+        path.addLine(to: CGPoint(x: bodyRightX - bottomR, y: bottomY))
+
+        // Bottom-right rounded corner (270° → 0°)
+        path.addArc(
+            center: CGPoint(x: bodyRightX - bottomR, y: bottomY + bottomR),
+            radius: bottomR,
+            startAngle: 3 * .pi / 2,
+            endAngle: 0,
+            clockwise: false
+        )
+
+        // Right body — vertical line up to inverse-bow start
+        path.addLine(to: CGPoint(x: bodyRightX, y: topY - topR))
+
+        // Top-right inverse-bow shoulder — quadratic curve up and out
+        path.addQuadCurve(
+            to: CGPoint(x: rightX, y: topY),
+            control: CGPoint(x: bodyRightX, y: topY)
+        )
+
+        path.closeSubpath()
+        return path
+    }
+
+    /// The silhouette occupies a sub-region of the contentView: full
+    /// width minus haloPadding on left/right, full height minus
+    /// haloPadding on bottom (no top halo because the silhouette
+    /// extends up into the menu-bar zone).
+    private func currentSilhouetteRect() -> CGRect {
+        guard let bounds = panel.contentView?.bounds else { return .zero }
+        let halo = PanelWindowController.haloPadding
+        return CGRect(
+            x: halo,
+            y: halo,                              // bottom halo (non-flipped: y=halo from bottom)
+            width: bounds.width - 2 * halo,
+            height: bounds.height - halo          // top of silhouette extends to bounds.height
+        )
+    }
+
+    /// Compute current top-flare and bottom-corner radii based on
+    /// presenter state. Mirrors the logic in PanelRootView's
+    /// `panelTopRadius` / `panelBottomRadius` computed properties so
+    /// the shadow silhouette matches the rendered silhouette.
+    private func currentSilhouetteRadii() -> (topFlare: CGFloat, bottomCorner: CGFloat) {
+        if presenter.isAtNotchHidden {
+            return (0, 4)
+        }
+        if presenter.isShown {
+            // Slab character
+            return (22, PanelWindowController.innerCornerRadius)
+        }
+        if presenter.nowPlaying != nil {
+            // Music pill character
+            return (12, PanelWindowController.pillCornerRadius)
+        }
+        // Empty resting state
+        return (0, 6)
+    }
+
+    /// Rebuild and apply the shadow path for the current silhouette
+    /// geometry. Wrapped in a CATransaction with disabled actions so
+    /// CA doesn't fire an implicit animation on shadowPath assignment
+    /// (we drive the morph ourselves at spring-tick rate).
+    func updateShadowPath() {
+        guard let layer = panel.contentView?.layer else { return }
+        let rect = currentSilhouetteRect()
+        let (topR, bottomR) = currentSilhouetteRadii()
+        let path = Self.silhouetteCGPath(
+            in: rect,
+            topFlareRadius: topR,
+            bottomCornerRadius: bottomR
+        )
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.shadowPath = path
+        CATransaction.commit()
+    }
+
+    /// Set shadow opacity to an explicit target with a short
+    /// easeOut animation. Called at:
+    ///   • show() / animateOpen start — fade in to 0.55
+    ///   • animateClose spring completion — fade out to 0 ONLY
+    ///     after the panel has actually arrived at notch-hidden,
+    ///     so the close animation stays visually anchored by the
+    ///     shadow throughout.
+    private func setShadowOpacity(_ target: Float, duration: CFTimeInterval = 0.18) {
+        guard let layer = panel.contentView?.layer else { return }
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(duration)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        layer.shadowOpacity = target
+        CATransaction.commit()
     }
 
     func toggle() {
@@ -658,23 +860,25 @@ final class PanelWindowController {
         let pillFrame = closedPillFrame(for: screen)
         let slabFrame = openSlabFrame(for: screen, tab: presenter.activeTab)
 
-        // Position the panel at its starting geometry BEFORE ordering
-        // it front. If a close is still in flight (panel mid-shrink,
-        // orderOut not yet fired), DON'T snap it — let animateOpen
-        // blend from the panel's CURRENT frame so velocity continues
-        // smoothly (no visible jump).
+        // Position the panel at its starting geometry. Original
+        // logic restored: snap only if panel was orderOut'd
+        // (`!panel.isVisible`). User 2026-05-05: previous attempt
+        // to FORCE the start frame caused "opening 2 times" feel —
+        // the snap from current geometry to expectedStart, followed
+        // by the open spring, read as TWO separate motions.
         //
-        // The starting frame depends on whether the panel was hidden
-        // or already visible:
-        //   • Already visible (resting music pill OR mid-close):
-        //     skip setFrame; spring blends from current frame to slab.
-        //   • Fully hidden (no music, panel was orderOut'd): start at
-        //     notchHiddenFrame — height = notchOverlap only, fully
-        //     occluded by the hardware notch. The spring grows from
-        //     "invisible behind the notch" → slab. No "pill flash"
-        //     frame to worry about, no alpha fade required, pure
-        //     spring physics from frame 1. Matches the symmetric
-        //     close-to-notch endpoint.
+        // Now that all closed-state radii are unified to notch
+        // character (panelTopRadius=0 + panelBottomRadius=6, see
+        // PanelRootView), the snap is unnecessary: the open
+        // animation looks like notch silhouette growing into slab
+        // regardless of whether the panel started at notch-hidden
+        // (249×32), music-pill (302×44), or a transient-pill
+        // geometry — because the SHAPE CHARACTER is identical at
+        // every starting size, only the dimensions change.
+        //
+        // Velocity continuity is preserved: if a close is in
+        // flight, animateOpen blends from the panel's current
+        // moving frame to slab without a visible jump.
         panel.alphaValue = 1
         if !panel.isVisible {
             let hiddenStart = notchHiddenFrame(for: screen)
@@ -735,10 +939,44 @@ final class PanelWindowController {
         // System Settings → Trackpad → Haptic feedback toggle.
         HapticFeedback.alignment()
 
+        // 2026-05-04 setup-time instrumentation: log the wall time
+        // from show() entry to animateOpen() being called. If this
+        // is >5ms, there's main-thread blocking BEFORE the spring
+        // even starts — would feel as "lag at the moment I clicked,"
+        // distinct from per-frame stutter.
+        let setupT0 = CACurrentMediaTime()
         // Start the pure-Core-Animation morph. NSAnimationContext drives
         // panel.animator().setFrame at the window-server level — GPU-
         // accelerated, no SwiftUI body re-evaluation per frame.
         animateOpen(to: slabFrame)
+        let setupMs = (CACurrentMediaTime() - setupT0) * 1000
+        if setupMs > 1.0 {
+            DictationOrchestrator.dlog(
+                "⏱ animateOpen() setup took \(String(format: "%.1f", setupMs))ms"
+            )
+        }
+
+        // 2026-05-04 cascade reveal trigger. Tightened from 80ms
+        // → 30ms after research confirmed the perceivable-lag
+        // threshold. Per motion-to-photon latency studies, users
+        // can detect delays as low as 17ms (JND) and reliably
+        // notice 30-100ms. 80ms was squarely in the perceivable
+        // range — that's why the user reported content "feeling
+        // laggy" even though our spring detector showed zero
+        // dropped frames. The lag was a *real perceived delay*
+        // between panel arrival and content arrival.
+        //
+        // Now fires at 30ms — at the floor of perceivability,
+        // small enough to feel "with the panel" but enough offset
+        // that the cascade animation doesn't collide with the
+        // steepest panel-growth frames. The GPU shadow fix
+        // (CALayer.shadowPath) eliminated the per-frame budget
+        // pressure that originally forced the longer 80ms gap.
+        let cascadeGen = animationGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+            guard let self, self.animationGeneration == cascadeGen else { return }
+            self.presenter.cascadeReady = true
+        }
 
         clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
@@ -918,6 +1156,10 @@ final class PanelWindowController {
         // panel shrinks back into the notch — no abrupt content snap
         // mid-morph, no still-rendering subviews fighting the shrink.
         presenter.isShown = false
+        // 2026-05-04: also flip cascadeReady=false so the cascade
+        // animates OUT in parallel with the close morph (close was
+        // already smooth without sequencing — opposite of open).
+        presenter.cascadeReady = false
         isVisible = false
 
         // Music-aware close target.
@@ -993,7 +1235,36 @@ final class PanelWindowController {
     func tease() {
         if isTeasing { return }
         if isVisible { return }
+
         isTeasing = true
+
+        // MUSIC-PILL HOVER REACTION (Alcove-inspired). User 2026-05-05:
+        // "when you move the cursor closer it should react ... like
+        // alcove does." Cursor proximity should give a subtle visual
+        // cue that the pill noticed the user, while still requiring
+        // dwell time before the full open fires.
+        //
+        // For music pill state, animate to a SLIGHTLY BIGGER pill
+        // than the resting music pill (not smaller — that's the
+        // squeeze user rejected). +14pt width and +6pt height bump
+        // — barely perceptible growth but registers as "I see you,
+        // hold the cursor for a moment."
+        if presenter.isResting && presenter.nowPlaying != nil {
+            let screen = screenContainingCursor() ?? NSScreen.main
+            let frame = screen?.frame ?? .zero
+            let overlap = PanelWindowController.notchOverlap(for: screen)
+            let halo = PanelWindowController.haloPadding
+            let visibleWidth = PanelWindowController.closedPillWidth + 14
+            let visibleBump: CGFloat = 6
+            let teaseFrameMusic = NSRect(
+                x: frame.midX - (visibleWidth + 2 * halo) / 2,
+                y: frame.maxY - (overlap + visibleBump + halo),
+                width: visibleWidth + 2 * halo,
+                height: overlap + visibleBump + halo
+            )
+            animateTease(to: teaseFrameMusic)
+            return
+        }
 
         // Tease is always cursor-driven (HoverActivator fires it on
         // notch entry), so resolve the cursor's screen rather than the
@@ -1031,6 +1302,19 @@ final class PanelWindowController {
         // left it true.
         presenter.isShown = false
 
+        // 2026-05-06 (user feedback: "we give a touch effect when
+        // there is a music pill — need the same effect in the
+        // empty state too"): fade the GPU shadow in during empty-
+        // state tease. Without this the silhouette grows from
+        // hidden into the visible bump as a FLAT black ribbon
+        // under the notch — no depth, doesn't read as a "touch
+        // reaction." Music pill tease already has shadow at
+        // opacity 0.40 (set by enterRestingMode) so its grow has
+        // visible lift; matching that here for parity. 0.30 is a
+        // subtle drop shadow — enough to give the empty pill
+        // depth without making it feel like a heavy slab.
+        setShadowOpacity(0.30)
+
         animateTease(to: teaseFrame)
     }
 
@@ -1051,6 +1335,14 @@ final class PanelWindowController {
 
         animationGeneration &+= 1
         let myGen = animationGeneration
+
+        // 2026-05-06: fade shadow back out during dismiss for
+        // empty state (matches the fade-in we added in tease()).
+        // If music is resting, leave shadow at its 0.40 resting
+        // opacity — the pill stays visible afterward.
+        if !presenter.isResting {
+            setShadowOpacity(0, duration: 0.14)
+        }
 
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.16
@@ -1291,36 +1583,73 @@ final class PanelWindowController {
         let s = screen ?? NSScreen.main
         let frame = s?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let overlap = PanelWindowController.notchOverlap(for: screen)
+        let halo = PanelWindowController.haloPadding
 
-        // EXACTLY hardware notch width — width comes straight from
-        // NSScreen.auxiliaryTopLeftArea / auxiliaryTopRightArea
-        // (gap = 185pt on this 16" MBP). That's the literal boundary
-        // the system uses to position menu-bar items away from the
-        // notch hardware = the actual hardware cutout width.
-        //
-        // User direction: the close should match the notch hardware
-        // size, not extend past it. Iterated wider values (+8, +14,
-        // +20, +32) all read as the panel sitting on top of the
-        // notch rather than becoming it. With no padding the
-        // silhouette ends at the exact hardware boundary.
-        let bezelPadding: CGFloat = 0
-        let auxGapWidth: CGFloat = {
+        // 2026-05-04 (user feedback: "no pill closing... should be
+        // just like the notch of real macbook while closing"):
+        // close target now matches the SYSTEM-REPORTED hardware
+        // notch exactly (auxGap = the gap between menu-bar items
+        // flanking the notch, typically 185pt on 16" MBP). The
+        // earlier two-stage close (249pt → settleSpring shrink to
+        // 185pt) was the source of the user-reported "bump at
+        // last time" — that 64pt width reduction in a separate
+        // 120ms spring after the main close. By targeting the
+        // hardware notch directly here, the close lands in ONE
+        // smooth motion. The settleSpring block in animateClose's
+        // completion handler is now a no-op (target == start) and
+        // can be removed.
+        let visualNotchWidth: CGFloat = {
             guard let s,
                   let auxL = s.auxiliaryTopLeftArea,
                   let auxR = s.auxiliaryTopRightArea
             else {
-                // Non-notched display — fall back to pill width.
-                return PanelWindowController.closedPillWidth - 2 * bezelPadding
+                return PanelWindowController.closedPillWidth - 64
             }
             return s.frame.width - auxL.width - auxR.width
         }()
-        let visualNotchWidth = auxGapWidth + 2 * bezelPadding
+
+        // visibleBump = 0 — silhouette is exactly flush with the
+        // menu-bar boundary (matches Apple's safeAreaInsets.top
+        // behavior). The close ends entirely tucked into the notch
+        // area with no visible portion below — exactly the real
+        // MacBook notch character. Halo on horizontal + bottom
+        // gives the GPU shadow room to render.
+        let visibleBump: CGFloat = 0
+        let width = visualNotchWidth + 2 * halo
+        let height = overlap + visibleBump + halo
 
         return NSRect(
-            x: frame.midX - visualNotchWidth / 2,
-            y: frame.maxY - overlap,
-            width: visualNotchWidth,
-            height: overlap
+            x: frame.midX - width / 2,
+            y: frame.maxY - height,
+            width: width,
+            height: height
+        )
+    }
+
+    /// TRANSIENT-ONLY PILL FRAME — used for screenshot/charging/bluetooth
+    /// pills when NO MUSIC is playing. Smaller than the music pill so
+    /// the silhouette matches the actual notch hardware (~200pt) rather
+    /// than the wider music pill (302pt). User 2026-05-05: "when a
+    /// screenshot is taken in empty state ... it's taking a shape of
+    /// the music pill ... it should be from inside of the notch."
+    ///
+    /// 220pt wide × 8pt visible bump below menu bar — slightly past
+    /// the notch hardware boundary so the transient pill content is
+    /// readable, but visually merged with the notch instead of being
+    /// a separate music-pill-sized blob.
+    private func transientPillFrame(for screen: NSScreen?) -> NSRect {
+        let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let overlap = PanelWindowController.notchOverlap(for: screen)
+        let halo = PanelWindowController.haloPadding
+        let visibleWidth: CGFloat = 220
+        let visibleBump: CGFloat = 8
+        let height = overlap + visibleBump + halo
+        let width = visibleWidth + 2 * halo
+        return NSRect(
+            x: frame.midX - width / 2,
+            y: frame.maxY - height,
+            width: width,
+            height: height
         )
     }
 
@@ -1482,23 +1811,59 @@ final class PanelWindowController {
         //                      and stops; the "jelly" feel comes
         //                      from the smooth acceleration profile,
         //                      not from oscillation.
-        let start = panel.frame
         currentSpring?.cancel()
         // Mark "morph in flight" so the sphere visualizer pauses
         // its 60Hz redraw loop while the spring is integrating.
         // Sphere + spring on the same main runloop at 60Hz each
         // were competing for ticks — visible as jelly jitter.
         presenter.isMorphing = true
-        // 300/32 — paced so the SwiftUI content-overlay blur
-        // (40pt → 0) has time to play through visibly during the
-        // morph. ω_n≈17.3, ratio≈0.92, settle ~270ms. Faster than
-        // 240/26 (~330ms which felt laggy without blur), slower
-        // than 450/40 (~150ms which snapped before blur could read).
-        let spring = SpringFrameAnimator(stiffness: 300, damping: 32, mass: 1.0)
+        // 182/22 — subtle bloom calibrated to OUR slab size, no
+        // "double motion" feel. User feedback iteration:
+        //   • 380/30 (0.77 ratio, 3% bloom) → "static, lifeless"
+        //   • 380/22 (0.56 ratio, 13% bloom) → "weird shapes during bounce"
+        //   • 250/22 (0.70 ratio, 4.6% bloom) → "too fast" then "two
+        //     opens / glitch feel" (the bloom-and-settle phase reads
+        //     as a separate motion on our 480pt-tall slab)
+        //   • 182/22 (0.82 ratio, ~1.2% bloom) → THIS: subtle bloom
+        //     barely past slab, no perceptible "second motion"
+        //
+        // Math: ω_n=√182≈13.5, ratio=22/(2·13.5)=0.815. Overshoot
+        // peak only ~1.2% (e^(-π·0.815/√(1-0.664)) = e^(-π·1.41)
+        // = 0.012) — visible only as a hint of liveliness, not as
+        // a separate growth pulse. Settle ~362ms (matched to slab
+        // proportions: 3.31× taller than Alcove → √3.31 = 1.82×
+        // longer spring → ~362ms).
+        //
+        // Same duration as the previous 250/22, just lower
+        // amplitude on the overshoot phase. The "alive" feel comes
+        // from the spring CURVE (smooth ease-out), not from a big
+        // bounce.
+        // OPEN spring uses current panel.frame as starting position.
+        // Reverted setFrame snap to music pill — user reported
+        // "small is bouncing" when the snap was active. The snap
+        // from notch-hidden → music pill before spring was reading
+        // as a discrete bounce of the small panel.
+        let start = panel.frame
+
+        // Apple's signature smooth spring: .smooth(duration: 0.45)
+        //   stiffness = 195, damping = 28
+        //   ratio = 1.003 (critically damped, no overshoot)
+        //   Settles ~286ms with smooth ease-out.
+        let spring = SpringFrameAnimator(stiffness: 195, damping: 28, mass: 1.0)
+        // Wire the GPU shadowPath update into each spring tick so
+        // the shadow follows the morphing panel size in real time.
+        spring.shadowTickHandler = { [weak self] in
+            self?.updateShadowPath()
+        }
+        // Fade shadow IN at open start. By the time the panel has
+        // grown noticeably, the shadow is already at full opacity
+        // anchoring it to the desktop.
+        setShadowOpacity(0.55)
         currentSpring = spring
         spring.animate(panel: panel, from: start, to: target) { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
             self.panel.setFrame(target, display: true)
+            self.updateShadowPath()
             self.currentSpring = nil
             self.presenter.isMorphing = false
         }
@@ -1553,24 +1918,56 @@ final class PanelWindowController {
         //   Settle phase (f2170→f2190): 20 frames = 333ms
         //   Total: ~667ms
         //
-        // 60/18 spring matches this duration:
-        //   ω_n   = √60 ≈ 7.75
-        //   ratio = 18/(2·7.75) ≈ 1.16 (overdamped)
-        //   λ₁    = ω_n*(ζ - √(ζ²-1)) ≈ 4.42
-        //   95% settle ≈ 3/λ₁ ≈ 680ms
+        // 100/22 spring (was 60/18 = 680ms Alcove-matched):
+        //   ω_n   = √100 = 10.0
+        //   ratio = 22/(2·10) = 1.10 (slightly overdamped, no overshoot)
+        //   95% settle ≈ ~440ms
         //
-        // Close is 2.5x slower than open (270ms) — same ratio as
-        // Alcove (open ~417ms / close ~667ms = 0.63).
+        // User direction 2026-05-04: "almost but I think it should
+        // be a little bit faster." Bumped stiffness 60→100 (×1.67)
+        // = ~35% faster close while keeping the overdamped ratio so
+        // there's no oscillation/overshoot. Faster than Alcove's
+        // 667ms reference but matches user preference.
         let spring: SpringFrameAnimator
         if isNotchHiddenTarget {
-            spring = SpringFrameAnimator(stiffness: 60, damping: 18, mass: 1.0)
+            // No-music close — Apple .smooth(duration: 0.50)
+            //   stiffness = (2π/0.50)² ≈ 158
+            //   damping   = 2·1.0·√158 ≈ 25
+            //   ratio = 0.994 (critically damped, no overshoot)
+            //   Settles ~320ms with smooth ease-out landing.
+            // Matches Apple's signature smooth spring for the close.
+            spring = SpringFrameAnimator(stiffness: 158, damping: 25, mass: 1.0)
         } else {
-            // Music close: lands punchy at the resting pill.
-            spring = SpringFrameAnimator(stiffness: 380, damping: 44, mass: 1.0)
+            // Music close — slight bloom (ratio 0.91, near-critical
+            // with ~1% overshoot). The close lands at the music
+            // pill which is a VISIBLE silhouette below the menu
+            // bar, so a subtle bloom reads as "the pill snapping
+            // into place" — like a magnet clicking. Was 480/49
+            // (overdamped, ratio 1.12). Reduced damping 49 → 40
+            // adds the perceptible-but-not-bouncy snap.
+            spring = SpringFrameAnimator(stiffness: 480, damping: 40, mass: 1.0)
+        }
+        spring.shadowTickHandler = { [weak self] in
+            self?.updateShadowPath()
         }
         currentSpring = spring
         spring.animate(panel: panel, from: start, to: target) { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
+            self.updateShadowPath()
+            // Shadow fades out ONLY after panel has arrived at the
+            // close target (notch-hidden / pill). Keeps the close
+            // visually anchored by the shadow halo throughout the
+            // spring — fixes user-reported "end point seems lower
+            // in pt" feeling that happened when shadow disappeared
+            // 70-120ms before the panel finished closing.
+            //
+            // For close-to-pill (music playing): keep shadow visible
+            // since the pill should still cast a subtle drop shadow.
+            // For close-to-notch-hidden: fade shadow out — there's
+            // no visible silhouette there, no shadow needed.
+            if isNotchHiddenTarget {
+                self.setShadowOpacity(0, duration: 0.14)
+            }
             self.currentSpring = nil
             self.presenter.isMorphing = false
             // ALWAYS keep the panel visible at the close target.
@@ -1604,14 +2001,20 @@ final class PanelWindowController {
                 // (black-on-black with hardware) as a drag target.
                 // Clear isResting so future show() flows start clean.
                 self.presenter.isResting = false
+
+                // 2026-05-04 (user feedback: "no pill closing should
+                // be just like the notch of real macbook"): the
+                // settleSpring stage that used to shrink the panel
+                // from 249pt → 185pt as a SECOND animation here has
+                // been REMOVED. notchHiddenFrame now targets the
+                // hardware notch width directly (auxGap), so the
+                // close lands at the right size in ONE smooth motion
+                // — no "bump at last time."
+                //
                 // Flag the silhouette as notch-hidden so PanelRootView
                 // renders the close-end as a clean hardware-notch shape
-                // (sharp 90° top corners + 4pt bottom corners) instead
-                // of the inverse-bow + 8pt bottom flare which reads as
-                // a "triangle" wedge at 185×32 hardware-notch dimensions.
-                // See PanelPresenter.isAtNotchHidden for the visual
-                // reasoning. Flag is cleared the moment the panel
-                // starts opening again (show()).
+                // (sharp 90° top corners + 4pt bottom corners). Flag
+                // is cleared the moment the panel starts opening again.
                 self.presenter.isAtNotchHidden = isNotchHiddenTarget
             } else {
                 // Music close path lands at the music pill (278×32
@@ -1711,11 +2114,98 @@ final class PanelWindowController {
         // hardware notch's actual character) instead of the inverse-bow
         // flare that reads as a "triangle" at this small width.
         presenter.isAtNotchHidden = true
+
         NSLog("Notetaker: parkAtNotchHidden — panel alive at \(target)")
         // Mirror to dlog so we can verify from /tmp/notetaker-dictation.log
         // whether the park ran (NSLog content is private-redacted in
         // unified logging by default, so it never shows in `log show`).
         DictationOrchestrator.dlog("🅿️ parkAtNotchHidden frame=\(target) windowNumber=\(panel.windowNumber) level=\(panel.level.rawValue) alpha=\(panel.alphaValue) visible=\(panel.isVisible) registeredTypes=\((panel.contentView as? PanelDropContainer).map { _ in "yes" } ?? "NO")")
+
+        // Pre-warm SwiftUI rendering for the slab content. The first
+        // user-triggered open was paying a one-time first-render
+        // cost (image decoding for app icons + segmented tab assets,
+        // text measurement for headers, drag-and-drop overlay
+        // construction, Metal texture allocation for blur targets)
+        // that showed up as visible jitter during the spring
+        // animation.
+        //
+        // 2026-05-04 v2: kick warmup IMMEDIATELY (was on a 0.5s
+        // delay, which the user was beating to the panel — log
+        // showed `🔥 prewarm SKIPPED` every time). Also resize the
+        // panel to slab dimensions DURING the warmup (alpha=0 so
+        // it stays invisible) so SwiftUI lays out at slab size,
+        // not the 185×32 notch-hidden size where most of the
+        // expensive content gets clipped out of layout.
+        DispatchQueue.main.async { [weak self] in
+            self?.prewarmSwiftUIContent()
+        }
+    }
+
+    /// Triggers a layout pass on the slab content while the panel is
+    /// invisible (alpha=0, briefly resized to slab dimensions) so
+    /// the first user-triggered open doesn't pay first-render cost.
+    /// See call site in `parkAtNotchHidden` for rationale.
+    private func prewarmSwiftUIContent() {
+        guard presenter.isAtNotchHidden, !presenter.isShown else {
+            DictationOrchestrator.dlog("🔥 prewarm SKIPPED — user opened panel before warmup ran")
+            return
+        }
+        let t0 = CACurrentMediaTime()
+        DictationOrchestrator.dlog("🔥 prewarm START")
+
+        // Capture original geometry so we can restore exactly.
+        let originalFrame = panel.frame
+        guard let screen = panel.screen ?? NSScreen.main else {
+            DictationOrchestrator.dlog("🔥 prewarm ABORT — no screen")
+            return
+        }
+        let slabFrame = openSlabFrame(for: screen, tab: presenter.activeTab)
+
+        // 1) Hide the panel (alpha=0). The window stays alive for
+        //    drag tracking; only its rendered output is suppressed.
+        panel.alphaValue = 0
+
+        // 2) Resize to slab dimensions WITHOUT display so the
+        //    window-server doesn't paint mid-resize.
+        panel.setFrame(slabFrame, display: false)
+
+        // 3) Flip isShown=true with animations disabled — SwiftUI
+        //    lays out the full slab content tree at slab size,
+        //    decodes images, allocates Metal textures, measures
+        //    text. This is the costly first-render work we want
+        //    to amortize at launch.
+        var transaction = SwiftUI.Transaction()
+        transaction.disablesAnimations = true
+        SwiftUI.withTransaction(transaction) {
+            self.presenter.isShown = true
+        }
+
+        // 4) Force a synchronous display so all the layout +
+        //    rasterization work actually completes before we
+        //    revert. Without this, SwiftUI might defer the layout
+        //    pass to the next runloop tick — by which point we'd
+        //    already have flipped isShown back and unmounted the
+        //    slab content (so nothing got warmed).
+        panel.contentView?.layoutSubtreeIfNeeded()
+        panel.displayIfNeeded()
+
+        // 5) Give async image decoding 2 frames to land, then
+        //    revert the geometry + state.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard let self else { return }
+            var t = SwiftUI.Transaction()
+            t.disablesAnimations = true
+            SwiftUI.withTransaction(t) {
+                self.presenter.isShown = false
+            }
+            self.panel.setFrame(originalFrame, display: false)
+            self.panel.alphaValue = 1
+            let elapsed = (CACurrentMediaTime() - t0) * 1000
+            DictationOrchestrator.dlog(
+                "🔥 prewarm DONE in \(String(format: "%.0f", elapsed))ms " +
+                "(slab=\(slabFrame.size))"
+            )
+        }
     }
 
     func enterRestingMode() {
@@ -1733,17 +2223,31 @@ final class PanelWindowController {
         if isTeasing { return }
 
         let screen = NSScreen.main
-        let pillFrame = closedPillFrame(for: screen)
-        // Animate from notch-hidden start frame to pill geometry so
-        // the resting pill GROWS smoothly out of the notch instead of
-        // popping in instantly. Without this animation, a transient
-        // pill event (charging plug-in, note-saved, screenshot, etc.)
-        // would make the panel jump abruptly into existence at full
-        // pill size — the user reported this as "all the transient
-        // pill animations have broken endpoints / startpoints when
-        // there's no small pill yet."
-        let hiddenStart = notchHiddenFrame(for: screen)
-        panel.setFrame(hiddenStart, display: false)
+        // CHOOSE PILL GEOMETRY based on music state:
+        //   • Music playing → music pill (302pt × 44pt) so the
+        //     artwork+waveform+transient overlays have room
+        //   • No music (transient pill in empty state) → smaller
+        //     transientPillFrame (220pt × 40pt) so the silhouette
+        //     matches the notch hardware area instead of looking
+        //     like a music pill. User 2026-05-05: "when a screenshot
+        //     is taken in empty state ... it's taking a shape of
+        //     the music pill ... it should be from inside of the notch."
+        let pillFrame: NSRect = (presenter.nowPlaying != nil)
+            ? closedPillFrame(for: screen)
+            : transientPillFrame(for: screen)
+        // Only snap to hiddenStart if panel is currently OFF-SCREEN.
+        // User screenshot evidence 2026-05-05: previously this ALWAYS
+        // snapped panel to notch-hidden (185pt) before animating to
+        // music pill (302pt) — if panel was at e.g. 249pt close-end
+        // or mid-settle when music started, user saw panel JUMP DOWN
+        // to 185 → grow back up to 302 = "small bouncing" effect.
+        // With panel always visible after parkAtNotchHidden, the snap
+        // is unnecessary; animate from current frame to music pill
+        // directly so the motion is one smooth grow, not snap+grow.
+        if !panel.isVisible {
+            let hiddenStart = notchHiddenFrame(for: screen)
+            panel.setFrame(hiddenStart, display: false)
+        }
         panel.alphaValue = 1
         panel.orderFrontRegardless()
         // Defensive: make sure isShown is false so PanelRootView's
@@ -1765,11 +2269,24 @@ final class PanelWindowController {
         // landing.
         let start = panel.frame
         currentSpring?.cancel()
+        // Music pill animation — RESTORED to original 300/32
+        // (locked by design per user 2026-05-05). ω_n=17.3,
+        // ratio=0.924 (slightly underdamped), settle ~270ms with
+        // a tactile landing character. Don't replace with Apple
+        // .smooth — the music pill has its own iconic feel.
         let spring = SpringFrameAnimator(stiffness: 300, damping: 32, mass: 1.0)
+        spring.shadowTickHandler = { [weak self] in
+            self?.updateShadowPath()
+        }
         currentSpring = spring
+        // Fade shadow IN gently as the music pill emerges from
+        // notch-hidden — pill is small but should cast a soft
+        // drop shadow so it reads as a physical surface.
+        setShadowOpacity(0.40)
         spring.animate(panel: panel, from: start, to: pillFrame) { [weak self] in
             self?.currentSpring = nil
             self?.panel.setFrame(pillFrame, display: true)
+            self?.updateShadowPath()
         }
 
         NSLog("Notetaker: enterRestingMode — animating notchHidden → pillFrame=\(pillFrame)")
@@ -1811,7 +2328,8 @@ final class PanelWindowController {
         let start = panel.frame
         currentSpring?.cancel()
         // Match the entrance spring (300/32 ~270ms) for symmetric
-        // appear/disappear motion.
+        // appear/disappear motion. Music pill spring locked by
+        // design per user 2026-05-05.
         let spring = SpringFrameAnimator(stiffness: 300, damping: 32, mass: 1.0)
         currentSpring = spring
         // Flip to hardware-notch radii (0/4) BEFORE the spring starts
@@ -1921,7 +2439,7 @@ final class AirDropShareDelegate: NSObject, NSSharingServiceDelegate {
 // width, x, and y all reach their targets at the same beat. One
 // spring drives them together, the lerp distributes the motion.
 @MainActor
-final class SpringFrameAnimator {
+final class SpringFrameAnimator: NSObject {
     let stiffness: Double
     let damping: Double
     let mass: Double
@@ -1932,32 +2450,107 @@ final class SpringFrameAnimator {
     private var fraction: Double = 0
     private var velocity: Double = 0
     private var lastTickTime: CFTimeInterval = 0
-    /// 60Hz Timer firing on main runloop. CVDisplayLink with a
-    /// `DispatchQueue.main.async` hop was tried and felt LAGGIER
-    /// than the Timer — the cross-thread hop adds enough latency
-    /// that the setFrame call lands AFTER the vsync window we
-    /// wanted to hit, so the tick effectively renders one frame
-    /// late. Pure-main Timer keeps the spring physics, the
-    /// setFrame call, and the SwiftUI re-render all on the same
-    /// runloop iteration, even at the cost of phase-mismatch on
-    /// 120Hz displays.
+    /// Display-synced ticking via CADisplayLink (macOS 14+) so the
+    /// spring runs at the actual display refresh rate — 120Hz on
+    /// ProMotion (16" MBP), 60Hz on standard displays. On a 16" MBP
+    /// the previous Timer(1/60) ticked at fixed 60Hz while the
+    /// display refreshes at 120Hz, dropping every other frame and
+    /// producing visible jitter ("not smooth" per user 2026-05-04).
+    /// CADisplayLink fires on EVERY vsync — twice as many samples
+    /// per second on ProMotion = visibly smoother motion, especially
+    /// during the slow no-music close (~680ms).
+    ///
+    /// Why CADisplayLink and not CVDisplayLink: CVDisplayLink fires
+    /// on its own thread and requires `DispatchQueue.main.async`
+    /// to hop back for the setFrame call — the hop costs a frame
+    /// of latency, so each tick lands AFTER the vsync window. The
+    /// macOS-14+ CADisplayLink (created via `NSScreen.displayLink`)
+    /// runs directly on the main runloop, no cross-thread hop, and
+    /// the tick fires inside the vsync window so setFrame lands
+    /// in time for the next render pass. Earlier Timer-based code
+    /// kept the same single-thread guarantee but at fixed 60Hz —
+    /// CADisplayLink keeps it AND tracks display rate.
+    ///
+    /// Fallback: macOS 13 (deployment target) doesn't have the
+    /// NSScreen.displayLink API yet. On those systems we keep the
+    /// 60Hz Timer (still works, just less smooth on ProMotion).
+    ///
+    /// Type-erased to AnyObject so the property declaration itself
+    /// doesn't require macOS 14 (CADisplayLink class is iOS-rooted
+    /// and only became macOS-available in 14). The runtime cast at
+    /// each touch site is the standard pattern for this.
+    private var displayLink: AnyObject?
     private var timer: Timer?
     private var completion: (() -> Void)?
+    /// Optional per-tick callback used by PanelWindowController to
+    /// keep the CALayer shadowPath in sync with the morphing
+    /// panel.frame. Called AFTER the setFrame call so the
+    /// contentView has already resized to the lerped frame.
+    var shadowTickHandler: (() -> Void)?
+    // Frame-drop detector accumulators (v2 instrumentation, 2026-05-04)
+    private var tickCount: Int = 0
+    private var tickDtSum: Double = 0
+    private var tickDtMax: Double = 0
+    private var startWallTime: CFTimeInterval = 0
 
     init(stiffness: Double, damping: Double, mass: Double) {
         self.stiffness = stiffness
         self.damping = damping
         self.mass = mass
+        super.init()
     }
 
-    func animate(panel: NSPanel, from start: NSRect, to target: NSRect, completion: @escaping () -> Void) {
+    func animate(panel: NSPanel, from start: NSRect, to target: NSRect, initialVelocity: Double = 0, completion: @escaping () -> Void) {
         self.panel = panel
         self.startFrame = start
         self.targetFrame = target
         self.fraction = 0
-        self.velocity = 0
+        // Initial velocity in fraction-units per second.
+        // NEGATIVE = anticipation (panel briefly moves AWAY from
+        // target before reversing toward it — Disney "anticipation"
+        // principle, used for open animation to give "tucks into
+        // the notch then bursts out" feel).
+        // POSITIVE = follow-through (panel arrives with momentum,
+        // overshoots more — useful for "snap into place" feel).
+        // Default 0 = standard spring start from rest.
+        self.velocity = initialVelocity
         self.lastTickTime = 0
         self.completion = completion
+        // Reset per-morph instrumentation (v2 frame-drop detector)
+        self.tickCount = 0
+        self.tickDtSum = 0
+        self.tickDtMax = 0
+        self.startWallTime = CACurrentMediaTime()
+        if #available(macOS 14.0, *) {
+            // Prefer the screen the panel is on so the displayLink
+            // is bound to that display's vsync timer.
+            let screen = panel.screen ?? NSScreen.main
+            if let link = screen?.displayLink(target: self, selector: #selector(tickFromDisplayLink)) {
+                // 2026-05-04: lock to 60Hz instead of letting
+                // ProMotion adaptively scale between 60Hz and
+                // 120Hz. ProMotion was producing variable tick
+                // timing (8.3ms when fast, 16.7ms when adaptive
+                // dropped to 60Hz, sometimes 25ms in transition)
+                // which read as inconsistent morph smoothness in
+                // the spring detector data — some morphs avgDt
+                // 10ms, others 16ms, others 25ms. Locking to a
+                // CONSTANT 60Hz gives predictable 16.7ms ticks.
+                // Spring physics gets a stable dt, no rate-change
+                // jitter mid-morph.
+                //
+                // The visible motion is at 60Hz instead of 120Hz —
+                // one frame of detail less smooth on ProMotion
+                // displays — but consistent timing wins over
+                // variable-rate visibility for animation feel.
+                link.preferredFrameRateRange = CAFrameRateRange(
+                    minimum: 60, maximum: 60, preferred: 60
+                )
+                link.add(to: .main, forMode: .common)
+                displayLink = link
+                return
+            }
+        }
+        // Fallback: 60Hz Timer on macOS 13 or if displayLink fails.
         let t = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
             self?.tick()
         }
@@ -1965,7 +2558,15 @@ final class SpringFrameAnimator {
         timer = t
     }
 
+    @objc private func tickFromDisplayLink() {
+        tick()
+    }
+
     func cancel() {
+        if #available(macOS 14.0, *), let link = displayLink as? CADisplayLink {
+            link.invalidate()
+        }
+        displayLink = nil
         timer?.invalidate()
         timer = nil
         completion = nil
@@ -1973,8 +2574,29 @@ final class SpringFrameAnimator {
 
     private func tick() {
         let now = CACurrentMediaTime()
-        let dt = lastTickTime == 0 ? 1.0 / 60.0 : min(1.0 / 30.0, now - lastTickTime)
+        let isFirstTick = lastTickTime == 0
+        let rawDt = isFirstTick ? 1.0 / 60.0 : (now - lastTickTime)
+        let dt = isFirstTick ? 1.0 / 60.0 : min(1.0 / 30.0, now - lastTickTime)
         lastTickTime = now
+        // 2026-05-04 FRAME-DROP DETECTOR — slow-tick dlog REMOVED.
+        // The per-tick dlog became the lag itself: each call did
+        // synchronous file I/O (FileHandle open + seek + write +
+        // close = 3 syscalls), plus NSLog, plus a fresh
+        // ISO8601DateFormatter allocation. With threshold 11ms
+        // on a 120Hz display (baseline 8.3ms), any pacing
+        // variance pushed ticks above 11ms → dlog → main-thread
+        // block → NEXT tick now also above 11ms → another dlog
+        // → runaway feedback loop. The instrumentation was
+        // CAUSING the lag it was meant to measure.
+        //
+        // Accumulators kept (cheap arithmetic) so the morph-end
+        // summary still works for diagnostic purposes when
+        // explicitly requested.
+        if !isFirstTick {
+            tickCount += 1
+            tickDtSum += rawDt
+            if rawDt > tickDtMax { tickDtMax = rawDt }
+        }
 
         // Damped harmonic motion on `fraction` toward target = 1.0.
         // F = -k(x - target) - c·v
@@ -1997,19 +2619,47 @@ final class SpringFrameAnimator {
         // window-server traffic by ~30% on long morphs.
         panel?.setFrame(lerped, display: false)
 
-        // Settled: snap to target as soon as the residual motion
-        // is below the perceptible threshold. Earlier values
-        // (0.5pt position, 0.5pt/s velocity) were strict to the
-        // point of rendering invisible sub-pixel oscillations —
-        // exactly when Timer pacing variance produces the most
-        // visible jitter. 1.5pt and 12pt/s are below human
-        // perception of motion at ~60Hz but well above the wobble
-        // floor where pacing irregularity dominates.
+        // 2026-05-04: keep the CALayer shadowPath in sync with the
+        // morphing panel size. Cheap (single CGPath rebuild +
+        // shadowPath assignment, all GPU-bound) compared to the
+        // SwiftUI .shadow() it replaces. shadowTickHandler is set
+        // by PanelWindowController in animateOpen so we don't have
+        // to import the whole controller into this physics class.
+        shadowTickHandler?()
+
+        // 2026-05-04 FINAL: settle threshold 3.5pt/30pt-s. The
+        // tighter 1.5pt/12pt-s value forced the spring to
+        // integrate through ~22 extra ticks of sub-pixel motion
+        // at the tail — last ~100ms became invisible motion
+        // that the eye perceives as "stalled" or "lagging."
+        // Looser threshold ends the spring decisively before
+        // the sub-pixel phase. The 3.5pt snap is below the
+        // perceptual threshold for instantaneous repositioning
+        // at this animation duration; user confirmed this
+        // version reads as smoother.
         let amplitude = max(abs(targetFrame.width - startFrame.width),
                             abs(targetFrame.height - startFrame.height))
         let positionError = abs(fraction - 1.0) * amplitude
         let velocityMag = abs(velocity) * amplitude
-        if positionError < 1.5 && velocityMag < 12 {
+        if positionError < 3.5 && velocityMag < 30 {
+            // 2026-05-04 morph-summary: total ticks, avg dt, max dt,
+            // wall time. Lets us see e.g. "30 ticks over 280ms,
+            // avg=9.3ms (perfect 120Hz), max=18ms" — single-glance
+            // verdict on whether the spring path was smooth even if
+            // no individual tick crossed the slow-tick threshold.
+            let wallTime = (CACurrentMediaTime() - startWallTime) * 1000
+            let avgDt = tickCount > 0 ? (tickDtSum / Double(tickCount)) * 1000 : 0
+            let maxDt = tickDtMax * 1000
+            DictationOrchestrator.dlog(
+                "✅ morph done ticks=\(tickCount) " +
+                "wall=\(String(format: "%.0f", wallTime))ms " +
+                "avgDt=\(String(format: "%.1f", avgDt))ms " +
+                "maxDt=\(String(format: "%.1f", maxDt))ms"
+            )
+            if #available(macOS 14.0, *), let link = displayLink as? CADisplayLink {
+                link.invalidate()
+            }
+            displayLink = nil
             timer?.invalidate()
             timer = nil
             let cb = completion

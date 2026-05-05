@@ -153,9 +153,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dictationOrchestrator?.stop()
     }
 
+    /// macOS App Nap activity token. When held, this tells the OS
+    /// that the app is performing user-initiated work and must not
+    /// be throttled. Without this, after ~2 minutes of idle, macOS
+    /// puts the app into App Nap state — CPU priority drops, the
+    /// Metal pipeline goes cold, CPU caches age out. The first
+    /// open after idle then takes ~870ms instead of ~290ms because
+    /// all of that has to spool back up while our spring is trying
+    /// to run.
+    ///
+    /// Confirmed in /tmp/notetaker-dictation.log on 2026-05-04:
+    /// avgDt=26.5ms (vs 10ms baseline) on the first morph after a
+    /// 2-minute idle window, normalizing back to 10ms after 3-4
+    /// opens. Classic App Nap thermal/priority signature.
+    ///
+    /// `.userInitiatedAllowingIdleSystemSleep` is the right reason:
+    /// our work IS user-initiated (notch hover/click), and we DON'T
+    /// need to prevent system sleep — only the per-app throttling.
+    private var antiAppNapToken: NSObjectProtocol?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.shared = self
         NSApp.setActivationPolicy(.accessory)
+
+        // 2026-05-04: disable App Nap for the lifetime of this
+        // process. Notch HUD must respond instantly to user
+        // gestures; we cannot afford ~500ms of "wake up the
+        // pipeline" latency every time the user has been idle.
+        antiAppNapToken = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiatedAllowingIdleSystemSleep],
+            reason: "Notch HUD must respond instantly to user gestures (hover/click)"
+        )
 
         // SECURITY: one-shot migration of API keys from plaintext
         // UserDefaults → encrypted Keychain. Idempotent — gated by

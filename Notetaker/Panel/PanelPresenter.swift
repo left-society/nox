@@ -28,6 +28,22 @@ final class PanelPresenter: ObservableObject {
     /// "buttery smooth jelly" rather than the jittery wobble the
     /// user reported.
     @Published var isMorphing: Bool = false
+
+    /// 2026-05-04: per-frame cost fix for slab open. The cascade
+    /// (header / segmented / divider / content + music card sub-
+    /// elements) used to gate on `isShown && !isMorphing`, which
+    /// made the cascade wait until the panel.frame spring had fully
+    /// settled — visible to user as "content coming too late."
+    ///
+    /// `cascadeReady` is a separate trigger that PanelWindowController
+    /// flips ~80ms AFTER the open spring starts (when the panel has
+    /// grown past the steepest acceleration phase, so the per-frame
+    /// pixel cost is in a manageable range to add cascade work onto
+    /// without dropping frames). On close, it flips false at the
+    /// start of `hide()` so the cascade animates out in parallel
+    /// with the close morph (close was already smooth — no need to
+    /// sequence).
+    @Published var cascadeReady: Bool = false
     /// Driven by PanelDropContainer (the contentView wrapper) when a drag
     /// hovers over the panel. Used by PanelRootView to draw an accent ring.
     @Published var isDropTargeted: Bool = false

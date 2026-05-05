@@ -125,6 +125,17 @@ struct MusicPanelView: View {
     /// slider's onEditingChanged ends.
     @State private var isAdjustingVolume: Bool = false
 
+    /// Snappy spring with defined endpoint — bounce in motion phase,
+    /// clean settle at duration, no sub-pixel tail. Matches
+    /// PanelRootView's cascadeAnimation. See full rationale there.
+    private var cascadeAnimation: Animation {
+        if #available(macOS 14.0, *) {
+            return .snappy(duration: 0.32, extraBounce: 0.15)
+        } else {
+            return .interpolatingSpring(mass: 1.0, stiffness: 350, damping: 22)
+        }
+    }
+
     var body: some View {
         // Gradient lives at PanelRootView level now (so it covers
         // the actual TOP of the panel, behind the header / tabs)
@@ -146,18 +157,52 @@ struct MusicPanelView: View {
         // kept as a private helper for now (referenced internally
         // by the dispatch chain) but isn't rendered.
         VStack(spacing: 12) {
+            // PER-ELEMENT MATERIALIZATION (Alcove-inspired). User
+            // 2026-05-05: "they apply [blur] inside of each content."
+            //
+            // Each element materializes individually with its own
+            // blur + opacity, staggered so they "cascade into focus"
+            // as the panel opens. Reverse on close — elements
+            // dissolve out individually with stagger.
+            //
+            // Stagger pattern (delays):
+            //   Artwork (foundation, anchors visual):  0.00s
+            //   Progress bar (next, info layer):       0.04s
+            //   Transport row (last, interaction):     0.08s
+            // Total stagger spread: 80ms — subtle but visible,
+            // matches Alcove's "elements appear in sequence" feel.
+            // 2026-05-04 (matches PanelRootView): cascade uses
+            // .snappy on macOS 14+, fallback to a tuned
+            // interpolatingSpring on macOS 13. Spring with bounce
+            // in motion phase, clean settle at duration boundary,
+            // no sub-pixel tail. See cascadeAnimation comment in
+            // PanelRootView for the rationale.
             nowPlayingCard
+                .blur(radius: presenter.cascadeReady ? 0 : 10)
+                .opacity(presenter.cascadeReady ? 1 : 0)
+                .offset(y: presenter.cascadeReady ? 0 : -28)
+                .animation(cascadeAnimation, value: presenter.cascadeReady)
             progressBar
+                .blur(radius: presenter.cascadeReady ? 0 : 12)
+                .opacity(presenter.cascadeReady ? 1 : 0)
+                .offset(y: presenter.cascadeReady ? 0 : -32)
+                .animation(cascadeAnimation.delay(0.04), value: presenter.cascadeReady)
             // 2026-05-02 transport + inline mini-volume row.
-            // Volume is a small trim control on the right of the
-            // transport buttons (per user spec — "should be at
-            // the right side of the play button much smaller").
             iosStyleTransportRow
+                .blur(radius: presenter.cascadeReady ? 0 : 14)
+                .opacity(presenter.cascadeReady ? 1 : 0)
+                .offset(y: presenter.cascadeReady ? 0 : -36)
+                .animation(cascadeAnimation.delay(0.08), value: presenter.cascadeReady)
             // BluetoothBatteryRow removed at user request — the
             // component file is still present (BluetoothBatteryRow.swift)
             // but isn't rendered.
             Spacer(minLength: 0)
         }
+        // .compositingGroup() — same GPU-friendly batching as on
+        // renderableContent. Preserves transport button hit testing
+        // while letting Metal compose the staggered blur cascade in
+        // a single pass.
+        .compositingGroup()
         .padding(.horizontal, DS.Spacing.md)
         .padding(.top, DS.Spacing.md)
         // 2026-04-29: bumped bottom 6pt → 14pt so the progress
@@ -184,16 +229,46 @@ struct MusicPanelView: View {
     ///   • 12pt internal padding so artwork + text breathe
     ///     against the card walls
     private var nowPlayingCard: some View {
+        // 2026-05-04 FAKE-GLASS treatment per user feedback after
+        // moving the panel background to pure black. The previous
+        // setup (VisualEffectBlur + Color.black.opacity(0.30) +
+        // SwiftUI .shadow(radius:14)) was costing TWO expensive
+        // per-frame operations on this card:
+        //   1. NSVisualEffectView Metal compositing pass (even at
+        //      .withinWindow), and
+        //   2. SwiftUI .shadow CPU gaussian convolution on the
+        //      animating card bounds during the cascade.
+        // User: "this section of the pill is making it feel like
+        // it's lagging."
+        //
+        // Replaced with pure GPU-only treatment that achieves the
+        // same "lifted card" character at near-zero cost:
+        //   • Linear gradient fill (top: white 0.07, bottom: white 0.03)
+        //     — gives the soft "top-lit glass" look. CALayer fill,
+        //     no offscreen render, no compositing pass.
+        //   • Border at white 0.10 — free (CALayer stroke).
+        //   • SHADOW REMOVED — the panel already has its big drop
+        //     shadow (CALayer shadowPath, GPU). A second shadow
+        //     here was redundant.
+        // Visually reads as "subtle elevation on the dark slab"
+        // without any of the per-frame cost.
         infoRow
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(
-                RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
-                    .fill(DS.Color.bgCard)
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.07),
+                        Color.white.opacity(0.03)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
-                    .strokeBorder(DS.Color.strokeCard, lineWidth: 0.5)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
             )
     }
 
@@ -316,6 +391,29 @@ struct MusicPanelView: View {
             Button {
                 openSourceApp()
             } label: {
+                // 2026-05-04 (user feedback: "writing coming from
+                // right side not by blur, feels like less framerate
+                // just this thing"): the text VStack now hides
+                // during isMorphing and fades in after settle.
+                //
+                // Reason: the title/artist/album use .lineLimit(1)
+                // .truncationMode(.tail). As panel.frame grows from
+                // 185 → 460pt during the morph, the text container's
+                // available width grows too, and SwiftUI re-evaluates
+                // the truncation point on every CADisplayLink tick.
+                // Characters effectively fill in from left toward
+                // right as more space opens up, frame by frame —
+                // that's the "writing coming from right side"
+                // appearance, distinct from the smooth blur fade
+                // the other cascade elements use. Looks "low
+                // framerate" because truncation steps happen at
+                // discrete pt boundaries (one character at a time),
+                // not at sub-pixel precision like blur/opacity.
+                //
+                // Hiding text during morph defers the reflow until
+                // panel.frame is settled. Then the text fades in at
+                // its final width via opacity — same character as
+                // the other cascade items, no truncation animation.
                 VStack(alignment: .leading, spacing: 4) {
                     // Title — always rendered.
                     titleText(title)
@@ -401,6 +499,18 @@ struct MusicPanelView: View {
                 // iOS lock-screen Now Playing widget does. Long
                 // titles still truncate via .lineLimit(1).
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // .clipped() — text views inside have
+                // .fixedSize(horizontal: true, vertical: false) so
+                // they render at full intrinsic width regardless
+                // of parent. .clipped() on this VStack clips the
+                // right-side overflow at the available width
+                // boundary. Net effect: text renders ONCE at full
+                // width and the visible portion is determined by
+                // parent clipping — no per-frame truncation
+                // re-evaluation as panel.frame animates. Replaces
+                // the "characters filling in from the right" with
+                // "stable text revealed by clip-edge expansion."
+                .clipped()
                 .contentShape(Rectangle())
                 // Smooth crossfade for the opacity/color changes
                 // tied to empty↔playing. Doesn't animate text
@@ -629,11 +739,21 @@ struct MusicPanelView: View {
 
     @ViewBuilder
     private func titleText(_ value: String) -> some View {
+        // .fixedSize(horizontal: true, vertical: false) — the text
+        // renders at its full intrinsic width regardless of parent
+        // bounds. Combined with .clipped() on the parent VStack,
+        // the right-side overflow is just visually clipped — there's
+        // no per-frame truncation re-evaluation as panel.frame
+        // animates. That's what was creating the "writing coming
+        // from right side" appearance: lineLimit(1).truncationMode
+        // had to recompute the truncation point every CADisplayLink
+        // tick as available width grew.
         let base = Text(value)
             .font(.system(size: 16, weight: .semibold))
             .foregroundStyle(.white)
             .lineLimit(1)
             .truncationMode(.tail)
+            .fixedSize(horizontal: true, vertical: false)
             .help(value)
         if #available(macOS 14.0, *) {
             base.contentTransition(.opacity)
@@ -649,6 +769,7 @@ struct MusicPanelView: View {
             .foregroundStyle(.white.opacity(isHint ? 0.55 : 0.85))
             .lineLimit(1)
             .truncationMode(.tail)
+            .fixedSize(horizontal: true, vertical: false)
             .help(artist)
             .opacity(isHint || !artist.isEmpty ? 1 : 0)
         if #available(macOS 14.0, *) {
@@ -665,6 +786,7 @@ struct MusicPanelView: View {
             .foregroundStyle(.white.opacity(0.55))
             .lineLimit(1)
             .truncationMode(.tail)
+            .fixedSize(horizontal: true, vertical: false)
             .help(value)
             .opacity(value.isEmpty ? 0 : 1)
         if #available(macOS 14.0, *) {
@@ -1743,6 +1865,19 @@ struct MusicPanelView: View {
 /// Extracted into its own struct so the per-button @State (hover) is
 /// scoped correctly — a single shared @State on MusicPanelView would
 /// flicker every button at once on cursor entry.
+/// SF Symbol contentTransition with macOS 13 fallback. macOS 14+ uses
+/// the polished `symbolEffect(.replace)` (fade + scale + crossfade);
+/// macOS 13 uses plain `.opacity` contentTransition.
+private struct SymbolReplaceTransition: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 14.0, *) {
+            content.contentTransition(.symbolEffect(.replace))
+        } else {
+            content.contentTransition(.opacity)
+        }
+    }
+}
+
 private struct MusicControlButton: View {
     let systemImage: String
     let glyphSize: CGFloat
@@ -1810,6 +1945,12 @@ private struct MusicControlButton: View {
                 Image(systemName: systemImage)
                     .font(.system(size: glyphSize, weight: isPrimary ? .semibold : .medium))
                     .foregroundStyle(.white.opacity(isPrimary ? 1.0 : 0.85))
+                    // SF Symbol smooth swap (e.g. play.fill ↔ pause.fill).
+                    // Without this, the icon hard-cuts when toggling play
+                    // state. macOS 14+ uses .symbolEffect(.replace) for
+                    // the fade+scale; macOS 13 falls back to .opacity
+                    // contentTransition (still smooth, just less polished).
+                    .modifier(SymbolReplaceTransition())
                     // Tiny scale spring on press for tactile feedback —
                     // 8% squeeze on press, bouncy snap back on release.
                     .scaleEffect(isPressed ? 0.92 : 1.0)

@@ -45,6 +45,69 @@ final class VideoDownloader {
         Bundle.main.resourceURL?.appendingPathComponent("bin/ffmpeg")
     }
 
+    /// Probe the filesystem for a `node` binary and return its absolute
+    /// path if found. yt-dlp's web player_client requires a JavaScript
+    /// runtime to decrypt YouTube's signed URL signatures; macOS users
+    /// commonly have node installed via homebrew or nvm but the .app
+    /// process doesn't inherit those tool dirs in PATH. We pass the
+    /// resolved path explicitly via `--js-runtimes node:<path>`.
+    ///
+    /// Search order matches typical macOS install priorities:
+    ///   1. Homebrew Apple Silicon (`/opt/homebrew/bin/node`)
+    ///   2. Homebrew Intel (`/usr/local/bin/node`)
+    ///   3. System (`/usr/bin/node` — rare; macOS doesn't ship node)
+    ///   4. Latest nvm-installed node
+    ///   5. `which node` via login shell as last resort (handles
+    ///      asdf, fnm, volta, and other version managers)
+    static func findNode() -> String? {
+        let fm = FileManager.default
+        let staticCandidates = [
+            "/opt/homebrew/bin/node",
+            "/usr/local/bin/node",
+            "/usr/bin/node"
+        ]
+        for path in staticCandidates {
+            if fm.isExecutableFile(atPath: path) { return path }
+        }
+        // nvm: pick the highest-versioned install. Sort
+        // lexicographically (nvm names dirs `v20.20.2` etc., which
+        // sorts roughly correctly within a major-version line — close
+        // enough; the user only needs A node, not the latest).
+        let nvmDir = ("~/.nvm/versions/node" as NSString).expandingTildeInPath
+        if let entries = try? fm.contentsOfDirectory(atPath: nvmDir) {
+            let sorted = entries.sorted(by: >)
+            for entry in sorted {
+                let nodePath = "\(nvmDir)/\(entry)/bin/node"
+                if fm.isExecutableFile(atPath: nodePath) { return nodePath }
+            }
+        }
+        // Last resort: ask a login shell to resolve `node`. Login
+        // shell sources the user's profile so PATH includes whatever
+        // their version manager (asdf/fnm/volta) injects.
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-l", "-c", "command -v node"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            if process.terminationStatus == 0 {
+                let path = String(data: data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if let path, !path.isEmpty,
+                   fm.isExecutableFile(atPath: path) {
+                    return path
+                }
+            }
+        } catch {
+            NSLog("VideoDownloader.findNode login-shell probe failed: \(error)")
+        }
+        return nil
+    }
+
     private var process: Process?
     private var isCancelled = false
 
@@ -83,20 +146,47 @@ final class VideoDownloader {
         // unset (matches the Settings UI's default).
         let qualityRaw = UserDefaults.standard.string(forKey: "videoQualityRaw") ?? "1080p"
         let formatSelector: String
+        // 2026-05-04: PRIORITIZE mp4-compatible streams (H.264 video +
+        // AAC audio). User reported downloads landing as `.webm`
+        // (VP9/AV1+Opus) which Premiere Pro can't import natively.
+        // YouTube serves VP9/AV1 webm alongside H.264 mp4 at 1080p
+        // and below; without an explicit `[ext=mp4]` filter, yt-dlp's
+        // "best" selector picks the higher-bitrate webm.
+        //
+        // Format string ladder, evaluated in order until one matches:
+        //   1. mp4 video stream + m4a audio stream (cleanest path —
+        //      H.264/AAC, merges directly into mp4 with no recode)
+        //   2. mp4-only combined stream (older single-file route)
+        //   3. ANY video + audio (fallback — webm/AV1 if mp4 absent)
+        //   4. ANY combined stream (last resort)
+        // The `--recode-video mp4` flag below converts step 3/4
+        // outputs to H.264 mp4 post-download — slow (re-encodes)
+        // but guarantees a Premiere-readable file. For step 1/2 the
+        // recode is a no-op (already mp4/H.264).
         switch qualityRaw {
         case "720p":
-            // Cap at 720p height. Mirrors the explicit user
-            // intent ("don't burn bandwidth on 4K"). Falls back
-            // through smaller heights, then mp4 at any size,
-            // then best of anything.
-            formatSelector = "bv*[height<=720]+ba/b[height<=720]/best"
+            // Top rung pins vcodec to avc1 (H.264) and acodec to mp4a
+            // (AAC). [ext=mp4] alone is no longer sufficient: YouTube
+            // serves AV1 inside mp4 containers for an increasing
+            // share of videos, and Premiere/FCP/DaVinci can't import
+            // AV1. avc1 is universally supported by NLEs.
+            formatSelector = "bv*[vcodec^=avc1][height<=720]+ba[acodec^=mp4a]/bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]/bv*[height<=720]+ba/b[height<=720]/bv*+ba/best"
         case "Best":
-            // Best video + best audio, merged. Resolution-
-            // unconstrained.
-            formatSelector = "bv*+ba/best"
+            formatSelector = "bv*[vcodec^=avc1]+ba[acodec^=mp4a]/bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/best"
         default: // 1080p (default)
-            formatSelector = "bv*[height<=1080]+ba/b[height<=1080]/best"
+            formatSelector = "bv*[vcodec^=avc1][height<=1080]+ba[acodec^=mp4a]/bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4][height<=1080]/bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/best"
         }
+        // Vertical-Shorts safety net: every rung above with
+        // `[height<=720]` / `[height<=1080]` filters by the VERTICAL
+        // dimension. A vertical 1080p Short is 1080×1920 — height=1920,
+        // so every height-capped rung skips and the chain used to
+        // fall through to `best` alone. In some yt-dlp paths `best`
+        // can land on audio-only when no single-file video format
+        // matches, which is exactly the "downloaded a Short and got
+        // an mp3" symptom. The new `bv*+ba` rung BEFORE `best`
+        // forces a video+audio merge whenever any video stream
+        // exists at any resolution — Shorts get a video file,
+        // landscape clips still get the height-capped preference.
 
         // Per BUG-005 fix: yt-dlp itself parses options out of its
         // argv. If a clipboard or drag-drop string starts with
@@ -121,6 +211,41 @@ final class VideoDownloader {
             "--convert-thumbnails", "jpg",
             "-f", formatSelector,
             "--merge-output-format", "mp4",
+            // Belt-and-suspenders for Premiere Pro compatibility.
+            //
+            // `--remux-video mp4`: if the merged file landed in a
+            // non-mp4 container (mkv/webm — happens when yt-dlp picks
+            // a non-mp4 codec via the format ladder's fallback rungs)
+            // but the codecs ARE mp4-compatible, this rewrites the
+            // container with no re-encode. Free when applicable.
+            //
+            // `--recode-video mp4`: if the streams aren't mp4-
+            // compatible (VP9, AV1, Opus), transcode to H.264/AAC
+            // mp4. Slow — re-encoding a 4K AV1 video can take many
+            // minutes — but it's the only way to produce a file
+            // Premiere can import directly. yt-dlp pipelines these:
+            // remux runs first; recode only kicks in when remux
+            // can't (incompatible codecs).
+            //
+            // Combined effect: Premiere/Final Cut/DaVinci can ALWAYS
+            // import the resulting file. For the common case (1080p
+            // YouTube where format selector already picks H.264 mp4)
+            // both flags are no-ops at the cost of one stat call.
+            "--remux-video", "mp4",
+            "--recode-video", "mp4",
+            // YouTube-specific player-client preference. Different
+            // clients return different player-response payloads:
+            //   • `android` — typically returns ready-to-stream URLs
+            //     that don't require JavaScript signature decryption.
+            //   • `tv_embedded` — bypasses age-gate and some bot
+            //     checks that the web client trips.
+            //   • `web` — most format coverage but ALWAYS requires JS
+            //     evaluation (nsig decryption).
+            // yt-dlp tries each client in order until one returns
+            // playable formats. Android-first means most downloads
+            // succeed even when no JS runtime is available; web is
+            // there as a last resort.
+            "--extractor-args", "youtube:player_client=android,tv_embedded,web",
             // Added `total_bytes_estimate` so the parser has a
             // fallback when `total_bytes` is NA — which is the
             // ENTIRE first phase of HLS / DASH / fragment-based
@@ -134,6 +259,21 @@ final class VideoDownloader {
         ]
         if !ffmpegPath.isEmpty {
             args.append(contentsOf: ["--ffmpeg-location", ffmpegPath])
+        }
+        // 2026-05-05: Make a JS runtime visible to yt-dlp so the
+        // `web` player_client fallback can decrypt the signature
+        // when `android` and `tv_embedded` don't return formats.
+        // yt-dlp 2026.x defaults `--js-runtimes deno`, but the .app
+        // bundle doesn't ship deno and macOS users typically don't
+        // have it. Node is much more common (homebrew, nvm). We
+        // probe the usual install paths and pass an explicit path
+        // so yt-dlp finds node even though the .app's PATH doesn't
+        // include nvm/homebrew shim dirs.
+        if let nodePath = Self.findNode() {
+            args.append(contentsOf: ["--js-runtimes", "node:\(nodePath)"])
+            NSLog("VideoDownloader.download passing --js-runtimes node:\(nodePath)")
+        } else {
+            NSLog("VideoDownloader.download no node found — relying on android/tv_embedded clients (web fallback may fail)")
         }
         // The `--` MUST come last so any further options we add
         // above still get parsed. The user-supplied URL is the
@@ -250,7 +390,121 @@ final class VideoDownloader {
             )
         }
 
-        return try Self.collectResult(outputDir: outputDir, id: id)
+        var result = try Self.collectResult(outputDir: outputDir, id: id)
+        // NLE-compatibility safety net. yt-dlp's `--recode-video mp4`
+        // skips the convert step when the source extension matches
+        // the target — so a file that landed as `.mp4` but with AV1
+        // INSIDE the mp4 container passes through untouched. Premiere
+        // (and FCP, DaVinci, Resolve free) error on AV1 with messages
+        // like `File uses unsupported video compression type "av01"`.
+        //
+        // We probe the codec via ffmpeg and, if it isn't H.264,
+        // transcode in-place to H.264/AAC mp4. Slow (re-encode), but
+        // only triggers for the rare case where YouTube served AV1
+        // and the format selector's avc1 preference fell through.
+        // No-op for the common case (already H.264).
+        if !ffmpegPath.isEmpty {
+            do {
+                result.fileURL = try Self.ensureH264MP4(
+                    at: result.fileURL,
+                    ffmpegPath: ffmpegPath
+                )
+            } catch {
+                // Don't fail the whole download if the codec-fix pass
+                // errors — the user has a file, even if Premiere can't
+                // import it. Surface in NSLog so we can debug from
+                // /tmp/notetaker-dictation.log via the AppDelegate
+                // bridge if it recurs.
+                NSLog("VideoDownloader.download codec-fix failed (keeping original): \(error)")
+            }
+        }
+        return result
+    }
+
+    /// If the file at `url` is not already H.264 in mp4, re-encode
+    /// it in place using bundled ffmpeg. Returns the URL of the
+    /// final file (typically the same URL — we transcode to a temp
+    /// path and atomically swap, but the path/extension stay mp4).
+    ///
+    /// Codec detection is done by parsing `ffmpeg -i` stderr (the
+    /// banner ffmpeg prints describing input streams). We look for
+    /// `Video: h264` (or the legacy `Video: avc1` synonym). Any
+    /// other codec (av01, vp09, hevc, mpeg4) triggers the recode.
+    private static func ensureH264MP4(at url: URL, ffmpegPath: String) throws -> URL {
+        let probe = Process()
+        probe.executableURL = URL(fileURLWithPath: ffmpegPath)
+        // `-hide_banner` suppresses ffmpeg's ~10 lines of build/config
+        // header. The stream description follows regardless.
+        // Probe-only: no output file. ffmpeg returns non-zero because
+        // we don't give it an output, but it still prints stream info
+        // to stderr first — which is exactly what we want.
+        probe.arguments = ["-hide_banner", "-i", url.path]
+        let probeStderr = Pipe()
+        probe.standardError = probeStderr
+        probe.standardOutput = Pipe()  // discard
+        try probe.run()
+        let stderrData = probeStderr.fileHandleForReading.readDataToEndOfFile()
+        probe.waitUntilExit()
+        let stderrText = String(data: stderrData, encoding: .utf8) ?? ""
+
+        // Match against known H.264 markers. ffmpeg labels H.264 as
+        // "h264" in the stream descriptor; the codec_tag_string can
+        // also be "avc1". Either means we're already Premiere-friendly.
+        let isH264 = stderrText.contains("Video: h264")
+            || stderrText.contains("Video: avc1")
+        if isH264 {
+            NSLog("VideoDownloader.ensureH264MP4 already H.264, no recode")
+            return url
+        }
+        NSLog("VideoDownloader.ensureH264MP4 codec is NOT H.264, transcoding (stderr-snippet: \(String(stderrText.prefix(400))))")
+
+        // Transcode to a sibling temp file, then atomically replace.
+        // libx264 + AAC + faststart is the universal NLE-friendly
+        // combo. CRF 20 = visually lossless to most eyes, smaller
+        // than -crf 18. preset medium balances encode speed vs
+        // compression efficiency for desktop machines.
+        let tempURL = url.deletingPathExtension()
+            .appendingPathExtension("tmp.mp4")
+        // Defensive: clean up any stale temp file from a previous
+        // failed transcode. Without this a `mv` step below would fail
+        // with "file exists."
+        try? FileManager.default.removeItem(at: tempURL)
+        let transcode = Process()
+        transcode.executableURL = URL(fileURLWithPath: ffmpegPath)
+        transcode.arguments = [
+            "-y",
+            "-i", url.path,
+            "-c:v", "libx264",
+            "-preset", "medium",
+            "-crf", "20",
+            "-pix_fmt", "yuv420p",  // broad NLE compatibility
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-movflags", "+faststart",
+            tempURL.path
+        ]
+        let transcodeStderr = Pipe()
+        transcode.standardError = transcodeStderr
+        transcode.standardOutput = Pipe()
+        try transcode.run()
+        transcode.waitUntilExit()
+        if transcode.terminationStatus != 0 {
+            let errData = transcodeStderr.fileHandleForReading.readDataToEndOfFile()
+            let errText = String(data: errData, encoding: .utf8) ?? ""
+            try? FileManager.default.removeItem(at: tempURL)
+            throw DownloadError.ytDlpFailed(
+                code: transcode.terminationStatus,
+                message: "ffmpeg transcode to H.264 failed: \(errText.suffix(400))"
+            )
+        }
+
+        // Replace original with transcoded version. Same filename so
+        // VideoStore / FilesGridView don't need to be told the path
+        // changed.
+        try FileManager.default.removeItem(at: url)
+        try FileManager.default.moveItem(at: tempURL, to: url)
+        NSLog("VideoDownloader.ensureH264MP4 transcode complete at \(url.path)")
+        return url
     }
 
     /// Tracks the LAST KNOWN good downloaded-bytes value across
