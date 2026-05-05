@@ -2,7 +2,7 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
     <channel>
         <title>nox</title>
-        <link>https://left-society.github.io/nox/appcast.xml</link>
+        <link>https://trynox.app/appcast.xml</link>
         <description>nox app updates</description>
         <language>en</language>
         <item>
@@ -11,7 +11,7 @@
             <sparkle:version>5</sparkle:version>
             <sparkle:shortVersionString>1.4</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://left-society.github.io/nox/release-notes-1.4.html</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink>https://trynox.app/release-notes-1.4.html</sparkle:releaseNotesLink>
             <enclosure
                 url="https://github.com/left-society/nox/releases/download/v1.4/nox.1.4.dmg"
                 length="75032843"

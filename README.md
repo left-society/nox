@@ -4,7 +4,7 @@ Auto update feed for the nox macOS app. This repo holds the [Sparkle](https://sp
 
 The nox app polls `appcast.xml` daily and downloads new versions automatically.
 
-**Appcast URL:** https://left-society.github.io/nox/appcast.xml
+**Appcast URL:** https://trynox.app/appcast.xml
 
 ## How updates are verified
 
