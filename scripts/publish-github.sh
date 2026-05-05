@@ -153,7 +153,7 @@ echo "▸ [4/4] Verify Pages serving updated appcast"
 # GitHub Pages can take ~30s-2min to redeploy after a push. We poll
 # the appcast URL for the new version; if it's still the old one,
 # remind the user the propagation takes a bit.
-APPCAST_URL="https://left-society.github.io/nox/appcast.xml"
+APPCAST_URL="https://trynox.app/appcast.xml"
 for attempt in 1 2 3 4 5; do
   if curl -sf "$APPCAST_URL" 2>/dev/null | grep -q ">$VERSION<"; then
     echo "  ✓ Pages serving nox $VERSION at $APPCAST_URL"

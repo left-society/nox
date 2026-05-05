@@ -32,12 +32,13 @@
 	<string>Notetaker transcribes your voice offline to create notes. Audio never leaves your Mac.</string>
 	<!-- Sparkle auto-update — see scripts/release.sh + appcast.xml -->
 	<!-- Sparkle polls this XML for new versions daily. Hosted via
-	     GitHub Pages on the public release repo (left-society/nox).
-	     The repo also stores release notes HTML. The actual DMG
-	     files are attached to GitHub Releases — appcast holds the
+	     GitHub Pages on the public release repo (left-society/nox)
+	     and served from the custom domain trynox.app. The same
+	     repo stores release notes HTML. Actual DMG files are
+	     attached to GitHub Releases. The appcast points to the
 	     per release download URLs. -->
 	<key>SUFeedURL</key>
-	<string>https://left-society.github.io/nox/appcast.xml</string>
+	<string>https://trynox.app/appcast.xml</string>
 	<!-- SUPublicEDKey: Sparkle's EdDSA public key. The matching
 	     PRIVATE key lives ONLY in your local keychain (generated
 	     by scripts/sparkle-bin/generate_keys). Sparkle verifies
