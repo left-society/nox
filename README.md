@@ -1,12 +1,11 @@
-# Notetaker — Auto-update Feed
+# nox
 
-This repository hosts the [Sparkle](https://sparkle-project.org) appcast and release notes for [Notetaker](https://github.com/left-society/notetaker).
+Auto update feed for the [nox](https://nox.app) macOS app. This repo holds the [Sparkle](https://sparkle-project.org) appcast and per release notes. The actual DMG files live as assets on each [GitHub Release](https://github.com/left-society/nox/releases).
 
-- **Appcast URL:** https://left-society.github.io/notetaker-releases/appcast.xml
-- **DMGs:** attached to each [GitHub Release](https://github.com/left-society/notetaker-releases/releases)
+The nox app polls `appcast.xml` daily and downloads new versions automatically.
 
-The Notetaker app polls `appcast.xml` daily and downloads new versions automatically.
+**Appcast URL:** https://left-society.github.io/nox/appcast.xml
 
-## Verifying a download
+## How updates are verified
 
-Every DMG is signed with both Apple's Developer ID notarization stamp AND a Sparkle EdDSA signature. The public key embedded in the app verifies each download before installing — this protects users from MITM/CDN compromise even if a release file is replaced on the server.
+Every DMG is signed two ways. First, with Apple's Developer ID, then notarized and stapled by Apple's notary service so macOS Gatekeeper trusts it without warnings. Second, with a Sparkle EdDSA signature so the embedded public key inside the app verifies each download before installing. This protects users from a CDN compromise or anyone replacing a release file on the server.
