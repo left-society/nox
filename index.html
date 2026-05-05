@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>nox — your MacBook notch, useful</title>
+<meta name="description" content="nox turns the MacBook notch into a HUD for notes, files, images, videos, music, and voice. Drag and drop, instant clipboard, transport controls, all from the notch." />
+<meta property="og:title" content="nox — your MacBook notch, useful" />
+<meta property="og:description" content="A native macOS HUD that lives in the notch. Notes, files, music, voice, all without leaving what you are doing." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://trynox.app" />
+<meta name="theme-color" content="#0a0a0a" />
+<link rel="icon" type="image/png" href="/favicon.png" />
+
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --bg2: #131313;
+    --fg: #fff;
+    --muted: rgba(255,255,255,0.62);
+    --dim: rgba(255,255,255,0.42);
+    --line: rgba(255,255,255,0.08);
+    --accent: #a882e8;
+    --accent2: #4aaeff;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background:
+      radial-gradient(circle at 30% 0%, rgba(168,130,232,0.10), transparent 55%),
+      radial-gradient(circle at 80% 30%, rgba(74,174,255,0.06), transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    min-height: 100vh;
+  }
+
+  a { color: inherit; }
+  ::selection { background: rgba(168,130,232,0.32); }
+
+  /* ── Layout primitives ─────────────────────────────────────── */
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+  section { padding: 96px 0; }
+  @media (max-width: 720px) { section { padding: 64px 0; } }
+
+  /* ── Header ────────────────────────────────────────────────── */
+  header {
+    padding: 20px 0;
+    position: sticky;
+    top: 0;
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    background: rgba(10,10,10,0.6);
+    border-bottom: 1px solid var(--line);
+    z-index: 50;
+  }
+  header .wrap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .logo {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    text-decoration: none;
+  }
+  .nav {
+    display: flex;
+    gap: 28px;
+    align-items: center;
+  }
+  .nav a {
+    text-decoration: none;
+    color: var(--muted);
+    font-size: 14px;
+    transition: color 0.18s ease;
+  }
+  .nav a:hover { color: var(--fg); }
+  .download-btn {
+    background: var(--fg);
+    color: var(--bg);
+    padding: 9px 18px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: opacity 0.18s ease;
+  }
+  .download-btn:hover { opacity: 0.85; }
+
+  /* ── Hero ──────────────────────────────────────────────────── */
+  .hero { text-align: center; padding-top: 96px; padding-bottom: 56px; }
+  .hero h1 {
+    margin: 0 0 18px;
+    font-size: clamp(40px, 7vw, 72px);
+    line-height: 1.04;
+    letter-spacing: -0.035em;
+    font-weight: 600;
+  }
+  .hero h1 .accent {
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hero .tagline {
+    margin: 0 auto 36px;
+    max-width: 560px;
+    font-size: clamp(17px, 2.2vw, 20px);
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .hero-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 12px;
+  }
+  .hero-cta .download-btn {
+    padding: 14px 28px;
+    font-size: 15px;
+  }
+  .hero-meta {
+    color: var(--dim);
+    font-size: 13px;
+    margin-top: 14px;
+  }
+  .hero-meta a { color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+
+  /* ── Notch demo (the visual hero) ──────────────────────────── */
+  .notch-demo {
+    margin: 56px auto 0;
+    max-width: 980px;
+    aspect-ratio: 16 / 9;
+    border-radius: 18px;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01)),
+      #1a1a1a;
+    border: 1px solid var(--line);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 0;
+  }
+  .notch-demo::before {
+    content: "Replace this with a screen recording or animated demo of nox in action.";
+    color: var(--dim);
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    position: absolute;
+    inset: auto 0 24px;
+    text-align: center;
+  }
+  /* Faux notch for now so the page is not empty before the real
+     demo is added. */
+  .notch-demo .faux-notch {
+    width: 220px;
+    height: 32px;
+    background: #000;
+    border-radius: 0 0 14px 14px;
+  }
+
+  /* ── Features grid ─────────────────────────────────────────── */
+  .features-head { text-align: center; margin-bottom: 56px; }
+  .features-head h2 {
+    margin: 0 0 12px;
+    font-size: clamp(28px, 4vw, 40px);
+    letter-spacing: -0.025em;
+    font-weight: 600;
+  }
+  .features-head p {
+    margin: 0 auto;
+    max-width: 480px;
+    color: var(--muted);
+    font-size: 16px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 18px;
+  }
+  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    border-radius: 16px;
+    padding: 28px;
+    background: var(--bg2);
+    border: 1px solid var(--line);
+    position: relative;
+    overflow: hidden;
+  }
+  .card .icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(168,130,232,0.18), rgba(74,174,255,0.10));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 18px;
+    font-size: 19px;
+  }
+  .card h3 {
+    margin: 0 0 8px;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .card p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1.55;
+  }
+
+  /* ── Privacy callout ───────────────────────────────────────── */
+  .privacy {
+    text-align: center;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    padding: 80px 0;
+  }
+  .privacy h2 {
+    margin: 0 0 14px;
+    font-size: clamp(24px, 3.4vw, 34px);
+    letter-spacing: -0.02em;
+    font-weight: 600;
+  }
+  .privacy p {
+    margin: 0 auto;
+    max-width: 560px;
+    color: var(--muted);
+    font-size: 16px;
+  }
+
+  /* ── Final CTA ─────────────────────────────────────────────── */
+  .cta {
+    text-align: center;
+    padding: 96px 0;
+  }
+  .cta h2 {
+    margin: 0 0 14px;
+    font-size: clamp(32px, 5vw, 48px);
+    letter-spacing: -0.025em;
+    font-weight: 600;
+  }
+  .cta p {
+    color: var(--muted);
+    margin: 0 0 28px;
+    font-size: 16px;
+  }
+  .cta .download-btn {
+    padding: 14px 28px;
+    font-size: 15px;
+  }
+
+  /* ── Footer ────────────────────────────────────────────────── */
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 36px 0;
+    color: var(--dim);
+    font-size: 13px;
+  }
+  footer .wrap {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  footer a { color: var(--muted); text-decoration: none; }
+  footer a:hover { color: var(--fg); }
+  footer .links { display: flex; gap: 22px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <a class="logo" href="/">nox</a>
+    <nav class="nav">
+      <a href="#features">Features</a>
+      <a href="#privacy">Privacy</a>
+      <a href="https://github.com/left-society/nox/releases">Releases</a>
+      <a class="download-btn" href="https://github.com/left-society/nox/releases/latest/download/nox.1.4.dmg">Download</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ── Hero ─────────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="wrap">
+    <h1>Your MacBook notch, <span class="accent">finally useful.</span></h1>
+    <p class="tagline">
+      nox turns the dark cutout at the top of your screen into a quiet HUD for notes, files, music, and voice.
+      Drag, drop, jot, paste. No new windows. No focus stolen.
+    </p>
+    <div class="hero-cta">
+      <a class="download-btn" href="https://github.com/left-society/nox/releases/latest/download/nox.1.4.dmg">Download for macOS</a>
+    </div>
+    <p class="hero-meta">
+      Free during beta &nbsp;·&nbsp; macOS 13 or later &nbsp;·&nbsp; Apple Silicon and Intel &nbsp;·&nbsp;
+      <a href="https://github.com/left-society/nox/releases">All versions</a>
+    </p>
+
+    <div class="notch-demo">
+      <div class="faux-notch"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Features ─────────────────────────────────────────────── -->
+<section id="features">
+  <div class="wrap">
+    <div class="features-head">
+      <h2>What lives in the notch</h2>
+      <p>One small surface. Five things that used to need apps, windows, and context switches.</p>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="icon">✏︎</div>
+        <h3>Notes</h3>
+        <p>Hover the notch, jot a thought, dismiss. Markdown supported. Quick paste with ⌘1 through ⌘9.</p>
+      </div>
+      <div class="card">
+        <div class="icon">⌥</div>
+        <h3>Voice</h3>
+        <p>Hold ⌘⇧D and speak. Whisper transcribes locally on your Mac. The audio never leaves the device.</p>
+      </div>
+      <div class="card">
+        <div class="icon">▦</div>
+        <h3>Drag and drop</h3>
+        <p>Drag any file to the notch. Save to nox or send via AirDrop without opening Finder.</p>
+      </div>
+      <div class="card">
+        <div class="icon">♪</div>
+        <h3>Music</h3>
+        <p>Now playing surface for any audio source. Transport controls and volume right at the notch.</p>
+      </div>
+      <div class="card">
+        <div class="icon">▶</div>
+        <h3>Videos and images</h3>
+        <p>Drop a YouTube URL with ⌥⌘V. nox pulls it down with yt-dlp and keeps it tidy.</p>
+      </div>
+      <div class="card">
+        <div class="icon">⊞</div>
+        <h3>System events</h3>
+        <p>Charging, screenshots, Bluetooth, AirDrop, timers. Everything that interrupts you, beautifully.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Privacy ──────────────────────────────────────────────── -->
+<section id="privacy" class="privacy">
+  <div class="wrap">
+    <h2>Built for keeping your data yours</h2>
+    <p>
+      nox runs entirely on your Mac. Voice transcription happens on device through Whisper. API keys stay in your keychain.
+      No telemetry, no analytics, no account required. The app updates itself by checking a signed feed, nothing else.
+    </p>
+  </div>
+</section>
+
+<!-- ── Final CTA ────────────────────────────────────────────── -->
+<section class="cta">
+  <div class="wrap">
+    <h2>Try it.</h2>
+    <p>One DMG. Drag to Applications. Free during beta.</p>
+    <a class="download-btn" href="https://github.com/left-society/nox/releases/latest/download/nox.1.4.dmg">Download nox 1.4</a>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>© 2026 left-society. nox is a native macOS app.</div>
+    <div class="links">
+      <a href="https://github.com/left-society/nox/releases">Changelog</a>
+      <a href="https://github.com/left-society/nox/issues">Report a bug</a>
+      <a href="mailto:hello@trynox.app">Contact</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
