@@ -37,7 +37,12 @@ BUILD_DIR="$ROOT/build"
 DIST_DIR="$ROOT/dist"
 APP_PATH="$BUILD_DIR/Build/Products/$CONFIG/$PRODUCT_NAME.app"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Notetaker/Resources/Info.plist 2>/dev/null || echo 1.0)"
-DMG_PATH="$DIST_DIR/Notetaker-$VERSION.dmg"
+# DMG filename uses dots between the product name and the version
+# (no hyphens per user direction). This also matches what GitHub
+# does to filenames with spaces during release upload, so local
+# and uploaded names stay identical and the publish script can
+# resolve the asset URL by exact name match.
+DMG_PATH="$DIST_DIR/nox.$VERSION.dmg"
 STAGE="$(mktemp -d -t notetaker-dmg)"
 
 # Signing identity selection, in priority order:
@@ -94,7 +99,7 @@ ln -s /Applications "$STAGE/Applications"
 
 echo "▸ Build compressed DMG…"
 hdiutil create \
-  -volname "Notetaker" \
+  -volname "nox" \
   -srcfolder "$STAGE" \
   -ov -format UDZO -fs APFS \
   "$DMG_PATH" >/dev/null

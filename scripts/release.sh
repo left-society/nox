@@ -43,20 +43,22 @@ NOTARY_PROFILE="${NOTARY_PROFILE:-Notetaker-Notarize}"
 
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INFO_PLIST")"
 BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$INFO_PLIST")"
-DMG_NAME="Notetaker-$VERSION.dmg"
+DMG_NAME="nox.$VERSION.dmg"
 DMG_PATH="$DIST_DIR/$DMG_NAME"
 APPCAST="$DIST_DIR/appcast.xml"
 SUFEED_URL="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$INFO_PLIST")"
 DOWNLOAD_BASE="${DOWNLOAD_BASE:-$(dirname "$SUFEED_URL")}"
 
 SKIP_NOTARIZE=0
+PUBLISH=0
 for arg in "$@"; do
   case "$arg" in
     --skip-notarize) SKIP_NOTARIZE=1 ;;
+    --publish) PUBLISH=1 ;;
   esac
 done
 
-echo "▸ Release pipeline for Notetaker $VERSION (build $BUILD)"
+echo "▸ Release pipeline for nox $VERSION (build $BUILD)"
 echo "  DMG → $DMG_PATH"
 echo "  Appcast → $APPCAST"
 echo "  SUFeedURL → $SUFEED_URL"
@@ -148,9 +150,9 @@ if [ ! -f "$APPCAST" ]; then
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
     <channel>
-        <title>Notetaker</title>
+        <title>nox</title>
         <link>$SUFEED_URL</link>
-        <description>Notetaker app updates</description>
+        <description>nox app updates</description>
         <language>en</language>
     </channel>
 </rss>
@@ -165,7 +167,7 @@ RELEASE_NOTES_URL="$DOWNLOAD_BASE/release-notes-$VERSION.html"
 
 NEW_ITEM=$(cat <<EOF
         <item>
-            <title>Notetaker $VERSION</title>
+            <title>nox $VERSION</title>
             <pubDate>$PUB_DATE</pubDate>
             <sparkle:version>$BUILD</sparkle:version>
             <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
@@ -193,10 +195,10 @@ version = "$VERSION"
 with open(path, "r", encoding="utf-8") as f:
     xml = f.read()
 
-# Strip any existing <item> block with the same version (idempotent
-# re-runs replace rather than duplicate).
+# Strip any existing <item> block with the same version so reruns
+# replace instead of duplicate.
 xml = re.sub(
-    r"\s*<item>\s*<title>Notetaker " + re.escape(version) + r"</title>.*?</item>",
+    r"\s*<item>\s*<title>nox " + re.escape(version) + r"</title>.*?</item>",
     "",
     xml,
     flags=re.DOTALL
@@ -223,29 +225,40 @@ if [ ! -f "$NOTES_FILE" ]; then
   cat > "$NOTES_FILE" <<EOF
 <!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><title>Notetaker $VERSION</title></head>
+<head><meta charset="utf-8"><title>nox $VERSION</title></head>
 <body style="font:14px/1.5 -apple-system,system-ui,sans-serif;color:#222;max-width:560px;margin:24px auto;padding:0 16px">
-<h2>Notetaker $VERSION</h2>
-<p>What's new in this release.</p>
+<h2>nox $VERSION</h2>
+<p>What is new in this release.</p>
 <ul>
   <li>(Edit this file before uploading.)</li>
 </ul>
 </body>
 </html>
 EOF
-  echo "  ✓ Stub release notes at $NOTES_FILE — edit before upload"
+  echo "  ✓ Stub release notes at $NOTES_FILE. Edit before upload."
 fi
 
 echo
 echo "──────────────────────────────────────────────────────────────"
-echo "✓ Release $VERSION ready."
+echo "✓ Release $VERSION ready locally."
 echo
-echo "Upload these to the host serving $DOWNLOAD_BASE:"
+echo "Files in dist/:"
 echo "  • $DMG_PATH"
 echo "  • $APPCAST"
 echo "  • $NOTES_FILE"
-echo
-echo "After upload, existing app installs will pick up the update"
-echo "on their next scheduled check (every 86400s = 24h, or via"
-echo "manual trigger if/when wired into Settings)."
 echo "──────────────────────────────────────────────────────────────"
+
+# Optional: hand off to scripts/publish-github.sh which creates the
+# GitHub Release, uploads the DMG as a release asset, rewrites the
+# appcast enclosure URL to the asset URL, and pushes the appcast +
+# release notes to the Pages repo.
+if [ "$PUBLISH" -eq 1 ]; then
+  echo
+  echo "▸ Publishing to GitHub (left-society/nox)…"
+  bash "$ROOT/scripts/publish-github.sh"
+else
+  echo
+  echo "Skipping GitHub publish (no --publish flag). To push:"
+  echo "  bash scripts/publish-github.sh"
+  echo "or rerun this script with --publish."
+fi
