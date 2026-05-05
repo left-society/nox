@@ -30,5 +30,26 @@
 	<string>Copyright © 2026 Aritra Debnath.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Notetaker transcribes your voice offline to create notes. Audio never leaves your Mac.</string>
+	<!-- Sparkle auto-update — see scripts/release.sh + appcast.xml -->
+	<!-- SUFeedURL: where the app polls for new versions. The XML at
+	     this URL lists available releases; Sparkle compares the version
+	     to CFBundleShortVersionString and prompts the user when newer.
+	     UPDATE THIS once you decide where to host the appcast (your
+	     own domain, GitHub Pages, S3, etc.). -->
+	<key>SUFeedURL</key>
+	<string>https://updates.notetaker.app/appcast.xml</string>
+	<!-- SUPublicEDKey: Sparkle's EdDSA public key. The matching
+	     PRIVATE key lives ONLY in your local keychain (generated
+	     by scripts/sparkle-bin/generate_keys). Sparkle verifies
+	     each downloaded update against this public key before
+	     installing — protects users from MITM/CDN compromise. -->
+	<key>SUPublicEDKey</key>
+	<string>n/eovhDL82Gp75QMByGpBpwU9/SpYLFEFOoElzSIkoo=</string>
+	<!-- Check daily; users can override via the standard Sparkle
+	     "Check for Updates" menu / preferences. -->
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
 </dict>
 </plist>

@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Combine
 import ServiceManagement
+import Sparkle
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -172,6 +173,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// need to prevent system sleep — only the per-app throttling.
     private var antiAppNapToken: NSObjectProtocol?
 
+    /// Sparkle auto-updater. SPUStandardUpdaterController wraps the
+    /// SPUUpdater + SPUStandardUserDriver pair Sparkle ships out of
+    /// the box: polls SUFeedURL on schedule (see Info.plist
+    /// SUScheduledCheckInterval), shows the standard "update
+    /// available" dialog when a newer version is found, downloads
+    /// the DMG, verifies its EdDSA signature against SUPublicEDKey,
+    /// then prompts to install + relaunch.
+    ///
+    /// Kept as a property (not a local) so the updater stays alive
+    /// for the lifetime of the app — Sparkle's checks fire on a
+    /// timer, so the controller has to outlive any one method call.
+    /// `startingUpdater: true` kicks off the first scheduled check
+    /// shortly after launch (10s delay built in by Sparkle).
+    ///
+    /// `userDriverDelegate` and `updaterDelegate` left nil — the
+    /// standard implementations match macOS HIG and don't need
+    /// customization for v1. Hooking them later (e.g. to surface
+    /// release notes inline in the panel UI) is straightforward.
+    private(set) lazy var sparkleUpdaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.shared = self
         NSApp.setActivationPolicy(.accessory)
@@ -193,6 +218,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // removed from the .plist on disk. See SecureKeyStore for
         // the full audit rationale.
         SecureKeyStore.shared.migrateFromUserDefaultsIfNeeded()
+
+        // Touch the lazy Sparkle controller so it initializes during
+        // launch — this kicks off Sparkle's internal startup
+        // (~10s delay before the first scheduled SUFeedURL fetch)
+        // so updates can be discovered without the user explicitly
+        // invoking "Check for Updates."
+        _ = sparkleUpdaterController
 
         // First-run bootstrap of "Launch at login". The Settings UI
         // defaults this @AppStorage toggle to `true`, but it only
