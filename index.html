@@ -71,36 +71,57 @@
     overflow-x: hidden;
   }
 
-  /*  Single warm radial glow centered above the hero — the
-      "spotlight on a dark stage" treatment Boring Notch uses to
-      anchor attention. Fixed-position so the glow stays put as
-      the user scrolls past the hero; subtle vignette at the
-      page edges keeps the dark frame consistent. */
+  /*  ----------------------------------------------------------------
+      Backdrop: macOS Sonoma wallpaper.
+
+      Real Apple liquid glass works because it sits on top of an
+      actual colorful desktop. Refraction has something to bend.
+      We extract the system Sonoma wallpaper (cherry-red / pink
+      sunset gradient) and lock it behind everything as a fixed
+      backdrop so liquid-glass cards have real color content to
+      displace and saturate.
+
+      The dark veil on top keeps copy legible (the wallpaper alone
+      is too bright in the warm regions for white body text), but
+      stays at 65% so the wallpaper hue is still felt through it.
+      The lavender radial glow that was here before is gone — the
+      wallpaper now provides the warm color anchor.
+      ----------------------------------------------------------------  */
+  body {
+    background:
+      url("/assets/wallpaper-sonoma.jpg") center/cover fixed no-repeat,
+      var(--bg);
+  }
   body::before {
     content: "";
     position: fixed;
-    top: -10%;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 90vw;
-    height: 80vh;
+    inset: 0;
     z-index: -2;
     pointer-events: none;
-    background: radial-gradient(closest-side,
-      rgba(168, 130, 232, 0.22),
-      rgba(168, 130, 232, 0.08) 35%,
-      transparent 70%);
-    filter: blur(40px);
+    /*  Vignette + dark veil. Top is slightly lighter so the
+        hero's animated mockup pops; bottom is darker so footer
+        text reads cleanly. Lavender tint baked into the veil
+        keeps the brand color present without a separate glow. */
+    background:
+      radial-gradient(circle at 50% 30%,
+        rgba(7, 7, 10, 0.40),
+        rgba(7, 7, 10, 0.78) 60%,
+        rgba(7, 7, 10, 0.92) 100%),
+      linear-gradient(180deg,
+        rgba(168, 130, 232, 0.06) 0%,
+        rgba(7, 7, 10, 0.0) 30%,
+        rgba(7, 7, 10, 0.0) 70%,
+        rgba(168, 130, 232, 0.04) 100%);
   }
-  /*  Subtle film grain to break up the gradient banding without
-      registering as visible noise. */
+  /*  Subtle film grain to break up the gradient banding and
+      give the page a film-stock feel against the warm wallpaper. */
   body::after {
     content: "";
     position: fixed;
     inset: 0;
     z-index: -1;
     pointer-events: none;
-    opacity: 0.02;
+    opacity: 0.04;
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
   }
 
@@ -680,18 +701,25 @@
       ----------------------------------------------------------------  */
   .liquid-glass {
     position: relative;
-    background: rgba(255, 255, 255, 0.035);
-    /*  Frosted-glass FALLBACK only. The real per-card
+    /*  Card body is now NEAR transparent (was 3.5% white) so the
+        wallpaper colors come through and refract via the glass
+        layer rather than getting masked by a flat tint. */
+    background: rgba(255, 255, 255, 0.012);
+    /*  Frosted-glass FALLBACK + crank. The real per-card
         displacement filter is computed in JS at the bottom
         of <body> (see initLiquidGlass), reading each card's
         live width/height/border-radius and writing
         `backdrop-filter: url(svg-data-uri-with-feDisplacementMap)`
-        directly onto the element. Browsers without
-        url()-in-backdrop-filter support (Safari) keep this
-        plain blur. */
-    backdrop-filter: blur(20px) saturate(160%);
-    -webkit-backdrop-filter: blur(20px) saturate(160%);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+        directly onto the element. The base blur and saturation
+        below is what every browser falls back to when the
+        per-card displacement isn't supported (Safari, Firefox).
+        Saturation pushed 160→210 so the wallpaper's warm hue
+        actually reads through the glass. Blur trimmed 20→16
+        so the underlying color stays visible instead of being
+        smeared into uniform gray. */
+    backdrop-filter: blur(16px) saturate(210%) brightness(1.05);
+    -webkit-backdrop-filter: blur(16px) saturate(210%) brightness(1.05);
+    border: 1px solid rgba(255, 255, 255, 0.085);
     border-radius: 20px;
     overflow: hidden;
     isolation: isolate;
@@ -1478,7 +1506,7 @@
         <a href="#faq">FAQ</a>
         <a href="https://github.com/left-society/nox">GitHub</a>
       </div>
-      <a class="btn btn-primary" href="https://tally.so/r/xX9Apd">
+      <a class="btn btn-primary" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">
         <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.463 1.58-1.518 3.12-.945 1.34-1.94 2.71-3.43 2.71-1.517 0-1.9-.88-3.63-.88-1.698 0-2.302.91-3.67.91-1.49 0-2.534-1.32-3.43-2.64-1.911-2.81-3.39-7.94-1.41-11.4.954-1.69 2.717-2.78 4.66-2.81 1.46-.03 2.83.96 3.71.96.88 0 2.55-.96 4.31-.82.74.03 2.81.3 4.13 2.25-.11.07-2.47 1.44-2.44 4.31.04 3.43 3.01 4.57 3.04 4.59-.07.04-2.84-1.41-3.5-2.91z"/></svg>
         Download
       </a>
@@ -1498,7 +1526,7 @@
       You know that dark cutout at the top of your MacBook screen? nox makes it useful. Music, voice notes, files, your next meeting, all <strong>without opening anything</strong>.
     </p>
     <div class="hero-cta">
-      <a class="btn btn-primary btn-large" href="https://tally.so/r/xX9Apd">
+      <a class="btn btn-primary btn-large" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">
         <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.463 1.58-1.518 3.12-.945 1.34-1.94 2.71-3.43 2.71-1.517 0-1.9-.88-3.63-.88-1.698 0-2.302.91-3.67.91-1.49 0-2.534-1.32-3.43-2.64-1.911-2.81-3.39-7.94-1.41-11.4.954-1.69 2.717-2.78 4.66-2.81 1.46-.03 2.83.96 3.71.96.88 0 2.55-.96 4.31-.82.74.03 2.81.3 4.13 2.25-.11.07-2.47 1.44-2.44 4.31.04 3.43 3.01 4.57 3.04 4.59-.07.04-2.84-1.41-3.5-2.91z"/></svg>
         Download for macOS
       </a>
@@ -1872,9 +1900,9 @@
   <div class="wrap">
     <h2>Give it a try.</h2>
     <p>Download it. Drag the icon into your Applications folder. Open it. That's the whole setup.</p>
-    <a class="btn btn-primary btn-large" href="https://tally.so/r/xX9Apd">
+    <a class="btn btn-primary btn-large" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">
       <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.463 1.58-1.518 3.12-.945 1.34-1.94 2.71-3.43 2.71-1.517 0-1.9-.88-3.63-.88-1.698 0-2.302.91-3.67.91-1.49 0-2.534-1.32-3.43-2.64-1.911-2.81-3.39-7.94-1.41-11.4.954-1.69 2.717-2.78 4.66-2.81 1.46-.03 2.83.96 3.71.96.88 0 2.55-.96 4.31-.82.74.03 2.81.3 4.13 2.25-.11.07-2.47 1.44-2.44 4.31.04 3.43 3.01 4.57 3.04 4.59-.07.04-2.84-1.41-3.5-2.91z"/></svg>
-      Get nox 1.9.5
+      Download nox 1.9.5
     </a>
   </div>
 </section>
