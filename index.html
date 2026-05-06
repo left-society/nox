@@ -303,21 +303,20 @@
     color: var(--fg);
     font-weight: 600;
   }
+  /*  CTA + stats wrap into vertical stack — `inline-flex` was
+      letting them collapse onto the same line at desktop widths.
+      Block-level `flex` plus center-justify keeps them stacked
+      and centered both. */
   .hero-cta {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     flex-wrap: wrap;
     justify-content: center;
   }
-
-  /*  Stats row directly under the CTA buttons. Three plain-text
-      facts separated by tiny dots. The Boring Notch site does
-      this with downloads/stars; we don't have those numbers yet,
-      so we use truthful product facts (price, OS, architecture). */
   .hero-stats {
-    margin-top: 26px;
-    display: inline-flex;
+    margin-top: 28px;
+    display: flex;
     align-items: center;
     flex-wrap: wrap;
     justify-content: center;
@@ -654,7 +653,256 @@
   }
 
   /*  ----------------------------------------------------------------
-      Comparison table
+      Liquid-glass card treatment
+
+      Inspiration: github.com/nikdelvin/liquid-glass — the iOS-26
+      "frosted glass with inner light reflection" aesthetic. Three-
+      layer build:
+        1. Frosted backdrop (.liquid-glass) — heavy backdrop-blur
+           + saturate so what's behind it shows as a soft tint
+        2. Inner border highlight (::before) — diagonal gradient
+           painted as a 1px ring so the card edge catches light
+           on the top-left and dims toward the bottom-right
+        3. Soft top-corner accent radial (::after) — adds the
+           tiny gleam at the top edge that real frosted-glass
+           panels show under a soft light
+
+      Used on the pricing cards and on any glass surface where we
+      want the card itself to feel like a physical object instead
+      of a flat dark panel.
+      ----------------------------------------------------------------  */
+  .liquid-glass {
+    position: relative;
+    background: rgba(255, 255, 255, 0.035);
+    backdrop-filter: blur(28px) saturate(160%);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 20px;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .liquid-glass::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.22) 0%,
+      rgba(255, 255, 255, 0.04) 28%,
+      rgba(255, 255, 255, 0.02) 65%,
+      rgba(255, 255, 255, 0.10) 100%
+    );
+    -webkit-mask:
+      linear-gradient(#000, #000) content-box,
+      linear-gradient(#000, #000);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .liquid-glass::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background:
+      radial-gradient(circle at 30% 0%,
+        rgba(200, 181, 255, 0.10), transparent 55%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .liquid-glass > * { position: relative; z-index: 1; }
+
+  /*  Featured variant — the nox card. Picks up a stronger inner
+      glow so it visually leads the row. */
+  .liquid-glass.featured {
+    background:
+      linear-gradient(180deg,
+        rgba(200, 181, 255, 0.08),
+        rgba(200, 181, 255, 0.02) 50%,
+        rgba(255, 255, 255, 0.02) 100%),
+      rgba(255, 255, 255, 0.03);
+    border-color: rgba(200, 181, 255, 0.22);
+  }
+  .liquid-glass.featured::after {
+    background:
+      radial-gradient(circle at 50% 0%,
+        rgba(200, 181, 255, 0.20), transparent 65%);
+  }
+
+  /*  ----------------------------------------------------------------
+      Pricing-style comparison cards (Threekit-inspired)
+
+      Replaces the old 18-row dense table. Same 4 apps, but laid
+      out as side-by-side cards so each app reads as one object
+      to scan instead of a column of cells. The short feature
+      checklist below is reduced to ONLY rows where the apps
+      actually differ — universal "everyone has it" rows like
+      Music controls, Drag files, Notes were dropped because
+      they don't help anyone choose between options.
+      ----------------------------------------------------------------  */
+  .pricing-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 32px;
+  }
+  @media (max-width: 960px) { .pricing-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 540px) { .pricing-grid { grid-template-columns: 1fr; } }
+
+  .pricing-card {
+    padding: 24px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    transition: transform 0.28s ease;
+  }
+  .pricing-card:hover { transform: translateY(-3px); }
+
+  .pricing-card .badge {
+    align-self: flex-start;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(200, 181, 255, 0.12);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border: 1px solid rgba(200, 181, 255, 0.22);
+  }
+  .pricing-card .name {
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+    margin: 0;
+  }
+  .pricing-card .tagline {
+    color: var(--muted);
+    font-size: 13.5px;
+    line-height: 1.5;
+    margin: 0;
+    /*  Reserve roughly 2 lines so the card heights match across
+        4 cards regardless of tagline length. */
+    min-height: 40px;
+  }
+  .pricing-card .price {
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+    line-height: 1.1;
+  }
+  .pricing-card .price small {
+    display: block;
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--muted);
+    letter-spacing: 0;
+    margin-top: 4px;
+  }
+  .pricing-card .btn { margin-top: auto; }
+
+  /*  Compact differentiator list — 6 rows max, all of which are
+      moments where nox actually behaves differently from the
+      other three. Same liquid-glass shell as the cards so the
+      pair reads as one comparison block. */
+  .feature-list {
+    padding: 8px 0;
+  }
+  .feature-list .head {
+    padding: 18px 24px 14px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--line-soft);
+    display: grid;
+    grid-template-columns: 2fr repeat(4, 1fr);
+    gap: 12px;
+    align-items: center;
+  }
+  .feature-list .head .self { color: var(--fg); }
+  .feature-list .row {
+    padding: 14px 24px;
+    display: grid;
+    grid-template-columns: 2fr repeat(4, 1fr);
+    gap: 12px;
+    align-items: center;
+    border-bottom: 1px solid var(--line-soft);
+    font-size: 14.5px;
+  }
+  .feature-list .row:last-child { border-bottom: none; }
+  .feature-list .row .label { color: var(--fg-soft); font-weight: 500; }
+  .feature-list .row .self {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  /*  Check / X glyphs — circular tile so each cell scans at a
+      glance without reading. Green-positive for "yes", muted
+      gray for "no/unclear". */
+  .check, .cross {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .check {
+    background: rgba(124, 238, 159, 0.12);
+    color: var(--success);
+    border: 1px solid rgba(124, 238, 159, 0.28);
+  }
+  .cross {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--dim);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  @media (max-width: 720px) {
+    /*  On phones the 5-column grid breaks. Flip to a stacked
+        layout where each row shows the feature name on its own
+        line and the four answers below. */
+    .feature-list .head { display: none; }
+    .feature-list .row {
+      grid-template-columns: 1fr;
+      gap: 10px;
+      padding: 16px 18px;
+    }
+    .feature-list .row .label {
+      font-size: 14px;
+      color: var(--fg);
+    }
+    .feature-list .row .answer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .feature-list .row .answer::before {
+      content: attr(data-app);
+      color: var(--dim);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-size: 11px;
+    }
+  }
+
+  /*  ----------------------------------------------------------------
+      Comparison table (DEPRECATED — kept for backward compat in
+      case anything else references the class)
       ----------------------------------------------------------------  */
   .compare-table {
     overflow-x: auto;
@@ -872,11 +1120,9 @@
       </a>
     </div>
     <div class="hero-stats">
-      <span><strong style="color: var(--fg-soft); font-weight: 500;">Free while we're testing</strong></span>
+      <span><strong style="color: var(--fg-soft); font-weight: 500;">Free</strong> while we're testing</span>
       <span class="sep"></span>
-      <span>Works on most Macs from 2017 onwards</span>
-      <span class="sep"></span>
-      <span><a href="https://github.com/left-society/nox/releases">What's new</a></span>
+      <span>Most Macs from 2017 onwards</span>
     </div>
 
     <!-- Animated mockup. Pure CSS, no JS, no images. -->
@@ -910,7 +1156,7 @@
         </div>
       </div>
     </div>
-    <p class="mockup-caption">This is the top of your MacBook screen. <span class="accent">Move your cursor</span> to that dark cutout — nox opens up.</p>
+    <p class="mockup-caption">This is the top of your MacBook. <span class="accent">Move your cursor</span> to the dark cutout — nox opens up.</p>
   </div>
 </section>
 
@@ -967,148 +1213,105 @@
       <p>The other apps cost $17 to $25 or charge you every month. nox does the same things — and tells you exactly what it does with your data.</p>
     </div>
 
-    <div class="compare-table">
-      <table>
-        <thead>
-          <tr>
-            <th>Feature</th>
-            <th class="self">nox</th>
-            <th>Alcove</th>
-            <th>NotchNook</th>
-            <th>Boring Notch</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>Price</td>
-            <td class="self"><strong>Free</strong> while we're testing</td>
-            <td><span class="compare-note">$17 to buy</span></td>
-            <td><span class="compare-note">$25 once or $3 a month</span></td>
-            <td><span class="compare-note">Free</span></td>
-          </tr>
-          <tr>
-            <td>Code you can read yourself</td>
-            <td class="self"><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-no">No</span></td>
-            <td><span class="compare-no">No</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-          </tr>
-          <tr>
-            <td>Voice-to-text on your Mac</td>
-            <td class="self"><span class="compare-yes">Yes</span> <span class="compare-note">— nothing sent online</span></td>
-            <td><span class="compare-no">Not stated</span></td>
-            <td><span class="compare-no">Not stated</span></td>
-            <td><span class="compare-no">No</span></td>
-          </tr>
-          <tr>
-            <td>Updates itself</td>
-            <td class="self"><span class="compare-yes">Yes</span> <span class="compare-note">— automatic</span></td>
-            <td><span class="compare-note">Yes</span></td>
-            <td><span class="compare-no">Not listed</span></td>
-            <td><span class="compare-note">You update it yourself</span></td>
-          </tr>
-          <tr>
-            <td>Tells you what it does with your data</td>
-            <td class="self"><span class="compare-yes">Yes</span> <span class="compare-note">— nothing sent off your Mac</span></td>
-            <td><span class="compare-no">Not stated</span></td>
-            <td><span class="compare-no">Not stated</span></td>
-            <td><span class="compare-no">Not stated</span></td>
-          </tr>
+    <!-- Side-by-side cards, one per app. nox card is featured. -->
+    <div class="pricing-grid">
+      <div class="pricing-card liquid-glass featured">
+        <span class="badge">Recommended</span>
+        <h3 class="name">nox</h3>
+        <p class="tagline">Native Mac app. On your Mac, no servers, no account.</p>
+        <div class="price">Free <small>while we're testing</small></div>
+        <a class="btn btn-primary" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">Download</a>
+      </div>
 
-          <tr>
-            <td>Music controls (play, pause, skip)</td>
-            <td class="self"><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-          </tr>
-          <tr>
-            <td>Charging notification</td>
-            <td class="self"><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-soon">coming</span></td>
-          </tr>
-          <tr>
-            <td>AirDrop arrivals show up top</td>
-            <td class="self"><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-no">Not listed</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-          </tr>
-          <tr>
-            <td>Next-meeting reminder</td>
-            <td class="self"><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-soon">coming</span></td>
-          </tr>
-          <tr>
-            <td>AirPods/Bluetooth notifications</td>
-            <td class="self"><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-no">Not listed</span></td>
-          </tr>
-          <tr>
-            <td>Focus timer</td>
-            <td class="self"><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-          </tr>
-          <tr>
-            <td>Drag files to the top</td>
-            <td class="self"><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-          </tr>
-          <tr>
-            <td>Save videos from your browser</td>
-            <td class="self"><span class="compare-yes">Yes</span> <span class="compare-note">— one shortcut</span></td>
-            <td><span class="compare-no">Not listed</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-no">Not listed</span></td>
-          </tr>
-          <tr>
-            <td>Notes &amp; clipboard</td>
-            <td class="self"><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-          </tr>
-          <tr>
-            <td>Music shows when your Mac is locked</td>
-            <td class="self"><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-soon">coming</span></td>
-          </tr>
-          <tr>
-            <td>Plain-English setup with privacy explainers</td>
-            <td class="self"><span class="compare-yes">Yes</span></td>
-            <td><span class="compare-no">Not listed</span></td>
-            <td><span class="compare-no">Not listed</span></td>
-            <td><span class="compare-no">Not listed</span></td>
-          </tr>
-          <tr>
-            <td>Works on Macs from</td>
-            <td class="self"><span class="compare-note">2017 onwards</span></td>
-            <td><span class="compare-note">Not stated</span></td>
-            <td><span class="compare-note">2024 onwards</span></td>
-            <td><span class="compare-note">2023 onwards</span></td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="pricing-card liquid-glass">
+        <h3 class="name">Alcove</h3>
+        <p class="tagline">Polished paid app. Dynamic-Island-style.</p>
+        <div class="price">$17 <small>one-time</small></div>
+        <a class="btn btn-ghost" href="https://tryalcove.com/">Visit</a>
+      </div>
+
+      <div class="pricing-card liquid-glass">
+        <h3 class="name">NotchNook</h3>
+        <p class="tagline">Indie app, also on Setapp.</p>
+        <div class="price">$25 <small>once, or $3 a month</small></div>
+        <a class="btn btn-ghost" href="https://lo.cafe/notchnook">Visit</a>
+      </div>
+
+      <div class="pricing-card liquid-glass">
+        <h3 class="name">Boring Notch</h3>
+        <p class="tagline">Free, community open-source app.</p>
+        <div class="price">Free <small>open-source</small></div>
+        <a class="btn btn-ghost" href="https://boringnotch.com">Visit</a>
+      </div>
+    </div>
+
+    <!-- Short, scannable feature list — only the rows where one
+         of the apps actually differs. "Everyone has it" rows
+         like Music controls, Drag files, Calendar are dropped
+         since they don't help anyone choose. -->
+    <div class="feature-list liquid-glass">
+      <div class="head">
+        <span>What's different</span>
+        <span class="self">nox</span>
+        <span>Alcove</span>
+        <span>NotchNook</span>
+        <span>Boring Notch</span>
+      </div>
+
+      <div class="row">
+        <span class="label">Voice-to-text on your Mac</span>
+        <span class="self" data-app="nox"><span class="check">✓</span></span>
+        <span class="answer" data-app="Alcove"><span class="cross">—</span></span>
+        <span class="answer" data-app="NotchNook"><span class="cross">—</span></span>
+        <span class="answer" data-app="Boring Notch"><span class="cross">✕</span></span>
+      </div>
+
+      <div class="row">
+        <span class="label">Tells you what it does with your data</span>
+        <span class="self" data-app="nox"><span class="check">✓</span></span>
+        <span class="answer" data-app="Alcove"><span class="cross">—</span></span>
+        <span class="answer" data-app="NotchNook"><span class="cross">—</span></span>
+        <span class="answer" data-app="Boring Notch"><span class="cross">—</span></span>
+      </div>
+
+      <div class="row">
+        <span class="label">Updates itself automatically</span>
+        <span class="self" data-app="nox"><span class="check">✓</span></span>
+        <span class="answer" data-app="Alcove"><span class="check">✓</span></span>
+        <span class="answer" data-app="NotchNook"><span class="cross">—</span></span>
+        <span class="answer" data-app="Boring Notch"><span class="cross">✕</span></span>
+      </div>
+
+      <div class="row">
+        <span class="label">Code you can read yourself</span>
+        <span class="self" data-app="nox"><span class="check">✓</span></span>
+        <span class="answer" data-app="Alcove"><span class="cross">✕</span></span>
+        <span class="answer" data-app="NotchNook"><span class="cross">✕</span></span>
+        <span class="answer" data-app="Boring Notch"><span class="check">✓</span></span>
+      </div>
+
+      <div class="row">
+        <span class="label">Save videos from your browser</span>
+        <span class="self" data-app="nox"><span class="check">✓</span></span>
+        <span class="answer" data-app="Alcove"><span class="cross">—</span></span>
+        <span class="answer" data-app="NotchNook"><span class="check">✓</span></span>
+        <span class="answer" data-app="Boring Notch"><span class="cross">—</span></span>
+      </div>
+
+      <div class="row">
+        <span class="label">Plain-English setup with privacy explainers</span>
+        <span class="self" data-app="nox"><span class="check">✓</span></span>
+        <span class="answer" data-app="Alcove"><span class="cross">—</span></span>
+        <span class="answer" data-app="NotchNook"><span class="cross">—</span></span>
+        <span class="answer" data-app="Boring Notch"><span class="cross">—</span></span>
+      </div>
     </div>
 
     <p class="compare-footnote">
-      Based on what each app says about itself on its website (May 2026). "Not listed" means we couldn't find it mentioned — it might still exist. See for yourself:
+      Based on what each app says on its website (May 2026). A dash means we couldn't find it mentioned. See for yourself:
       <a href="https://tryalcove.com/">tryalcove.com</a>,
       <a href="https://lo.cafe/notchnook">lo.cafe/notchnook</a>,
       <a href="https://boringnotch.com">boringnotch.com</a>.
-      Got something wrong? Email us — <a href="mailto:hello@trynox.app">hello@trynox.app</a>.
     </p>
   </div>
 </section>
