@@ -283,6 +283,104 @@
   footer a { color: var(--muted); text-decoration: none; }
   footer a:hover { color: var(--fg); }
   footer .links { display: flex; gap: 22px; }
+
+  /* ── Comparison table ──────────────────────────────────────── */
+  /* The whole point of this section is that nox stacks against
+     paid competitors at no cost. Visual treatment: highlight the
+     nox column with a subtle accent gradient so the eye lands on
+     it first; lean on a vertical divider between the feature
+     name and the four product cells so the table reads as one
+     "self vs them" comparison even when scanning quickly. */
+  .compare {
+    padding: 96px 0;
+  }
+  .compare-table {
+    overflow-x: auto;
+    border-radius: 16px;
+    border: 1px solid var(--line);
+    background: var(--bg2);
+  }
+  .compare-table table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14.5px;
+    min-width: 720px;
+  }
+  .compare-table th,
+  .compare-table td {
+    padding: 14px 18px;
+    text-align: left;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+  }
+  .compare-table tr:last-child td { border-bottom: none; }
+  .compare-table thead th {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: 0.01em;
+    padding-top: 22px;
+    padding-bottom: 14px;
+  }
+  .compare-table thead th.self {
+    color: var(--fg);
+  }
+  .compare-table td:first-child,
+  .compare-table th:first-child {
+    color: var(--muted);
+    font-weight: 500;
+    width: 32%;
+  }
+  /* The nox column — subtle accent so it visually leads. */
+  .compare-table th.self,
+  .compare-table td.self {
+    background: linear-gradient(180deg, rgba(168,130,232,0.10), rgba(74,174,255,0.06));
+    color: var(--fg);
+    font-weight: 500;
+    border-left: 1px solid rgba(168,130,232,0.18);
+    border-right: 1px solid rgba(168,130,232,0.18);
+  }
+  .compare-table th.self {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+  }
+  /* Symbols: ✓ green for present, em dash gray for absent /
+     unconfirmed, "soon" capsule for vendor-roadmapped. */
+  .compare-yes {
+    color: #6fe39a;
+    font-weight: 600;
+  }
+  .compare-no {
+    color: var(--dim);
+    font-weight: 400;
+  }
+  .compare-soon {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.06);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    text-transform: lowercase;
+  }
+  .compare-note {
+    color: var(--muted);
+    font-size: 13.5px;
+  }
+  .compare-footnote {
+    margin-top: 22px;
+    color: var(--dim);
+    font-size: 12.5px;
+    text-align: center;
+    line-height: 1.55;
+  }
+  .compare-footnote a { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+  @media (max-width: 720px) {
+    .compare-table { font-size: 13.5px; }
+    .compare-table th, .compare-table td { padding: 12px 14px; }
+  }
 </style>
 </head>
 <body>
@@ -292,9 +390,10 @@
     <a class="logo" href="/">nox</a>
     <nav class="nav">
       <a href="#features">Features</a>
+      <a href="#compare">Compare</a>
       <a href="#privacy">Privacy</a>
       <a href="https://github.com/left-society/nox/releases">Releases</a>
-      <a class="download-btn" href="https://github.com/left-society/nox/releases/latest/download/nox.1.4.dmg">Download</a>
+      <a class="download-btn" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">Download</a>
     </nav>
   </div>
 </header>
@@ -308,7 +407,7 @@
       Drag, drop, jot, paste. No new windows. No focus stolen.
     </p>
     <div class="hero-cta">
-      <a class="download-btn" href="https://github.com/left-society/nox/releases/latest/download/nox.1.4.dmg">Download for macOS</a>
+      <a class="download-btn" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">Download for macOS</a>
     </div>
     <p class="hero-meta">
       Free during beta &nbsp;·&nbsp; macOS 13 or later &nbsp;·&nbsp; Apple Silicon and Intel &nbsp;·&nbsp;
@@ -364,6 +463,173 @@
   </div>
 </section>
 
+<!-- ── Comparison ──────────────────────────────────────────── -->
+<!-- Strategy here: lead with the rows where nox wins outright
+     (price, on-device dictation, open source), then show feature
+     parity with paid competitors so the takeaway is "all of that
+     for $0". Footnote names sources + when the snapshot was
+     taken so reviewers can fact-check us. Refresh whenever a
+     competitor ships something new. -->
+<section id="compare" class="compare">
+  <div class="wrap">
+    <div class="features-head">
+      <h2>How nox compares</h2>
+      <p>Same category, fewer compromises. Everything Alcove and NotchNook charge for, plus a privacy posture nobody else publishes.</p>
+    </div>
+
+    <div class="compare-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Feature</th>
+            <th class="self">nox</th>
+            <th>Alcove</th>
+            <th>NotchNook</th>
+            <th>Boring Notch</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Price</td>
+            <td class="self"><strong>Free during beta</strong></td>
+            <td><span class="compare-note">$16.99 once</span></td>
+            <td><span class="compare-note">$25 once or $3/mo</span></td>
+            <td><span class="compare-note">Free</span></td>
+          </tr>
+          <tr>
+            <td>Open source</td>
+            <td class="self"><span class="compare-yes">✓</span></td>
+            <td><span class="compare-no">—</span></td>
+            <td><span class="compare-no">—</span></td>
+            <td><span class="compare-yes">✓</span> <span class="compare-note">GPL-3</span></td>
+          </tr>
+          <tr>
+            <td>Voice dictation, on your Mac</td>
+            <td class="self"><span class="compare-yes">✓</span> <span class="compare-note">Whisper, fully offline</span></td>
+            <td><span class="compare-no">unclear</span></td>
+            <td><span class="compare-no">unclear</span></td>
+            <td><span class="compare-no">—</span></td>
+          </tr>
+          <tr>
+            <td>Auto-update</td>
+            <td class="self"><span class="compare-yes">✓</span> <span class="compare-note">Sparkle, signed</span></td>
+            <td><span class="compare-note">included</span></td>
+            <td><span class="compare-no">not advertised</span></td>
+            <td><span class="compare-note">manual / Homebrew</span></td>
+          </tr>
+          <tr>
+            <td>Stated privacy posture</td>
+            <td class="self"><span class="compare-yes">✓</span> <span class="compare-note">no telemetry, audio stays local</span></td>
+            <td><span class="compare-no">not detailed</span></td>
+            <td><span class="compare-no">not detailed</span></td>
+            <td><span class="compare-no">not detailed</span></td>
+          </tr>
+
+          <tr>
+            <td>Music card with transport</td>
+            <td class="self"><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+          </tr>
+          <tr>
+            <td>Charging pill</td>
+            <td class="self"><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-soon">soon</span></td>
+          </tr>
+          <tr>
+            <td>AirDrop receive pill</td>
+            <td class="self"><span class="compare-yes">✓</span></td>
+            <td><span class="compare-no">not advertised</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+          </tr>
+          <tr>
+            <td>Calendar next-meeting pill</td>
+            <td class="self"><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-soon">soon</span></td>
+          </tr>
+          <tr>
+            <td>Bluetooth connect / disconnect pills</td>
+            <td class="self"><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-no">not advertised</span></td>
+          </tr>
+          <tr>
+            <td>Pomodoro / countdown timer</td>
+            <td class="self"><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+          </tr>
+          <tr>
+            <td>Drag files into the notch</td>
+            <td class="self"><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+          </tr>
+          <tr>
+            <td>Browser video grab (yt-dlp)</td>
+            <td class="self"><span class="compare-yes">✓</span> <span class="compare-note">⌥⌘V from any browser</span></td>
+            <td><span class="compare-no">not advertised</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-no">not advertised</span></td>
+          </tr>
+          <tr>
+            <td>Notes / quick-paste from notch</td>
+            <td class="self"><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+          </tr>
+          <tr>
+            <td>Lock-screen music card</td>
+            <td class="self"><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-soon">soon</span></td>
+          </tr>
+          <tr>
+            <td>Per-permission onboarding with privacy explainers</td>
+            <td class="self"><span class="compare-yes">✓</span></td>
+            <td><span class="compare-no">not advertised</span></td>
+            <td><span class="compare-no">not advertised</span></td>
+            <td><span class="compare-no">not advertised</span></td>
+          </tr>
+          <tr>
+            <td>macOS minimum</td>
+            <td class="self"><span class="compare-note">13 Ventura</span></td>
+            <td><span class="compare-note">not stated</span></td>
+            <td><span class="compare-note">14.6 Sonoma</span></td>
+            <td><span class="compare-note">14 Sonoma</span></td>
+          </tr>
+          <tr>
+            <td>Apple Silicon + Intel</td>
+            <td class="self"><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+            <td><span class="compare-yes">✓</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="compare-footnote">
+      Comparison built from each app's published feature list as of May 2026. "—" means the feature isn't claimed on the vendor's site, not that it's necessarily absent. Sources:
+      <a href="https://tryalcove.com/">tryalcove.com</a>,
+      <a href="https://lo.cafe/notchnook">lo.cafe/notchnook</a>,
+      <a href="https://boringnotch.com">boringnotch.com</a>.
+      Spotted an error? <a href="mailto:hello@trynox.app">hello@trynox.app</a>.
+    </p>
+  </div>
+</section>
+
 <!-- ── Privacy ──────────────────────────────────────────────── -->
 <section id="privacy" class="privacy">
   <div class="wrap">
@@ -380,7 +646,7 @@
   <div class="wrap">
     <h2>Try it.</h2>
     <p>One DMG. Drag to Applications. Free during beta.</p>
-    <a class="download-btn" href="https://github.com/left-society/nox/releases/latest/download/nox.1.4.dmg">Download nox 1.4</a>
+    <a class="download-btn" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">Download nox 1.9.5</a>
   </div>
 </section>
 
