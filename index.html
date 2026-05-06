@@ -681,8 +681,17 @@
   .liquid-glass {
     position: relative;
     background: rgba(255, 255, 255, 0.035);
-    backdrop-filter: blur(28px) saturate(160%);
-    -webkit-backdrop-filter: blur(28px) saturate(160%);
+    /*  Real refraction via SVG feDisplacementMap.
+        The filter is defined inline in <body> as #liquid-distort.
+        Chrome / Edge / Firefox 103+ apply both blur and the
+        displacement (the backdrop bends like real glass with
+        an irregular surface). Safari currently ignores the
+        url() portion silently and falls back to plain blur,
+        which still reads as frosted glass. The -webkit- prefix
+        below ships ONLY blur+saturate to Safari so its
+        fallback path stays clean. */
+    backdrop-filter: blur(14px) saturate(180%) url(#liquid-distort);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 20px;
     overflow: hidden;
@@ -1087,6 +1096,42 @@
 </head>
 <body>
 
+<!--  Liquid-glass refraction filter.
+      Two-stage SVG filter that turns a noise field into a
+      displacement map applied to the backdrop of any element with
+      class .liquid-glass. The result is real wave-bend refraction
+      (what the github.com/nikdelvin/liquid-glass library does),
+      not just a frosted blur.
+
+      feTurbulence   — generates a smooth fractal noise field.
+                       baseFrequency low ~ wider, slower waves;
+                       higher ~ tight ripples. 0.014/0.018 gives
+                       the gentle "wide glass surface" feel.
+      feGaussianBlur — softens the noise so the displacement
+                       reads as smooth refraction, not pixelated.
+      feDisplacementMap — bends pixels of the backdrop using
+                       the blurred-noise R channel for X and G
+                       for Y. scale="35" controls how much the
+                       backdrop bends; high values look unnatural,
+                       single-digits are imperceptible. -->
+<svg width="0" height="0" style="position:absolute;width:0;height:0;pointer-events:none" aria-hidden="true">
+  <filter id="liquid-distort" x="0%" y="0%" width="100%" height="100%">
+    <feTurbulence
+      type="fractalNoise"
+      baseFrequency="0.014 0.018"
+      numOctaves="2"
+      seed="7"
+      result="noise" />
+    <feGaussianBlur in="noise" stdDeviation="2" result="blurNoise" />
+    <feDisplacementMap
+      in="SourceGraphic"
+      in2="blurNoise"
+      scale="35"
+      xChannelSelector="R"
+      yChannelSelector="G" />
+  </filter>
+</svg>
+
 <header>
   <div class="wrap">
     <a class="logo" href="/">nox</a>
@@ -1108,13 +1153,13 @@
 <!-- ── Hero ─────────────────────────────────────────────────── -->
 <section class="hero">
   <div class="wrap">
-    <span class="eyebrow-chip">nox 1.9.5 — out now</span>
+    <span class="eyebrow-chip">nox 1.9.5 is out</span>
     <h1>
       <span class="lead">Your MacBook notch,</span>
       <span class="punch">actually useful.</span>
     </h1>
     <p class="tagline">
-      You know that dark cutout at the top of your MacBook screen? nox makes it useful. Music, voice notes, files, your next meeting — all <strong>without opening anything</strong>.
+      You know that dark cutout at the top of your MacBook screen? nox makes it useful. Music, voice notes, files, your next meeting, all <strong>without opening anything</strong>.
     </p>
     <div class="hero-cta">
       <a class="btn btn-primary btn-large" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">
@@ -1163,7 +1208,7 @@
         </div>
       </div>
     </div>
-    <p class="mockup-caption">This is the top of your MacBook. <span class="accent">Move your cursor</span> to the dark cutout — nox opens up.</p>
+    <p class="mockup-caption">This is the top of your MacBook. <span class="accent">Move your cursor</span> to the dark cutout. nox opens up.</p>
   </div>
 </section>
 
@@ -1173,24 +1218,24 @@
     <div class="section-head">
       <span class="section-eyebrow">What it does</span>
       <h2>One small spot. Everything you used to need apps for.</h2>
-      <p>Move your cursor to the top — it opens. Move away — it closes. No new windows, no clutter on your desktop.</p>
+      <p>Move your cursor to the top, it opens. Move away, it closes. No new windows, no clutter on your desktop.</p>
     </div>
 
     <div class="grid">
       <div class="card">
         <div class="icon-tile">♪</div>
         <h3>Music</h3>
-        <p>See what's playing — Spotify, Apple Music, YouTube, anything. The album art changes with the song. Skip, pause, change volume right from the top.</p>
+        <p>See what's playing in Spotify, Apple Music, YouTube, anything. The album art changes with the song. Skip, pause, change volume right from the top.</p>
       </div>
       <div class="card">
         <div class="icon-tile">⌥</div>
         <h3>Talk instead of typing</h3>
-        <p>Hold one key and speak. Your words become text. No internet needed — your voice never leaves your Mac. Nothing recorded, nothing sent anywhere.</p>
+        <p>Hold one key and speak. Your words become text. No internet needed. Your voice never leaves your Mac. Nothing recorded, nothing sent anywhere.</p>
       </div>
       <div class="card">
         <div class="icon-tile">⤓</div>
         <h3>Drag files in</h3>
-        <p>Drag a photo, a video, or any file up to the dark cutout. nox holds it for you. Drop it anywhere later — straight from up there.</p>
+        <p>Drag a photo, a video, or any file up to the dark cutout. nox holds it for you. Drop it anywhere later, straight from up there.</p>
       </div>
       <div class="card">
         <div class="icon-tile">▶</div>
@@ -1200,7 +1245,7 @@
       <div class="card">
         <div class="icon-tile">▦</div>
         <h3>Your next meeting</h3>
-        <p>About to have a meeting? nox shows it at the top with a "Join" button. It only reads your calendar — never adds, edits, or shares anything.</p>
+        <p>About to have a meeting? nox shows it at the top with a "Join" button. It only reads your calendar. It never adds, edits, or shares anything.</p>
       </div>
       <div class="card">
         <div class="icon-tile">⚡</div>
@@ -1217,7 +1262,7 @@
     <div class="section-head">
       <span class="section-eyebrow">Why pick nox</span>
       <h2>Everything the paid ones do. For free.</h2>
-      <p>The other apps cost $17 to $25 or charge you every month. nox does the same things — and tells you exactly what it does with your data.</p>
+      <p>The other apps cost $17 to $25 or charge you every month. nox does the same things, and tells you exactly what it does with your data.</p>
     </div>
 
     <!-- Side-by-side cards, one per app. nox card is featured. -->
@@ -1268,24 +1313,24 @@
       <div class="row">
         <span class="label">Voice-to-text on your Mac</span>
         <span class="self" data-app="nox"><span class="check">✓</span></span>
-        <span class="answer" data-app="Alcove"><span class="cross">—</span></span>
-        <span class="answer" data-app="NotchNook"><span class="cross">—</span></span>
+        <span class="answer" data-app="Alcove"><span class="cross">✕</span></span>
+        <span class="answer" data-app="NotchNook"><span class="cross">✕</span></span>
         <span class="answer" data-app="Boring Notch"><span class="cross">✕</span></span>
       </div>
 
       <div class="row">
         <span class="label">Tells you what it does with your data</span>
         <span class="self" data-app="nox"><span class="check">✓</span></span>
-        <span class="answer" data-app="Alcove"><span class="cross">—</span></span>
-        <span class="answer" data-app="NotchNook"><span class="cross">—</span></span>
-        <span class="answer" data-app="Boring Notch"><span class="cross">—</span></span>
+        <span class="answer" data-app="Alcove"><span class="cross">✕</span></span>
+        <span class="answer" data-app="NotchNook"><span class="cross">✕</span></span>
+        <span class="answer" data-app="Boring Notch"><span class="cross">✕</span></span>
       </div>
 
       <div class="row">
         <span class="label">Updates itself automatically</span>
         <span class="self" data-app="nox"><span class="check">✓</span></span>
         <span class="answer" data-app="Alcove"><span class="check">✓</span></span>
-        <span class="answer" data-app="NotchNook"><span class="cross">—</span></span>
+        <span class="answer" data-app="NotchNook"><span class="cross">✕</span></span>
         <span class="answer" data-app="Boring Notch"><span class="cross">✕</span></span>
       </div>
 
@@ -1300,22 +1345,22 @@
       <div class="row">
         <span class="label">Save videos from your browser</span>
         <span class="self" data-app="nox"><span class="check">✓</span></span>
-        <span class="answer" data-app="Alcove"><span class="cross">—</span></span>
+        <span class="answer" data-app="Alcove"><span class="cross">✕</span></span>
         <span class="answer" data-app="NotchNook"><span class="check">✓</span></span>
-        <span class="answer" data-app="Boring Notch"><span class="cross">—</span></span>
+        <span class="answer" data-app="Boring Notch"><span class="cross">✕</span></span>
       </div>
 
       <div class="row">
         <span class="label">Plain-English setup with privacy explainers</span>
         <span class="self" data-app="nox"><span class="check">✓</span></span>
-        <span class="answer" data-app="Alcove"><span class="cross">—</span></span>
-        <span class="answer" data-app="NotchNook"><span class="cross">—</span></span>
-        <span class="answer" data-app="Boring Notch"><span class="cross">—</span></span>
+        <span class="answer" data-app="Alcove"><span class="cross">✕</span></span>
+        <span class="answer" data-app="NotchNook"><span class="cross">✕</span></span>
+        <span class="answer" data-app="Boring Notch"><span class="cross">✕</span></span>
       </div>
     </div>
 
     <p class="compare-footnote">
-      Based on what each app says on its website (May 2026). A dash means we couldn't find it mentioned. See for yourself:
+      Based on what each app says on its website (May 2026). An ✕ means we couldn't find it mentioned. See for yourself:
       <a href="https://tryalcove.com/">tryalcove.com</a>,
       <a href="https://lo.cafe/notchnook">lo.cafe/notchnook</a>,
       <a href="https://boringnotch.com">boringnotch.com</a>.
@@ -1329,7 +1374,7 @@
     <span class="eyebrow-chip">A clear promise</span>
     <h2>Your stuff stays on your Mac.</h2>
     <p>
-      When you talk, your voice becomes text right on your Mac — nothing goes online. nox doesn't track what you do, doesn't ask you to make an account, and doesn't have a server we send your stuff to. The only thing nox ever sends online is a quick check for new updates. That's it.
+      When you talk, your voice becomes text right on your Mac. Nothing goes online. nox doesn't track what you do, doesn't ask you to make an account, and doesn't have a server we send your stuff to. The only thing nox ever sends online is a quick check for new updates. That's it.
     </p>
   </div>
 </section>
