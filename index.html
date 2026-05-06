@@ -313,13 +313,24 @@
     line-height: 1.0;
     letter-spacing: -0.05em;
     color: var(--fg);
+    /*  Soft drop shadow so the headline always wins against
+        the wallpaper underneath, no matter which hue happens
+        to sit behind a given letter. Two layers: a tight dark
+        bed (1px) for crispness and a wider soft halo (10px)
+        for separation from busy backdrops. */
+    text-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.55),
+      0 6px 22px rgba(0, 0, 0, 0.40);
   }
   .hero h1 .lead {
     display: block;
     font-weight: 500;
-    color: var(--muted);
-    /*  The "lead" line sits visually as setup: lighter weight,
-        muted color so the bold finish lands harder. */
+    /*  Was var(--muted) (55% white) which got eaten by the
+        bright green/red regions of the Sonoma wallpaper. Bump
+        to fg-soft (78%) so the lead line reads cleanly across
+        every hue while still sitting visually behind the
+        bolder .punch line. */
+    color: var(--fg-soft);
   }
   .hero h1 .punch {
     display: block;
@@ -331,8 +342,12 @@
     margin: 0 auto 36px;
     max-width: 580px;
     font-size: clamp(17px, 1.9vw, 19px);
-    color: var(--muted);
+    /*  Tagline lifted from --muted (55%) to --fg-soft (78%)
+        for legibility on top of the wallpaper. Same reason as
+        the lead line above. */
+    color: var(--fg-soft);
     line-height: 1.55;
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.50);
   }
   .hero .tagline strong {
     color: var(--fg);
@@ -356,8 +371,12 @@
     flex-wrap: wrap;
     justify-content: center;
     gap: 14px;
-    color: var(--dim);
+    /*  Was --dim (36% white). Bumped to --muted (55%) so the
+        "Free while we're testing · Most Macs from 2017
+        onwards" line reads clearly against the wallpaper. */
+    color: var(--muted);
     font-size: 13px;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
   }
   .hero-stats > * {
     display: inline-flex;
@@ -622,12 +641,19 @@
     line-height: 1.05;
     font-weight: 600;
     color: var(--fg);
+    /*  Soft drop shadow so section headings stay legible
+        across the wallpaper's brighter regions. Same idea
+        as the hero h1 treatment, scaled down. */
+    text-shadow: 0 2px 16px rgba(0, 0, 0, 0.40);
   }
   .section-head p {
     margin: 0;
-    color: var(--muted);
+    /*  Lifted from --muted (55%) to --fg-soft (78%) so the
+        section subtitle reads against the wallpaper. */
+    color: var(--fg-soft);
     font-size: 16.5px;
     line-height: 1.6;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
   }
 
   /*  ----------------------------------------------------------------
@@ -885,11 +911,18 @@
     margin: 8px 0 8px;
   }
   .principles p {
-    color: var(--muted);
+    /*  Open section (no card background), so muted text
+        gets eaten by the wallpaper. Lifted to --fg-soft +
+        soft shadow for legibility. */
+    color: var(--fg-soft);
     font-size: 14.5px;
     line-height: 1.6;
     margin: 0;
     max-width: 38ch;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
+  }
+  .principles h3 {
+    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.40);
   }
 
   /*  Compare table — feature inventory with side-by-side
@@ -1299,9 +1332,16 @@
   .privacy p {
     margin: 0 auto;
     max-width: 620px;
-    color: var(--muted);
+    /*  Brightened from --muted (55%) to --fg-soft (78%) so
+        the privacy paragraph reads against the wallpaper.
+        Plus soft shadow for legibility on busy hues. */
+    color: var(--fg-soft);
     font-size: 16.5px;
     line-height: 1.65;
+    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.40);
+  }
+  .privacy h2 {
+    text-shadow: 0 2px 16px rgba(0, 0, 0, 0.45);
   }
 
   /*  ----------------------------------------------------------------
@@ -1477,13 +1517,17 @@
     font-weight: 600;
     color: var(--fg);
     line-height: 1.0;
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.45);
   }
   .cta p {
-    color: var(--muted);
+    /*  Lifted from --muted (55%) to --fg-soft (78%) so it
+        reads against the wallpaper. */
+    color: var(--fg-soft);
     margin: 0 auto 36px;
     max-width: 480px;
     font-size: 16.5px;
     line-height: 1.55;
+    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.40);
   }
 
   /*  ----------------------------------------------------------------
