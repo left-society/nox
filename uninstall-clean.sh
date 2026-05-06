@@ -1,24 +1,22 @@
 #!/usr/bin/env bash
-# Clean-uninstall nox — removes the app and ALL user data so a fresh
-# install behaves like a first install (onboarding fires, permission
-# prompts re-appear within their TCC-allowed scope).
+# Factory-reset nox — removes the app, ALL user data, AND all TCC
+# (Privacy & Security) permissions so a fresh install behaves
+# exactly like a first install on a brand-new Mac: onboarding fires,
+# every permission prompt re-appears, no inherited state.
 #
-# Run BEFORE downloading the new DMG. After this script completes,
-# also follow the manual TCC step it prints at the end.
+# Run BEFORE downloading the new DMG.
 #
 # What this wipes:
 #   • /Applications/nox.app
-#   • UserDefaults / preferences (~/Library/Preferences/com.aritradebnath.notetaker.plist)
-#   • Application Support folder (notes, images, videos, downloads, SQLite db)
-#   • Caches
-#   • NSWindow restoration state
-#   • Sparkle update history
-#   • Keychain entries (API keys stored via SecureKeyStore)
-#   • Auto-save launchd agent (if installed)
-#
-# What it CANNOT wipe (Apple privacy guarantee):
-#   • TCC permissions (Privacy & Security panel) — must be removed
-#     manually in System Settings, see end of script.
+#   • UserDefaults / preferences (com.aritradebnath.notetaker.plist)
+#   • Application Support folder (notes, images, videos, downloads, db)
+#   • Caches, NSWindow saved state, Sparkle history, HTTP storages
+#   • Keychain entries (API keys via SecureKeyStore)
+#   • Auto-save launchd agent
+#   • Launch Services registration
+#   • TCC permissions (Microphone, Accessibility, Calendar, Automation,
+#     Screen Recording, etc.) via `tccutil reset All <bundle>` —
+#     Apple's official reset tool, no SIP changes required.
 
 set -u
 
@@ -80,27 +78,31 @@ security delete-generic-password -s "$BUNDLE_ID" 2>/dev/null || true
 echo "▸ Removing Launch Services registration…"
 /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister -u "/Applications/${APP_NAME}.app" 2>/dev/null || true
 
+echo "▸ Resetting TCC (Privacy) permissions via tccutil…"
+# `tccutil reset All <bundle-id>` is Apple's official tool to reset
+# all privacy permissions for a single app. No SIP changes needed.
+# Output looks like "Successfully reset All approval status for
+# com.aritradebnath.notetaker"; redirected to keep this clean.
+tccutil reset All "$BUNDLE_ID" 2>&1 | sed 's/^/      /' || true
+# Belt-and-suspenders: also reset each individual service in case the
+# global "All" pass missed something on this macOS version.
+for service in Accessibility Microphone Camera Calendar AddressBook \
+               Reminders Photos AppleEvents ScreenCapture \
+               SystemPolicyAllFiles SystemPolicyDesktopFolder \
+               SystemPolicyDocumentsFolder SystemPolicyDownloadsFolder \
+               SystemPolicyNetworkVolumes SystemPolicyRemovableVolumes \
+               PostEvent ListenEvent; do
+  tccutil reset "$service" "$BUNDLE_ID" 2>/dev/null || true
+done
+
 echo
 echo "──────────────────────────────────────────────────────────────"
-echo "✓ App + data + preferences wiped."
+echo "✓ Factory reset complete. App, data, preferences, and ALL"
+echo "  Privacy permissions for nox have been wiped."
 echo
-echo "⚠️  TCC (Privacy) permissions CANNOT be cleared programmatically."
-echo "    Apple intentionally locked this down — even sudo can't touch"
-echo "    the TCC database without disabling SIP."
+echo "Download a fresh DMG and the next launch will behave exactly"
+echo "like a first install — onboarding fires, every permission"
+echo "prompt re-appears."
 echo
-echo "    Manually remove nox from each of these in System Settings →"
-echo "    Privacy & Security:"
-echo
-echo "      • Microphone"
-echo "      • Accessibility"
-echo "      • Calendar"
-echo "      • Automation (any apps nox controls)"
-echo "      • Screen Recording (if listed)"
-echo "      • Files and Folders (if listed)"
-echo
-echo "    For each panel, find 'nox' in the list and click the (-) button."
-echo "    Or toggle off, then on, to force a re-prompt on next launch."
-echo
-echo "Then download a fresh DMG:"
 echo "  https://github.com/left-society/nox/releases/latest"
 echo "──────────────────────────────────────────────────────────────"
