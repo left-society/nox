@@ -120,13 +120,18 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
         // Drop back to menu-bar-only mode (matches Settings close
         // behavior so we don't leak a Dock icon).
         NSApp.setActivationPolicy(.accessory)
-        // Bring the notch panel back online. OnboardingManager.present()
-        // orderOut'd it for the duration; if the user closed the
-        // window via the red traffic light (not the Continue button
-        // which routes through completeOnboarding → onComplete),
-        // we still need to restore the panel here.
+        // Bring the notch panel back online AND start the services
+        // we deferred at launch (NotchOrchestrator's MediaRemote
+        // poll + DictationOrchestrator's Fn-key tap). Both can fire
+        // TCC prompts — Apple Events for music, Accessibility for
+        // the Fn-key tap — so we held them back until onboarding
+        // had a chance to explain itself. Now that the user has
+        // closed the window (whether via Continue or the red
+        // traffic light), it's safe to start them.
         DispatchQueue.main.async {
-            (NSApp.delegate as? AppDelegate)?.panelController?.parkAtNotchHidden()
+            let appDelegate = NSApp.delegate as? AppDelegate
+            appDelegate?.startTCCDeferredServices()
+            appDelegate?.panelController?.parkAtNotchHidden()
         }
     }
 }
@@ -173,11 +178,23 @@ final class OnboardingManager {
 
         let controller = OnboardingWindowController(onComplete: { [weak self] in
             self?.windowController = nil
-            // Bring the notch panel back online so hover / music /
-            // drag events work again. parkAtNotchHidden is the
-            // standard "panel ready and waiting at the notch"
-            // entry point.
-            (NSApp.delegate as? AppDelegate)?.panelController?.parkAtNotchHidden()
+            // Onboarding finished — start the TCC-firing services we
+            // held back at launch (orchestrator + dictation hotkey
+            // tap). These were gated on `onboardingCompletedV2` and
+            // by now the completeOnboarding path has set that flag.
+            //
+            // ALSO bring the notch panel back online so hover /
+            // music / drag events work. parkAtNotchHidden is the
+            // standard "panel ready and waiting" entry point.
+            //
+            // Note: this onComplete fires from the user clicking
+            // "Continue" → completeOnboarding → onComplete BEFORE
+            // performClose runs. windowWillClose ALSO calls
+            // startTCCDeferredServices, so both close paths are
+            // covered, and the method itself is idempotent.
+            let appDelegate = NSApp.delegate as? AppDelegate
+            appDelegate?.startTCCDeferredServices()
+            appDelegate?.panelController?.parkAtNotchHidden()
         })
         windowController = controller
         controller.show()

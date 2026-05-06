@@ -32,6 +32,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// cursor in whatever app is frontmost. Wired up at launch so
     /// the hotkey listener is live system-wide.
     var dictationOrchestrator: DictationOrchestrator?
+    /// Hotkey mode that should be applied to the dictation
+    /// orchestrator once onboarding has been completed. Stored at
+    /// launch (read from UserDefaults) but NOT applied immediately
+    /// for first-launch users — calling setHotkeyMode pops the macOS
+    /// Accessibility permission dialog, which we want to fire from
+    /// the onboarding "Accessibility" step (after the privacy
+    /// explainer) rather than over the welcome panel. Cleared after
+    /// `startTCCDeferredServices` consumes it.
+    var dictationPendingHotkeyMode: DictationOrchestrator.HotkeyMode?
 
     /// First-launch onboarding manager. Lazy: only allocated if
     /// the user hasn't completed onboarding yet (or if Settings
@@ -206,6 +215,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Self.shared = self
         NSApp.setActivationPolicy(.accessory)
 
+        // RELOCATE-TO-/APPLICATIONS — runs first, BEFORE onboarding.
+        //
+        // If the user is launching nox from the mounted DMG, from
+        // ~/Downloads, from a path-translocated sandbox, or any other
+        // non-canonical location, AppMover offers to move the bundle
+        // to /Applications and relaunch from there. The relaunched
+        // instance is the same signed bundle so notarization stays
+        // valid; TCC permissions granted later attach to the new
+        // canonical path so they survive future updates.
+        //
+        // Returns true if the move was performed — in which case the
+        // process is about to exit and we should bail out of further
+        // setup (nothing we do here matters; the relaunched copy
+        // re-runs applicationDidFinishLaunching from scratch).
+        if AppMover.relocateIfNeededAndRelaunch() {
+            return
+        }
+
         // FIRST-RUN ONBOARDING — present BEFORE any service that can
         // trigger TCC prompts. The previous order ran ~900 lines of
         // service setup (NotchOrchestrator → MediaRemoteService
@@ -229,39 +256,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // No-op if onboardingCompletedV2 is already set (existing
         // installs skip this and proceed straight to setup).
         onboardingManager.presentIfNeeded()
-
-        // 2026-05-06 — defer EVERYTHING below by one runloop tick.
-        //
-        // applicationDidFinishLaunching runs synchronously on the
-        // main thread before AppKit spins its first event loop.
-        // Until this method returns, `makeKeyAndOrderFront(nil)`
-        // only QUEUES the onboarding window — AppKit doesn't
-        // composite its NSHostingController content until the
-        // runloop ticks and CA commits a frame. Symptom: the user
-        // saw permission dialogs (Apple Events for Spotify/Music,
-        // mic, calendar) land over a featureless dark rectangle
-        // before the welcome panel painted, which read as "what
-        // is this thing trying to do?" instead of "I'm setting
-        // nox up."
-        //
-        // The fix is structural, not cosmetic. TCC-prompt-firing
-        // services below (MediaRemote AppleScript polls in
-        // NotchOrchestrator, CalendarMonitorService → EventKit,
-        // DictationOrchestrator → microphone, CoreAudio listener,
-        // BrowserMediaProbe) all kick off during this method.
-        // Hopping through DispatchQueue.main.async lets one runloop
-        // tick complete first — SwiftUI paints the welcome content,
-        // THEN service init proceeds and any permission dialogs
-        // land on top of a fully drawn UI. Cost: ~16ms of perceived
-        // launch delay (one frame). Benefit: the prompts make sense.
-        //
-        // [weak self] + `guard let self` keeps implicit-self syntax
-        // working below without a 900-line re-indent. AppDelegate
-        // lives for the process lifetime so the weak ref will
-        // always resolve, but the dance keeps Swift happy and
-        // keeps us safe if AppDelegate ever becomes non-singleton.
-        DispatchQueue.main.async { [weak self] in
-        guard let self else { return }
 
         // 2026-05-04: disable App Nap for the lifetime of this
         // process. Notch HUD must respond instantly to user
@@ -881,8 +875,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel.presenter.clearPendingVideo()
         }
 
-        orchestrator.start()
         self.notchOrchestrator = orchestrator
+        // 2026-05-06 — gate orchestrator.start() on onboardingCompletedV2.
+        //
+        // orchestrator.start() kicks off MediaRemoteService which uses
+        // AppleScript-based timing fallbacks. The first time it sends
+        // a script to Spotify or Music while either is running, macOS
+        // fires the Automation / Apple Events permission prompt. Bad
+        // UX: that prompt lands BEFORE the user has any context about
+        // what nox is. Per-permission onboarding now explains the
+        // music card before any prompt fires.
+        //
+        // For users who've already completed onboarding (upgrades),
+        // start immediately — they've seen the explanation. For
+        // first-launch users, deferred until the onboarding flow
+        // calls `startTCCDeferredServices()` from its onComplete /
+        // windowWillClose paths.
+        if UserDefaults.standard.bool(forKey: "onboardingCompletedV2") {
+            orchestrator.start()
+        }
 
         // Dictation orchestrator — starts the Fn-key listener +
         // wires the audio recorder + transcription service to the
@@ -975,8 +986,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let savedMode = UserDefaults.standard.string(forKey: "dictationHotkeyMode")
             .flatMap { DictationOrchestrator.HotkeyMode(rawValue: $0) }
             ?? .fnHold
-        dictation.setHotkeyMode(savedMode)
         self.dictationOrchestrator = dictation
+        self.dictationPendingHotkeyMode = savedMode
+        // 2026-05-06 — gate setHotkeyMode on onboardingCompletedV2.
+        //
+        // setHotkeyMode → installFnKeyTap → AXIsProcessTrustedWithOptions
+        // with prompt=true — that's the call that pops the macOS
+        // Accessibility permission dialog. THIS is the prompt the
+        // user reported was firing in the background of the
+        // onboarding window before they could see what nox even is.
+        //
+        // For users who've already completed onboarding, install the
+        // tap immediately. For first-launch users, deferred until
+        // the onboarding flow's Accessibility step has explained
+        // why we need it; `startTCCDeferredServices()` then installs
+        // the tap.
+        if UserDefaults.standard.bool(forKey: "onboardingCompletedV2") {
+            dictation.setHotkeyMode(savedMode)
+        }
 
         // In-app dictation entry point: views (note editor mic
         // button, etc.) post `.notetakerStartDictation` after
@@ -1165,7 +1192,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (right after setActivationPolicy) so it appears BEFORE
         // service-startup-triggered TCC prompts. See the call-site
         // comment up there for the full rationale.
-        } // closes DispatchQueue.main.async — defer-services hop
+    }
+
+    /// Kicks on the services whose `start()` methods can fire macOS
+    /// TCC permission prompts. Held back at launch (gated on the
+    /// onboardingCompletedV2 flag) so first-launch users see the
+    /// onboarding flow's per-permission privacy explainers BEFORE
+    /// any system permission dialog appears.
+    ///
+    /// Called from `OnboardingManager` when the user finishes (or
+    /// dismisses) the flow. Idempotent — re-calling is a no-op
+    /// because each underlying `start()` / `setHotkeyMode()` is
+    /// itself idempotent.
+    func startTCCDeferredServices() {
+        // Defensive: only run once onboarding really has been
+        // marked complete. The OnboardingManager only invokes us
+        // after setting the flag, but a Settings → "Show
+        // onboarding" re-run path could theoretically call this
+        // before the flag flips.
+        guard UserDefaults.standard.bool(forKey: "onboardingCompletedV2") else {
+            DictationOrchestrator.dlog("startTCCDeferredServices: bailing — flag not set yet")
+            return
+        }
+        // MediaRemote AppleScript timing fallback can fire the
+        // Automation / Apple Events permission prompt the first
+        // time it queries Spotify or Music while either is running.
+        notchOrchestrator?.start()
+        // installFnKeyTap → AXIsProcessTrustedWithOptions(prompt=true)
+        // is the call that pops the Accessibility permission dialog.
+        if let mode = dictationPendingHotkeyMode {
+            dictationOrchestrator?.setHotkeyMode(mode)
+            dictationPendingHotkeyMode = nil
+        }
     }
 
     /// Re-runs the onboarding flow on demand (Settings → "Show
