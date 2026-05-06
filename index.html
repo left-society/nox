@@ -846,51 +846,127 @@
     max-width: 38ch;
   }
 
-  /*  Feature recap — single liquid-glass panel with two-column
-      rows (label / explanation). Reuses the .liquid-glass
-      treatment from the comparison era but with simplified
-      grid: just label + sub, no per-app columns. */
-  .feature-recap {
+  /*  Compare table — feature inventory with side-by-side
+      yes/no across nox + three other notch apps. The first
+      column carries the feature label AND a plain-language
+      sub line so a non-technical reader still understands
+      what each row means. The four right columns are narrow
+      tile cells with a green ✓ or muted ○ glyph. nox column
+      is highlighted with the lavender accent so the eye lands
+      on it first.
+      ----------------------------------------------------------------  */
+  .compare-table {
     overflow: hidden;
   }
-  .feature-recap .head {
-    padding: 18px 24px 14px;
+  .compare-table .head {
+    padding: 16px 24px 14px;
+    border-bottom: 1px solid var(--line-soft);
+    display: grid;
+    grid-template-columns: 2.4fr 0.7fr 0.7fr 0.9fr 0.9fr;
+    gap: 14px;
+    align-items: center;
     color: var(--muted);
     font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.10em;
     text-transform: uppercase;
-    border-bottom: 1px solid var(--line-soft);
-    display: grid;
-    grid-template-columns: 1fr 2fr;
-    gap: 18px;
-    align-items: center;
   }
-  .feature-recap .head .self { color: var(--fg); }
-  .feature-recap .row {
+  .compare-table .head .feat {
+    text-align: left;
+    color: var(--muted);
+  }
+  .compare-table .head .self,
+  .compare-table .head > span:not(.feat) {
+    text-align: center;
+  }
+  .compare-table .head .self { color: var(--accent); }
+  .compare-table .row {
     padding: 18px 24px;
     display: grid;
-    grid-template-columns: 1fr 2fr;
-    gap: 18px;
-    align-items: baseline;
+    grid-template-columns: 2.4fr 0.7fr 0.7fr 0.9fr 0.9fr;
+    gap: 14px;
+    align-items: center;
     border-bottom: 1px solid var(--line-soft);
   }
-  .feature-recap .row:last-child { border-bottom: none; }
-  .feature-recap .row .label {
+  .compare-table .row:last-child { border-bottom: none; }
+  .compare-table .row .feat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .compare-table .row .label {
     color: var(--fg);
     font-weight: 500;
     font-size: 14.5px;
   }
-  .feature-recap .row .sub {
+  .compare-table .row .sub {
     color: var(--muted);
-    font-size: 13.5px;
-    line-height: 1.55;
+    font-size: 12.5px;
+    line-height: 1.5;
   }
+  .compare-table .row > span:not(.feat) {
+    text-align: center;
+    font-size: 14px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .compare-table .row .self { color: var(--fg); font-weight: 600; }
+  .compare-table .yes {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: rgba(124, 238, 159, 0.14);
+    color: var(--success);
+    font-size: 14px;
+    font-weight: 700;
+  }
+  .compare-table .no {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    color: var(--dim);
+    font-size: 14px;
+    font-weight: 400;
+  }
+  .compare-table .price-row {
+    background: rgba(200, 181, 255, 0.04);
+  }
+  .compare-table .price-row > span:not(.feat) { font-weight: 600; color: var(--fg-soft); }
+  .compare-table .price-row .self strong { color: var(--accent); }
+
+  .compare-note {
+    margin-top: 18px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.6;
+    max-width: 70ch;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /*  Mobile: hide the four app-name columns and show only
+      the feature label + plain description. The takeaway on
+      a phone is what the app does, not which competitor
+      lacks the row. The desktop table still does that work
+      for buyers who scroll on a laptop.
+      ----------------------------------------------------------------  */
   @media (max-width: 720px) {
-    .feature-recap .head,
-    .feature-recap .row { grid-template-columns: 1fr; gap: 6px; }
-    .feature-recap .row { padding: 16px 20px; }
-    .feature-recap .head { padding: 14px 20px 10px; }
+    .compare-table .head { display: none; }
+    .compare-table .row {
+      grid-template-columns: 1fr;
+      gap: 8px;
+      padding: 18px 20px;
+    }
+    .compare-table .row > span:not(.feat) {
+      display: none;
+    }
   }
 
   .pricing-card {
@@ -1410,50 +1486,121 @@
       </li>
     </ol>
 
-    <!-- Tight feature recap so the section still inventories what
-         the app does, but as a quiet appendix to the principles
-         above instead of the headline content. -->
-    <div class="feature-recap liquid-glass">
+    <!-- Side-by-side comparison. Same feature inventory, but each
+         row also shows whether the three other notch apps offer
+         that feature. No links to their sites; names are flat
+         text labels only. ○ glyph means "not offered" (instead
+         of ✕ which reads as a vote-against). -->
+    <div class="compare-table liquid-glass">
       <div class="head">
-        <span>What you get</span>
-        <span class="self">In plain words</span>
+        <span class="feat">What you get</span>
+        <span class="self">nox</span>
+        <span>Alcove</span>
+        <span>NotchNook</span>
+        <span>Boring Notch</span>
       </div>
 
       <div class="row">
-        <span class="label">Music</span>
-        <span class="sub">See what's playing in Spotify, Apple Music, YouTube, anything. Skip a track without breaking your flow.</span>
+        <div class="feat">
+          <span class="label">Music</span>
+          <span class="sub">See what's playing in Spotify, Apple Music, YouTube, anything. Skip a track without breaking your flow.</span>
+        </div>
+        <span class="self"><span class="yes">✓</span></span>
+        <span><span class="yes">✓</span></span>
+        <span><span class="yes">✓</span></span>
+        <span><span class="yes">✓</span></span>
       </div>
 
       <div class="row">
-        <span class="label">Calendar</span>
-        <span class="sub">Today's events sit next to your music. Connected to Apple Calendar. Read only, never edits.</span>
+        <div class="feat">
+          <span class="label">Calendar</span>
+          <span class="sub">Today's events sit next to your music. Connected to Apple Calendar. Read only, never edits.</span>
+        </div>
+        <span class="self"><span class="yes">✓</span></span>
+        <span><span class="no">○</span></span>
+        <span><span class="yes">✓</span></span>
+        <span><span class="yes">✓</span></span>
       </div>
 
       <div class="row">
-        <span class="label">Drag and drop</span>
-        <span class="sub">Drag any file up to the dark cutout. nox holds it for you. Drop it later, anywhere you need.</span>
+        <div class="feat">
+          <span class="label">Drag and drop</span>
+          <span class="sub">Drag any file up to the dark cutout. nox holds it for you. Drop it later, anywhere you need.</span>
+        </div>
+        <span class="self"><span class="yes">✓</span></span>
+        <span><span class="no">○</span></span>
+        <span><span class="yes">✓</span></span>
+        <span><span class="yes">✓</span></span>
       </div>
 
       <div class="row">
-        <span class="label">AirDrop</span>
-        <span class="sub">A small pill appears when a transfer starts. Watch progress without opening Finder.</span>
+        <div class="feat">
+          <span class="label">AirDrop pill</span>
+          <span class="sub">A small pill appears when a transfer starts. Watch progress without opening Finder.</span>
+        </div>
+        <span class="self"><span class="yes">✓</span></span>
+        <span><span class="no">○</span></span>
+        <span><span class="yes">✓</span></span>
+        <span><span class="no">○</span></span>
       </div>
 
       <div class="row">
-        <span class="label">Take notes while watching</span>
-        <span class="sub">Type alongside any video without leaving the page. Notes save to your timeline automatically.</span>
+        <div class="feat">
+          <span class="label">Take notes while watching</span>
+          <span class="sub">Type alongside any video without leaving the page. Notes save to your timeline automatically.</span>
+        </div>
+        <span class="self"><span class="yes">✓</span></span>
+        <span><span class="no">○</span></span>
+        <span><span class="no">○</span></span>
+        <span><span class="no">○</span></span>
       </div>
 
       <div class="row">
-        <span class="label">Save videos</span>
-        <span class="sub">Paste a YouTube link. Get a clean mp4 ready for your editor in seconds.</span>
+        <div class="feat">
+          <span class="label">Save videos</span>
+          <span class="sub">Paste a YouTube link. Get a clean mp4 ready for your editor in seconds.</span>
+        </div>
+        <span class="self"><span class="yes">✓</span></span>
+        <span><span class="no">○</span></span>
+        <span><span class="yes">✓</span></span>
+        <span><span class="no">○</span></span>
       </div>
 
       <div class="row">
-        <span class="label">Voice to text</span>
-        <span class="sub">Hold the hotkey, speak, your words appear in whatever app you were typing in. Runs on your Mac, no internet.</span>
+        <div class="feat">
+          <span class="label">Voice to text</span>
+          <span class="sub">Hold the hotkey, speak, your words appear in whatever app you were typing in. Runs on your Mac, no internet.</span>
+        </div>
+        <span class="self"><span class="yes">✓</span></span>
+        <span><span class="no">○</span></span>
+        <span><span class="no">○</span></span>
+        <span><span class="no">○</span></span>
+      </div>
+
+      <div class="row">
+        <div class="feat">
+          <span class="label">Auto-updates</span>
+          <span class="sub">When a new version ships, nox grabs it in the background. You always have the latest fixes.</span>
+        </div>
+        <span class="self"><span class="yes">✓</span></span>
+        <span><span class="yes">✓</span></span>
+        <span><span class="no">○</span></span>
+        <span><span class="no">○</span></span>
+      </div>
+
+      <div class="row price-row">
+        <div class="feat">
+          <span class="label">Price</span>
+          <span class="sub">What it costs to use. nox stays free during beta, with a fair one-time price planned for v1.0.</span>
+        </div>
+        <span class="self"><strong>Free</strong></span>
+        <span>$17</span>
+        <span>$25 or $3/mo</span>
+        <span>Free</span>
       </div>
     </div>
+
+    <p class="compare-note">Based on what each app says on its own website. nox is the only notch app with voice to text and the only one that lets you take notes while watching a video.</p>
   </div>
 </section>
 
