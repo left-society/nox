@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>nox 1.9.4</title></head>
+<body style="font:14px/1.5 -apple-system,system-ui,sans-serif;color:#222;max-width:560px;margin:24px auto;padding:0 16px">
+<h2>nox 1.9.4</h2>
+<p>Permission flow finally lands in the right order.</p>
+<ul>
+  <li><b>Microphone prompt now actually fires.</b> Hardened-runtime apps need the audio-input entitlement to even ASK for mic access &mdash; without it the request silently no-ops. Dictation works on a fresh install again.</li>
+  <li><b>Onboarding paints before permission dialogs.</b> Service init defers one runloop tick so the welcome panel is visible BEFORE Apple Events / Calendar / Microphone prompts land &mdash; reads as &ldquo;setting nox up&rdquo; instead of &ldquo;what is this thing?&rdquo;</li>
+</ul>
+</body>
+</html>
