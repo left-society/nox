@@ -168,13 +168,20 @@
     gap: 28px;
     align-items: center;
   }
-  .nav a {
+  /*  Scope link styling to the inner nav-links group, NOT the
+      whole .nav. Earlier `.nav a` was a more specific match than
+      `.btn-primary` (1 class + 1 tag beats 1 class), which made
+      the header download button inherit color: var(--muted) —
+      light gray text on a white pill = invisible. Restricting
+      to .nav-links keeps the muted styling for actual nav links
+      while leaving the button alone. */
+  .nav-links a {
     text-decoration: none;
     color: var(--muted);
     font-size: 14px;
     transition: color 0.18s ease;
   }
-  .nav a:hover { color: var(--fg); }
+  .nav-links a:hover { color: var(--fg); }
   @media (max-width: 720px) {
     .nav-links { display: none; }
   }
