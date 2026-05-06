@@ -767,6 +767,132 @@
   @media (max-width: 960px) { .pricing-grid { grid-template-columns: repeat(2, 1fr); } }
   @media (max-width: 540px) { .pricing-grid { grid-template-columns: 1fr; } }
 
+  /*  ----------------------------------------------------------------
+      Why nox · numbered principles
+
+      Editorial manifesto layout. Big SF Display numerals in
+      lavender, copy beside them, no card frames. Reads as a
+      magazine spread. Visually distinct from the Features
+      cards above (which use icon-tile + bordered cards). Two
+      columns at desktop so each row pairs cleanly; collapses
+      to one column under 720px.
+
+      `list-style: none` + reset the OL counter ourselves via
+      data-supplied numerals so we can style the digits as
+      display type rather than relying on the browser's default
+      ordered-list rendering.
+      ----------------------------------------------------------------  */
+  .principles {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 56px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 56px 64px;
+  }
+  @media (max-width: 720px) {
+    .principles {
+      grid-template-columns: 1fr;
+      gap: 40px;
+      margin-bottom: 40px;
+    }
+  }
+  .principles li {
+    display: grid;
+    grid-template-columns: 96px 1fr;
+    gap: 18px;
+    align-items: start;
+  }
+  @media (max-width: 540px) {
+    .principles li { grid-template-columns: 64px 1fr; gap: 12px; }
+  }
+  .principles .num {
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
+    font-size: 80px;
+    font-weight: 200;
+    letter-spacing: -0.05em;
+    line-height: 0.85;
+    color: var(--accent);
+    /*  Subtle gradient on the numeral itself for a touch of
+        depth without making the digit shouty. Kept very
+        narrow in opacity range so it still reads as one
+        confident lavender stroke. */
+    background: linear-gradient(180deg,
+      var(--accent) 0%,
+      rgba(168, 130, 232, 0.55) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    display: inline-block;
+  }
+  @media (max-width: 540px) {
+    .principles .num { font-size: 56px; }
+  }
+  .principles h3 {
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+    margin: 8px 0 8px;
+  }
+  .principles p {
+    color: var(--muted);
+    font-size: 14.5px;
+    line-height: 1.6;
+    margin: 0;
+    max-width: 38ch;
+  }
+
+  /*  Feature recap — single liquid-glass panel with two-column
+      rows (label / explanation). Reuses the .liquid-glass
+      treatment from the comparison era but with simplified
+      grid: just label + sub, no per-app columns. */
+  .feature-recap {
+    overflow: hidden;
+  }
+  .feature-recap .head {
+    padding: 18px 24px 14px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--line-soft);
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 18px;
+    align-items: center;
+  }
+  .feature-recap .head .self { color: var(--fg); }
+  .feature-recap .row {
+    padding: 18px 24px;
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 18px;
+    align-items: baseline;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .feature-recap .row:last-child { border-bottom: none; }
+  .feature-recap .row .label {
+    color: var(--fg);
+    font-weight: 500;
+    font-size: 14.5px;
+  }
+  .feature-recap .row .sub {
+    color: var(--muted);
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+  @media (max-width: 720px) {
+    .feature-recap .head,
+    .feature-recap .row { grid-template-columns: 1fr; gap: 6px; }
+    .feature-recap .row { padding: 16px 20px; }
+    .feature-recap .head { padding: 14px 20px 10px; }
+  }
+
   .pricing-card {
     padding: 24px 22px;
     display: flex;
@@ -1238,76 +1364,93 @@
 </section>
 
 <!-- ── Why nox ─────────────────────────────────────────────── -->
+<!--
+  Editorial principles layout — completely different visual
+  language from the Features cards above. Big lavender display
+  numerals, no card frames, generous whitespace. Reads like a
+  manifesto page rather than a SaaS feature grid.
+  Final CTA banner pulls the section together with the download.
+-->
 <section id="why">
   <div class="wrap">
     <div class="section-head">
       <span class="section-eyebrow">Why nox</span>
-      <h2>Free, native, private.</h2>
+      <h2>Four small promises.</h2>
       <p>Everything you'd want from a Mac app, nothing you wouldn't.</p>
     </div>
 
-    <div class="pricing-grid">
-      <div class="pricing-card liquid-glass featured">
-        <span class="badge">Free, no account</span>
-        <h3 class="name">Just download</h3>
-        <p class="tagline">Drag the icon to Applications. Open it. That's the whole setup. No sign up, no email gate, no trial timer.</p>
-        <a class="btn btn-primary" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">Download</a>
-      </div>
+    <ol class="principles">
+      <li>
+        <span class="num">01</span>
+        <div>
+          <h3>It's free.</h3>
+          <p>Drag the icon to Applications. Open it. That's the whole setup. No sign up, no email gate, no trial timer counting down.</p>
+        </div>
+      </li>
+      <li>
+        <span class="num">02</span>
+        <div>
+          <h3>It feels like the Mac.</h3>
+          <p>Pure Swift. Tiny binary. Zero CPU when nothing is happening. Not a window stuck on top of your screen, part of it.</p>
+        </div>
+      </li>
+      <li>
+        <span class="num">03</span>
+        <div>
+          <h3>Your stuff stays here.</h3>
+          <p>Your notes, your screenshots, your downloads, all on your machine. Nothing in the cloud. Nothing to leak. Nothing to ask permission for.</p>
+        </div>
+      </li>
+      <li>
+        <span class="num">04</span>
+        <div>
+          <h3>It updates itself.</h3>
+          <p>When a new version ships, nox quietly grabs it in the background. You wake up tomorrow on the latest version without doing a thing.</p>
+        </div>
+      </li>
+    </ol>
 
-      <div class="pricing-card liquid-glass">
-        <h3 class="name">Native Mac app</h3>
-        <p class="tagline">Pure Swift. Tiny binary. Zero CPU when nothing is happening. Built to feel like part of the Mac, not a window stuck on top of it.</p>
-      </div>
-
-      <div class="pricing-card liquid-glass">
-        <h3 class="name">Stays on your Mac</h3>
-        <p class="tagline">Your notes, screenshots, downloads all live on your machine. Nothing in the cloud. Nothing to leak. Nothing to ask permission for.</p>
-      </div>
-
-      <div class="pricing-card liquid-glass">
-        <h3 class="name">Always up to date</h3>
-        <p class="tagline">When a new version ships, nox updates itself in the background. You always have the latest fixes without thinking about it.</p>
-      </div>
-    </div>
-
-    <div class="feature-list liquid-glass" style="margin-top: 18px;">
-      <div class="head" style="grid-template-columns: 1.3fr 2fr;">
+    <!-- Tight feature recap so the section still inventories what
+         the app does, but as a quiet appendix to the principles
+         above instead of the headline content. -->
+    <div class="feature-recap liquid-glass">
+      <div class="head">
         <span>What you get</span>
         <span class="self">In plain words</span>
       </div>
 
-      <div class="row" style="grid-template-columns: 1.3fr 2fr;">
-        <span class="label-col"><span class="label">Music</span></span>
+      <div class="row">
+        <span class="label">Music</span>
         <span class="sub">See what's playing in Spotify, Apple Music, YouTube, anything. Skip a track without breaking your flow.</span>
       </div>
 
-      <div class="row" style="grid-template-columns: 1.3fr 2fr;">
-        <span class="label-col"><span class="label">Calendar</span></span>
+      <div class="row">
+        <span class="label">Calendar</span>
         <span class="sub">Today's events sit next to your music. Connected to Apple Calendar. Read only, never edits.</span>
       </div>
 
-      <div class="row" style="grid-template-columns: 1.3fr 2fr;">
-        <span class="label-col"><span class="label">Drag and drop</span></span>
+      <div class="row">
+        <span class="label">Drag and drop</span>
         <span class="sub">Drag any file up to the dark cutout. nox holds it for you. Drop it later, anywhere you need.</span>
       </div>
 
-      <div class="row" style="grid-template-columns: 1.3fr 2fr;">
-        <span class="label-col"><span class="label">AirDrop</span></span>
+      <div class="row">
+        <span class="label">AirDrop</span>
         <span class="sub">A small pill appears when a transfer starts. Watch progress without opening Finder.</span>
       </div>
 
-      <div class="row" style="grid-template-columns: 1.3fr 2fr;">
-        <span class="label-col"><span class="label">Take notes while watching</span></span>
+      <div class="row">
+        <span class="label">Take notes while watching</span>
         <span class="sub">Type alongside any video without leaving the page. Notes save to your timeline automatically.</span>
       </div>
 
-      <div class="row" style="grid-template-columns: 1.3fr 2fr;">
-        <span class="label-col"><span class="label">Save videos</span></span>
+      <div class="row">
+        <span class="label">Save videos</span>
         <span class="sub">Paste a YouTube link. Get a clean mp4 ready for your editor in seconds.</span>
       </div>
 
-      <div class="row" style="grid-template-columns: 1.3fr 2fr;">
-        <span class="label-col"><span class="label">Voice to text</span></span>
+      <div class="row">
+        <span class="label">Voice to text</span>
         <span class="sub">Hold the hotkey, speak, your words appear in whatever app you were typing in. Runs on your Mac, no internet.</span>
       </div>
     </div>
