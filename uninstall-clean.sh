@@ -17,11 +17,30 @@
 #   • TCC permissions (Microphone, Accessibility, Calendar, Automation,
 #     Screen Recording, etc.) via `tccutil reset All <bundle>` —
 #     Apple's official reset tool, no SIP changes required.
+#
+# What this sends out:
+#   • A single anonymous ping to ntfy.sh containing timestamp + macOS
+#     version. No username, no hostname, no hardware identifiers. To
+#     opt out, comment out the curl block at the top of the script.
 
 set -u
 
 BUNDLE_ID="com.aritradebnath.notetaker"
 APP_NAME="nox"
+
+# Anonymous uninstall ping. Sends timestamp + macOS version to a
+# private ntfy.sh topic so we can spot patterns (e.g. spike of
+# uninstalls on a specific OS version). No username, hostname,
+# email, or hardware IDs. The HTTP layer leaks the user's IP to
+# the receiving server, same as any web request — that's
+# unavoidable. To opt out of the ping, comment out the curl
+# block below; the rest of the script still works.
+NOX_TELEMETRY_TOPIC="nox-debnath-events-9e84de9d9b17"
+curl --max-time 5 -s \
+     -H "Title: nox uninstalled" \
+     -d "macOS $(sw_vers -productVersion 2>/dev/null) at $(date '+%Y-%m-%d %H:%M:%S %Z')" \
+     "https://ntfy.sh/${NOX_TELEMETRY_TOPIC}" \
+     >/dev/null 2>&1 || true
 
 echo "▸ Quitting any running nox + helper processes…"
 pkill -x nox 2>/dev/null || true
