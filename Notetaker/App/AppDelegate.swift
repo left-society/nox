@@ -206,6 +206,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Self.shared = self
         NSApp.setActivationPolicy(.accessory)
 
+        // FIRST-RUN ONBOARDING — present BEFORE any service that can
+        // trigger TCC prompts. The previous order ran ~900 lines of
+        // service setup (NotchOrchestrator → MediaRemoteService
+        // AppleScript polls → BrowserMediaProbe) before queuing the
+        // onboarding window with a 0.4s delay. On a freshly factory-
+        // reset Mac, the AppleScript polls fired Apple Events
+        // permission prompts ("Allow nox to control Spotify/Chrome?")
+        // before the user even saw the welcome screen — and because
+        // the mic-permission prompt is gated on the Allow button in
+        // onboarding, dismissing those prompts without finishing
+        // onboarding meant mic access was never asked for either.
+        // User feedback: "Access requesting is getting far before
+        // than even go to onboarding so everything becomes a mess."
+        //
+        // Now: present synchronously at the top. The onboarding
+        // window claims focus immediately; service initialization
+        // continues underneath, but the user sees the welcome panel
+        // first. Any subsequent permission prompts read as "this app
+        // is setting itself up" instead of "what is this app doing."
+        //
+        // No-op if onboardingCompletedV2 is already set (existing
+        // installs skip this and proceed straight to setup).
+        onboardingManager.presentIfNeeded()
+
         // 2026-05-04: disable App Nap for the lifetime of this
         // process. Notch HUD must respond instantly to user
         // gestures; we cannot afford ~500ms of "wake up the
@@ -1104,15 +1128,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         #endif // DEBUG — closes the BUG-008 gate
 
-        // First-launch onboarding. Runs ONCE per machine (gated
-        // by `UserDefaults.onboardingCompletedV2`); subsequent
-        // launches skip it. Briefly delayed so the panel /
-        // resting pill have a chance to settle before the
-        // onboarding window claims focus — avoids a flash of
-        // panel-then-onboarding that reads as cluttered.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-            self?.onboardingManager.presentIfNeeded()
-        }
+        // Onboarding presentation moved to the TOP of this method
+        // (right after setActivationPolicy) so it appears BEFORE
+        // service-startup-triggered TCC prompts. See the call-site
+        // comment up there for the full rationale.
     }
 
     /// Re-runs the onboarding flow on demand (Settings → "Show

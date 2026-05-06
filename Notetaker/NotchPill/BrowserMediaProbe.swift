@@ -116,6 +116,16 @@ final class BrowserMediaProbe {
     private func tick() {
         if !isMediaRemoteSilent { return }
 
+        // Defer AppleScript-based browser probing until onboarding
+        // completes. Without this gate, the first tick (~1.5s after
+        // launch) fires Apple Events permission prompts ("Allow nox
+        // to control Google Chrome?") BEFORE the user has dismissed
+        // the welcome window, burying the onboarding under permission
+        // dialogs. After onboarding completes (or is skipped),
+        // onboardingCompletedV2 flips true and tick() resumes its
+        // normal cadence.
+        if !UserDefaults.standard.bool(forKey: "onboardingCompletedV2") { return }
+
         // Snapshot the running-browser list on main (NSRunningApplication
         // queries hit AppKit state), then hand the actual AppleScript
         // scans off to a background queue. The synchronous
