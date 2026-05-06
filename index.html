@@ -4,63 +4,132 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>nox — your MacBook notch, useful</title>
-<meta name="description" content="nox turns the MacBook notch into a HUD for notes, files, images, videos, music, and voice. Drag and drop, instant clipboard, transport controls, all from the notch." />
+<meta name="description" content="nox turns the MacBook notch into a HUD for music, files, voice, and meetings. Native macOS, on-device privacy, free during beta." />
 <meta property="og:title" content="nox — your MacBook notch, useful" />
-<meta property="og:description" content="A native macOS HUD that lives in the notch. Notes, files, music, voice, all without leaving what you are doing." />
+<meta property="og:description" content="A native macOS HUD that lives in the notch. Notes, files, music, voice — all without leaving what you are doing." />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://trynox.app" />
-<meta name="theme-color" content="#0a0a0a" />
+<meta name="theme-color" content="#06060a" />
 <link rel="icon" type="image/png" href="/favicon.png" />
 
 <style>
+  /*  ----------------------------------------------------------------
+      Design system
+
+      Color palette mirrors the app's own onboarding window
+      (Notetaker/Onboarding/OnboardingView.swift backgroundLayer):
+      a deep, slightly warm near-black with two slow-drifting radial
+      accents — purple (#4F33CC area) and a cooler blue (#1E516E).
+      Pure #000 felt cold and generic. Warm near-black + the same
+      gradient palette as the app makes the site feel like a window
+      INTO the product, not a stock dark-mode template.
+
+      Typography: SF Pro on Apple devices, Inter as the cross-OS
+      fallback. Headlines are weight 600 with tight tracking
+      (-0.04em) for the confident, opinionated feel of Linear /
+      Raycast — not the looser tracking of generic startup pages.
+
+      Spacing escalates by section: hero is the most generous
+      (140px), feature/compare/privacy come down to 110px, and
+      mobile collapses to ~72px. Generous breathing room reads
+      as "premium product" the same way Apple's product pages do.
+      ----------------------------------------------------------------  */
   :root {
-    --bg: #0a0a0a;
-    --bg2: #131313;
-    --fg: #fff;
-    --muted: rgba(255,255,255,0.62);
-    --dim: rgba(255,255,255,0.42);
-    --line: rgba(255,255,255,0.08);
-    --accent: #a882e8;
-    --accent2: #4aaeff;
+    /* Surface scale — warm near-black, subtle purple undertone.
+       Same color the SwiftUI onboarding paints. */
+    --bg:        #06060a;
+    --bg-tint:   #0c0a14;
+    --surface:   rgba(255, 255, 255, 0.025);
+    --surface-2: rgba(255, 255, 255, 0.04);
+    --line:      rgba(255, 255, 255, 0.07);
+    --line-soft: rgba(255, 255, 255, 0.04);
+
+    /* Foreground — full white drops are saved for headlines.
+       Body copy lands at 0.72; secondary detail at 0.50. */
+    --fg:        #fff;
+    --fg-soft:   rgba(255, 255, 255, 0.78);
+    --muted:     rgba(255, 255, 255, 0.58);
+    --dim:       rgba(255, 255, 255, 0.38);
+
+    /* Accents — dialed slightly lighter / warmer than the app
+       so they punch on a near-black canvas without going full neon. */
+    --accent:        #c8b5ff;   /* lavender, primary */
+    --accent-strong: #a882e8;
+    --accent-cool:   #6fa8e8;   /* used sparingly, second accent */
+    --success:       #6fe39a;
   }
 
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
-  html { scroll-behavior: smooth; }
-  body {
-    background:
-      radial-gradient(circle at 30% 0%, rgba(168,130,232,0.10), transparent 55%),
-      radial-gradient(circle at 80% 30%, rgba(74,174,255,0.06), transparent 50%),
-      var(--bg);
-    color: var(--fg);
-    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+  html {
+    scroll-behavior: smooth;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg-soft);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text",
+          "Inter", system-ui, sans-serif;
     text-rendering: optimizeLegibility;
     min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /*  Page-wide ambient gradient. Two large slow-drifting radials
+      so the dark canvas reads as alive, not flat. Fixed-position
+      so they sit behind the entire page and don't repeat per
+      section. The exact stops mirror the SwiftUI onboarding:
+      purple top-left, cooler blue bottom-right.  */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    background:
+      radial-gradient(closest-side at 18% 12%,
+        rgba(168, 130, 232, 0.18), transparent 60%),
+      radial-gradient(closest-side at 88% 78%,
+        rgba(74, 130, 200, 0.12),  transparent 65%),
+      radial-gradient(closest-side at 50% 100%,
+        rgba(168, 130, 232, 0.06), transparent 70%),
+      var(--bg);
+  }
+  /*  Subtle grain — breaks up the gradient banding without
+      reading as "noise". 0.025 opacity is the sweet spot. */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.025;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
   }
 
   a { color: inherit; }
   ::selection { background: rgba(168,130,232,0.32); }
 
-  /* ── Layout primitives ─────────────────────────────────────── */
   .wrap {
     max-width: 1080px;
     margin: 0 auto;
     padding: 0 28px;
   }
-  section { padding: 96px 0; }
-  @media (max-width: 720px) { section { padding: 64px 0; } }
+  section { padding: 110px 0; }
+  @media (max-width: 720px) { section { padding: 72px 0; } }
 
-  /* ── Header ────────────────────────────────────────────────── */
+  /*  ----------------------------------------------------------------
+      Header — glass strip at the top.
+      ----------------------------------------------------------------  */
   header {
-    padding: 20px 0;
     position: sticky;
     top: 0;
-    backdrop-filter: blur(16px) saturate(140%);
-    -webkit-backdrop-filter: blur(16px) saturate(140%);
-    background: rgba(10,10,10,0.6);
-    border-bottom: 1px solid var(--line);
     z-index: 50;
+    padding: 16px 0;
+    backdrop-filter: blur(18px) saturate(160%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    background: rgba(6, 6, 10, 0.55);
+    border-bottom: 1px solid var(--line-soft);
   }
   header .wrap {
     display: flex;
@@ -68,208 +137,548 @@
     justify-content: space-between;
   }
   .logo {
-    font-size: 22px;
+    font-size: 20px;
     font-weight: 600;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.025em;
     text-decoration: none;
+    color: var(--fg);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .logo::before {
+    /* tiny pill-cap that nods to the notch silhouette */
+    content: "";
+    width: 14px;
+    height: 4px;
+    border-radius: 0 0 5px 5px;
+    background: var(--fg);
+    display: inline-block;
+    margin-right: 4px;
+    transform: translateY(-1px);
   }
   .nav {
     display: flex;
-    gap: 28px;
+    gap: 26px;
     align-items: center;
   }
   .nav a {
     text-decoration: none;
     color: var(--muted);
     font-size: 14px;
-    transition: color 0.18s ease;
+    transition: color 0.2s ease;
   }
   .nav a:hover { color: var(--fg); }
-  .download-btn {
-    background: var(--fg);
-    color: var(--bg);
-    padding: 9px 18px;
+  @media (max-width: 720px) {
+    .nav a:not(.btn) { display: none; }
+  }
+
+  /*  ----------------------------------------------------------------
+      Buttons — one shape, two intents.
+      .btn-primary  → solid white, used for the main download CTAs
+      .btn-ghost    → subtle border, used for secondary actions
+      ----------------------------------------------------------------  */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 20px;
     border-radius: 999px;
     font-size: 14px;
     font-weight: 600;
+    letter-spacing: -0.005em;
     text-decoration: none;
-    transition: opacity 0.18s ease;
+    transition: transform 0.18s ease, opacity 0.18s ease,
+                background 0.18s ease, border-color 0.18s ease;
+    border: 1px solid transparent;
+    white-space: nowrap;
   }
-  .download-btn:hover { opacity: 0.85; }
+  .btn-primary {
+    background: var(--fg);
+    color: var(--bg);
+  }
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    opacity: 0.92;
+  }
+  .btn-ghost {
+    background: rgba(255,255,255,0.04);
+    color: var(--fg-soft);
+    border-color: var(--line);
+  }
+  .btn-ghost:hover {
+    background: rgba(255,255,255,0.07);
+    border-color: rgba(255,255,255,0.14);
+    color: var(--fg);
+  }
+  .btn-large {
+    padding: 14px 26px;
+    font-size: 15px;
+  }
 
-  /* ── Hero ──────────────────────────────────────────────────── */
-  .hero { text-align: center; padding-top: 96px; padding-bottom: 56px; }
-  .hero h1 {
-    margin: 0 0 18px;
-    font-size: clamp(40px, 7vw, 72px);
-    line-height: 1.04;
-    letter-spacing: -0.035em;
-    font-weight: 600;
+  /*  ----------------------------------------------------------------
+      Hero
+      ----------------------------------------------------------------  */
+  .hero {
+    text-align: center;
+    padding-top: 120px;
+    padding-bottom: 64px;
   }
-  .hero h1 .accent {
-    background: linear-gradient(90deg, var(--accent), var(--accent2));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+  .hero .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: rgba(200, 181, 255, 0.08);
+    border: 1px solid rgba(200, 181, 255, 0.20);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    margin-bottom: 22px;
+  }
+  .hero .eyebrow::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 12px var(--accent);
+  }
+  .hero h1 {
+    margin: 0 0 22px;
+    font-size: clamp(44px, 7.4vw, 84px);
+    line-height: 1.02;
+    letter-spacing: -0.045em;
+    font-weight: 600;
+    color: var(--fg);
+    /* SF Pro Display preferred for big type — tighter tracking
+       than the body face. */
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
+  }
+  .hero h1 .accent-word {
+    color: var(--accent);
+    font-style: italic;
+    font-weight: 500;
   }
   .hero .tagline {
-    margin: 0 auto 36px;
-    max-width: 560px;
-    font-size: clamp(17px, 2.2vw, 20px);
+    margin: 0 auto 38px;
+    max-width: 580px;
+    font-size: clamp(17px, 2vw, 19px);
     color: var(--muted);
-    line-height: 1.5;
+    line-height: 1.55;
   }
   .hero-cta {
     display: inline-flex;
     align-items: center;
-    gap: 14px;
-    margin-bottom: 12px;
-  }
-  .hero-cta .download-btn {
-    padding: 14px 28px;
-    font-size: 15px;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
   }
   .hero-meta {
     color: var(--dim);
     font-size: 13px;
-    margin-top: 14px;
+    margin-top: 18px;
   }
-  .hero-meta a { color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+  .hero-meta a {
+    color: var(--muted);
+    text-decoration: none;
+    border-bottom: 1px dotted rgba(255,255,255,0.20);
+  }
+  .hero-meta a:hover { color: var(--fg); border-bottom-color: var(--fg); }
 
-  /* ── Notch demo (the visual hero) ──────────────────────────── */
-  .notch-demo {
-    margin: 56px auto 0;
-    max-width: 980px;
-    aspect-ratio: 16 / 9;
-    border-radius: 18px;
+  /*  ----------------------------------------------------------------
+      Notch demo — CSS-only animated MacBook lid with a pill.
+      The pill morphs through three states (resting → music card
+      → drag-receive) on a 9s loop so the visual hero reads as
+      "this is what the app does" the moment the page loads.
+      Pure CSS (no JS) so it works even if anything else fails.
+      ----------------------------------------------------------------  */
+  .demo-stage {
+    margin: 64px auto 0;
+    max-width: 940px;
+    aspect-ratio: 16 / 10;
+    border-radius: 22px;
     background:
-      linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01)),
-      #1a1a1a;
+      radial-gradient(circle at 50% 0%,
+        rgba(200, 181, 255, 0.10), transparent 55%),
+      linear-gradient(180deg,
+        rgba(255,255,255,0.03), rgba(255,255,255,0.005)),
+      var(--bg-tint);
     border: 1px solid var(--line);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.04) inset,
+      0 30px 80px -30px rgba(0, 0, 0, 0.7),
+      0 0 0 1px rgba(168, 130, 232, 0.04);
     position: relative;
     overflow: hidden;
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding-top: 0;
   }
-  .notch-demo::before {
-    content: "Replace this with a screen recording or animated demo of nox in action.";
-    color: var(--dim);
-    font-size: 13px;
-    letter-spacing: 0.02em;
+  /* Wallpaper hint inside the lid — subtle so the pill is the focus. */
+  .demo-stage::before {
+    content: "";
     position: absolute;
-    inset: auto 0 24px;
-    text-align: center;
+    inset: 0;
+    background:
+      radial-gradient(circle at 30% 60%,
+        rgba(168, 130, 232, 0.12), transparent 50%),
+      radial-gradient(circle at 75% 30%,
+        rgba(111, 168, 232, 0.10), transparent 50%);
+    opacity: 0.7;
   }
-  /* Faux notch for now so the page is not empty before the real
-     demo is added. */
-  .notch-demo .faux-notch {
+  /* The notch silhouette + the morphing pill underneath it. */
+  .notch-pill {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #000;
+    border-radius: 0 0 18px 18px;
     width: 220px;
     height: 32px;
-    background: #000;
-    border-radius: 0 0 14px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    /* The shoulder shadow that tucks the pill under the bezel.
+       Subtle, but it's what makes the silhouette read as "this
+       lives in the notch" instead of "floating black bar". */
+    box-shadow:
+      0 4px 14px -2px rgba(0,0,0,0.5),
+      inset 0 1px 0 rgba(255,255,255,0.04);
+    animation: pill-morph 9s ease-in-out infinite;
+  }
+  /* Each demo-state is a sibling that fades in/out at staggered
+     delays, syncing with the pill-morph keyframes that resize the
+     containing pill. */
+  .pill-state {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--fg);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    opacity: 0;
+    animation-duration: 9s;
+    animation-iteration-count: infinite;
+    animation-timing-function: ease-in-out;
+  }
+  .pill-state .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-right: 8px;
+    box-shadow: 0 0 10px var(--accent);
+  }
+  .pill-state.idle      { animation-name: state-idle; }
+  .pill-state.music     { animation-name: state-music; }
+  .pill-state.drag      { animation-name: state-drag; }
+
+  .pill-state .album {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    background: linear-gradient(135deg, #FF6F61 0%, #B048D6 100%);
+    margin-right: 8px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  }
+  .pill-state .bars {
+    display: inline-flex;
+    align-items: end;
+    gap: 2px;
+    margin-left: 8px;
+    height: 12px;
+  }
+  .pill-state .bars span {
+    width: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+    animation: bars 0.9s ease-in-out infinite;
+  }
+  .pill-state .bars span:nth-child(1) { height: 4px;  animation-delay: 0.0s; }
+  .pill-state .bars span:nth-child(2) { height: 8px;  animation-delay: 0.15s; }
+  .pill-state .bars span:nth-child(3) { height: 12px; animation-delay: 0.3s; }
+  .pill-state .bars span:nth-child(4) { height: 6px;  animation-delay: 0.45s; }
+
+  @keyframes bars {
+    0%, 100% { transform: scaleY(0.5); }
+    50%      { transform: scaleY(1); }
+  }
+  /* Pill width morph — resting (220) → music card (300) → drag (260) → resting */
+  @keyframes pill-morph {
+    0%, 22%  { width: 220px; height: 32px; border-radius: 0 0 18px 18px; }
+    30%, 60% { width: 300px; height: 38px; border-radius: 0 0 22px 22px; }
+    66%, 90% { width: 260px; height: 38px; border-radius: 0 0 22px 22px; }
+    100%     { width: 220px; height: 32px; border-radius: 0 0 18px 18px; }
+  }
+  /* Idle state — small purple dot pulse */
+  @keyframes state-idle {
+    0%, 18% { opacity: 1; }
+    22%, 92% { opacity: 0; }
+    96%, 100% { opacity: 1; }
+  }
+  /* Music — fades in at the morph */
+  @keyframes state-music {
+    0%, 25% { opacity: 0; }
+    32%, 58% { opacity: 1; }
+    62%, 100% { opacity: 0; }
+  }
+  /* Drag */
+  @keyframes state-drag {
+    0%, 60% { opacity: 0; }
+    66%, 86% { opacity: 1; }
+    90%, 100% { opacity: 0; }
   }
 
-  /* ── Features grid ─────────────────────────────────────────── */
-  .features-head { text-align: center; margin-bottom: 56px; }
-  .features-head h2 {
-    margin: 0 0 12px;
-    font-size: clamp(28px, 4vw, 40px);
-    letter-spacing: -0.025em;
-    font-weight: 600;
+  /*  ----------------------------------------------------------------
+      Section heads
+      ----------------------------------------------------------------  */
+  .section-head { text-align: center; margin-bottom: 64px; }
+  .section-head .eyebrow {
+    display: inline-block;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
   }
-  .features-head p {
+  .section-head h2 {
+    margin: 0 0 14px;
+    font-size: clamp(30px, 4.4vw, 46px);
+    letter-spacing: -0.03em;
+    font-weight: 600;
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
+  }
+  .section-head p {
     margin: 0 auto;
-    max-width: 480px;
+    max-width: 540px;
     color: var(--muted);
     font-size: 16px;
+    line-height: 1.55;
   }
 
+  /*  ----------------------------------------------------------------
+      Feature cards — glass with subtle accent border on hover.
+      ----------------------------------------------------------------  */
   .grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 18px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
   }
-  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+  @media (max-width: 960px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
 
   .card {
-    border-radius: 16px;
-    padding: 28px;
-    background: var(--bg2);
-    border: 1px solid var(--line);
     position: relative;
-    overflow: hidden;
+    border-radius: 16px;
+    padding: 26px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    transition: transform 0.25s ease, border-color 0.25s ease,
+                background 0.25s ease;
+  }
+  .card:hover {
+    transform: translateY(-2px);
+    background: var(--surface-2);
+    border-color: rgba(200, 181, 255, 0.18);
   }
   .card .icon {
-    width: 40px;
-    height: 40px;
+    width: 38px;
+    height: 38px;
     border-radius: 10px;
-    background: linear-gradient(135deg, rgba(168,130,232,0.18), rgba(74,174,255,0.10));
+    background: linear-gradient(135deg,
+      rgba(200, 181, 255, 0.18),
+      rgba(111, 168, 232, 0.10));
+    border: 1px solid rgba(200, 181, 255, 0.18);
     display: flex;
     align-items: center;
     justify-content: center;
     margin-bottom: 18px;
-    font-size: 19px;
+    color: var(--accent);
+    font-size: 17px;
   }
   .card h3 {
     margin: 0 0 8px;
-    font-size: 18px;
+    font-size: 17px;
     font-weight: 600;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.012em;
+    color: var(--fg);
   }
   .card p {
     margin: 0;
     color: var(--muted);
-    font-size: 15px;
+    font-size: 14.5px;
     line-height: 1.55;
   }
 
-  /* ── Privacy callout ───────────────────────────────────────── */
+  /*  ----------------------------------------------------------------
+      Comparison table
+      ----------------------------------------------------------------  */
+  .compare-table {
+    overflow-x: auto;
+    border-radius: 18px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+  }
+  .compare-table table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14.5px;
+    min-width: 720px;
+  }
+  .compare-table th,
+  .compare-table td {
+    padding: 14px 18px;
+    text-align: left;
+    border-bottom: 1px solid var(--line-soft);
+    vertical-align: middle;
+  }
+  .compare-table tr:last-child td { border-bottom: none; }
+  .compare-table thead th {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 22px 18px 14px;
+  }
+  .compare-table thead th.self {
+    color: var(--fg);
+  }
+  .compare-table td:first-child,
+  .compare-table th:first-child {
+    color: var(--fg-soft);
+    font-weight: 500;
+    width: 32%;
+  }
+  /* nox column — accent gradient + side borders so the eye lands
+     on it first. */
+  .compare-table th.self,
+  .compare-table td.self {
+    background: linear-gradient(180deg,
+      rgba(200, 181, 255, 0.08),
+      rgba(111, 168, 232, 0.04));
+    color: var(--fg);
+    font-weight: 500;
+    border-left: 1px solid rgba(200, 181, 255, 0.14);
+    border-right: 1px solid rgba(200, 181, 255, 0.14);
+  }
+  .compare-yes  { color: var(--success); font-weight: 600; }
+  .compare-no   { color: var(--dim); font-weight: 400; }
+  .compare-soon {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.05);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    text-transform: lowercase;
+  }
+  .compare-note { color: var(--muted); font-size: 13.5px; }
+  .compare-footnote {
+    margin-top: 22px;
+    color: var(--dim);
+    font-size: 12.5px;
+    text-align: center;
+    line-height: 1.6;
+  }
+  .compare-footnote a {
+    color: var(--muted);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-color: rgba(255,255,255,0.2);
+  }
+  .compare-footnote a:hover { color: var(--fg); }
+  @media (max-width: 720px) {
+    .compare-table th, .compare-table td { padding: 12px 14px; }
+  }
+
+  /*  ----------------------------------------------------------------
+      Privacy callout — single big confident line with an accent
+      hairline above and below.
+      ----------------------------------------------------------------  */
   .privacy {
     text-align: center;
-    border-top: 1px solid var(--line);
-    border-bottom: 1px solid var(--line);
-    padding: 80px 0;
+    border-top: 1px solid var(--line-soft);
+    border-bottom: 1px solid var(--line-soft);
+    padding: 96px 0;
+  }
+  .privacy .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: rgba(111, 227, 154, 0.07);
+    border: 1px solid rgba(111, 227, 154, 0.20);
+    color: var(--success);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    margin-bottom: 22px;
   }
   .privacy h2 {
-    margin: 0 0 14px;
-    font-size: clamp(24px, 3.4vw, 34px);
-    letter-spacing: -0.02em;
+    margin: 0 0 22px;
+    font-size: clamp(28px, 4vw, 42px);
+    letter-spacing: -0.03em;
     font-weight: 600;
+    color: var(--fg);
+    line-height: 1.15;
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
   }
   .privacy p {
     margin: 0 auto;
-    max-width: 560px;
+    max-width: 620px;
     color: var(--muted);
-    font-size: 16px;
+    font-size: 16.5px;
+    line-height: 1.65;
   }
 
-  /* ── Final CTA ─────────────────────────────────────────────── */
+  /*  ----------------------------------------------------------------
+      Final CTA
+      ----------------------------------------------------------------  */
   .cta {
     text-align: center;
-    padding: 96px 0;
+    padding: 110px 0;
   }
   .cta h2 {
-    margin: 0 0 14px;
-    font-size: clamp(32px, 5vw, 48px);
-    letter-spacing: -0.025em;
+    margin: 0 0 16px;
+    font-size: clamp(34px, 5vw, 54px);
+    letter-spacing: -0.035em;
     font-weight: 600;
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
   }
   .cta p {
     color: var(--muted);
-    margin: 0 0 28px;
+    margin: 0 auto 32px;
+    max-width: 460px;
     font-size: 16px;
-  }
-  .cta .download-btn {
-    padding: 14px 28px;
-    font-size: 15px;
+    line-height: 1.55;
   }
 
-  /* ── Footer ────────────────────────────────────────────────── */
+  /*  ----------------------------------------------------------------
+      Footer
+      ----------------------------------------------------------------  */
   footer {
-    border-top: 1px solid var(--line);
-    padding: 36px 0;
+    border-top: 1px solid var(--line-soft);
+    padding: 38px 0;
     color: var(--dim);
     font-size: 13px;
   }
@@ -282,104 +691,19 @@
   }
   footer a { color: var(--muted); text-decoration: none; }
   footer a:hover { color: var(--fg); }
-  footer .links { display: flex; gap: 22px; }
+  footer .links { display: flex; gap: 24px; flex-wrap: wrap; }
 
-  /* ── Comparison table ──────────────────────────────────────── */
-  /* The whole point of this section is that nox stacks against
-     paid competitors at no cost. Visual treatment: highlight the
-     nox column with a subtle accent gradient so the eye lands on
-     it first; lean on a vertical divider between the feature
-     name and the four product cells so the table reads as one
-     "self vs them" comparison even when scanning quickly. */
-  .compare {
-    padding: 96px 0;
-  }
-  .compare-table {
-    overflow-x: auto;
-    border-radius: 16px;
-    border: 1px solid var(--line);
-    background: var(--bg2);
-  }
-  .compare-table table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 14.5px;
-    min-width: 720px;
-  }
-  .compare-table th,
-  .compare-table td {
-    padding: 14px 18px;
-    text-align: left;
-    border-bottom: 1px solid var(--line);
-    vertical-align: middle;
-  }
-  .compare-table tr:last-child td { border-bottom: none; }
-  .compare-table thead th {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--muted);
-    letter-spacing: 0.01em;
-    padding-top: 22px;
-    padding-bottom: 14px;
-  }
-  .compare-table thead th.self {
-    color: var(--fg);
-  }
-  .compare-table td:first-child,
-  .compare-table th:first-child {
-    color: var(--muted);
-    font-weight: 500;
-    width: 32%;
-  }
-  /* The nox column — subtle accent so it visually leads. */
-  .compare-table th.self,
-  .compare-table td.self {
-    background: linear-gradient(180deg, rgba(168,130,232,0.10), rgba(74,174,255,0.06));
-    color: var(--fg);
-    font-weight: 500;
-    border-left: 1px solid rgba(168,130,232,0.18);
-    border-right: 1px solid rgba(168,130,232,0.18);
-  }
-  .compare-table th.self {
-    border-top-left-radius: 0;
-    border-top-right-radius: 0;
-  }
-  /* Symbols: ✓ green for present, em dash gray for absent /
-     unconfirmed, "soon" capsule for vendor-roadmapped. */
-  .compare-yes {
-    color: #6fe39a;
-    font-weight: 600;
-  }
-  .compare-no {
-    color: var(--dim);
-    font-weight: 400;
-  }
-  .compare-soon {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 999px;
-    background: rgba(255,255,255,0.06);
-    color: var(--muted);
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.02em;
-    text-transform: lowercase;
-  }
-  .compare-note {
-    color: var(--muted);
-    font-size: 13.5px;
-  }
-  .compare-footnote {
-    margin-top: 22px;
-    color: var(--dim);
-    font-size: 12.5px;
-    text-align: center;
-    line-height: 1.55;
-  }
-  .compare-footnote a { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
-  @media (max-width: 720px) {
-    .compare-table { font-size: 13.5px; }
-    .compare-table th, .compare-table td { padding: 12px 14px; }
+  /*  ----------------------------------------------------------------
+      Reduced motion — kill the looping pill morph for users who
+      ask for it. Static resting pill is the most honest fallback.
+      ----------------------------------------------------------------  */
+  @media (prefers-reduced-motion: reduce) {
+    .notch-pill,
+    .pill-state,
+    .pill-state .bars span { animation: none !important; }
+    .pill-state.idle { opacity: 1; }
+    .pill-state.music, .pill-state.drag { opacity: 0; }
+    .notch-pill { width: 220px; height: 32px; }
   }
 </style>
 </head>
@@ -393,7 +717,7 @@
       <a href="#compare">Compare</a>
       <a href="#privacy">Privacy</a>
       <a href="https://github.com/left-society/nox/releases">Releases</a>
-      <a class="download-btn" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">Download</a>
+      <a class="btn btn-primary" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">Download</a>
     </nav>
   </div>
 </header>
@@ -401,21 +725,35 @@
 <!-- ── Hero ─────────────────────────────────────────────────── -->
 <section class="hero">
   <div class="wrap">
-    <h1>Your MacBook notch, <span class="accent">finally useful.</span></h1>
+    <span class="eyebrow">nox 1.9.5 — out now</span>
+    <h1>Your MacBook notch,<br><span class="accent-word">finally useful.</span></h1>
     <p class="tagline">
-      nox turns the dark cutout at the top of your screen into a quiet HUD for notes, files, music, and voice.
-      Drag, drop, jot, paste. No new windows. No focus stolen.
+      A native macOS HUD that lives in the notch. Music, files, voice, meetings — all without leaving what you are doing.
     </p>
     <div class="hero-cta">
-      <a class="download-btn" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">Download for macOS</a>
+      <a class="btn btn-primary btn-large" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">Download for macOS</a>
+      <a class="btn btn-ghost btn-large" href="#features">See what it does</a>
     </div>
     <p class="hero-meta">
       Free during beta &nbsp;·&nbsp; macOS 13 or later &nbsp;·&nbsp; Apple Silicon and Intel &nbsp;·&nbsp;
       <a href="https://github.com/left-society/nox/releases">All versions</a>
     </p>
 
-    <div class="notch-demo">
-      <div class="faux-notch"></div>
+    <!-- Animated notch demo. Pure CSS — no JS, no images. -->
+    <div class="demo-stage" aria-hidden="true">
+      <div class="notch-pill">
+        <div class="pill-state idle">
+          <span class="dot"></span>
+        </div>
+        <div class="pill-state music">
+          <span class="album"></span>
+          <span>Now playing</span>
+          <span class="bars"><span></span><span></span><span></span><span></span></span>
+        </div>
+        <div class="pill-state drag">
+          <span>Drop to save</span>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -423,58 +761,54 @@
 <!-- ── Features ─────────────────────────────────────────────── -->
 <section id="features">
   <div class="wrap">
-    <div class="features-head">
-      <h2>What lives in the notch</h2>
-      <p>One small surface. Five things that used to need apps, windows, and context switches.</p>
+    <div class="section-head">
+      <span class="eyebrow">What it does</span>
+      <h2>One small surface. Everything you needed open windows for.</h2>
+      <p>Hover the notch, get the slab. Move your cursor away, it's gone. No focus stolen, no Mission Control hop.</p>
     </div>
 
     <div class="grid">
       <div class="card">
-        <div class="icon">✏︎</div>
-        <h3>Notes</h3>
-        <p>Hover the notch, jot a thought, dismiss. Markdown supported. Quick paste with ⌘1 through ⌘9.</p>
+        <div class="icon">♪</div>
+        <h3>Music card</h3>
+        <p>Now-playing artwork with two-faced flip. Spotify, Apple Music, browser audio — all in one transport.</p>
       </div>
       <div class="card">
         <div class="icon">⌥</div>
-        <h3>Voice</h3>
-        <p>Hold ⌘⇧D and speak. Whisper transcribes locally on your Mac. The audio never leaves the device.</p>
+        <h3>Voice, on your Mac</h3>
+        <p>Hold Fn and speak. Whisper transcribes locally. Audio never leaves the device — no servers, no recordings stored.</p>
       </div>
       <div class="card">
-        <div class="icon">▦</div>
-        <h3>Drag and drop</h3>
-        <p>Drag any file to the notch. Save to nox or send via AirDrop without opening Finder.</p>
-      </div>
-      <div class="card">
-        <div class="icon">♪</div>
-        <h3>Music</h3>
-        <p>Now playing surface for any audio source. Transport controls and volume right at the notch.</p>
+        <div class="icon">⤓</div>
+        <h3>Drag &amp; drop</h3>
+        <p>Drag any file to the notch to stage it. Images, videos, arbitrary files — all retrievable from the slab later.</p>
       </div>
       <div class="card">
         <div class="icon">▶</div>
-        <h3>Videos and images</h3>
-        <p>Drop a YouTube URL with ⌥⌘V. nox pulls it down with yt-dlp and keeps it tidy.</p>
+        <h3>Browser video grab</h3>
+        <p>Press ⌥⌘V on any browser tab. nox pulls the video down with yt-dlp and tucks it into the videos shelf.</p>
       </div>
       <div class="card">
-        <div class="icon">⊞</div>
+        <div class="icon">▦</div>
+        <h3>Calendar pill</h3>
+        <p>Your next meeting on the notch with a one-tap join. Read-only — events never leave Apple's Calendar app.</p>
+      </div>
+      <div class="card">
+        <div class="icon">⚡</div>
         <h3>System events</h3>
-        <p>Charging, screenshots, Bluetooth, AirDrop, timers. Everything that interrupts you, beautifully.</p>
+        <p>Charging, AirDrop arrivals, Bluetooth, screenshots, timers. Everything that interrupts you, beautifully.</p>
       </div>
     </div>
   </div>
 </section>
 
 <!-- ── Comparison ──────────────────────────────────────────── -->
-<!-- Strategy here: lead with the rows where nox wins outright
-     (price, on-device dictation, open source), then show feature
-     parity with paid competitors so the takeaway is "all of that
-     for $0". Footnote names sources + when the snapshot was
-     taken so reviewers can fact-check us. Refresh whenever a
-     competitor ships something new. -->
-<section id="compare" class="compare">
+<section id="compare">
   <div class="wrap">
-    <div class="features-head">
-      <h2>How nox compares</h2>
-      <p>Same category, fewer compromises. Everything Alcove and NotchNook charge for, plus a privacy posture nobody else publishes.</p>
+    <div class="section-head">
+      <span class="eyebrow">How it stacks</span>
+      <h2>Same category. Fewer compromises.</h2>
+      <p>Everything Alcove and NotchNook charge for, plus a privacy posture nobody else publishes.</p>
     </div>
 
     <div class="compare-table">
@@ -633,10 +967,11 @@
 <!-- ── Privacy ──────────────────────────────────────────────── -->
 <section id="privacy" class="privacy">
   <div class="wrap">
-    <h2>Built for keeping your data yours</h2>
+    <span class="eyebrow">Privacy posture</span>
+    <h2>Your data stays on your Mac.</h2>
     <p>
-      nox runs entirely on your Mac. Voice transcription happens on device through Whisper. API keys stay in your keychain.
-      No telemetry, no analytics, no account required. The app updates itself by checking a signed feed, nothing else.
+      Voice transcription runs on-device through Whisper. API keys live in your keychain, never in plaintext.
+      No analytics, no usage tracking, no account required. The app updates itself by checking one signed feed — that's the entire network surface.
     </p>
   </div>
 </section>
@@ -646,7 +981,7 @@
   <div class="wrap">
     <h2>Try it.</h2>
     <p>One DMG. Drag to Applications. Free during beta.</p>
-    <a class="download-btn" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">Download nox 1.9.5</a>
+    <a class="btn btn-primary btn-large" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">Download nox 1.9.5</a>
   </div>
 </section>
 
