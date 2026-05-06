@@ -475,6 +475,23 @@ final class PanelWindowController {
         )
         host.frame = contentRect
         host.autoresizingMask = [.width, .height]
+        // CRITICAL — disable NSHostingView's intrinsic-content-size
+        // sizing on macOS 13+. The default sizingOptions
+        // ([.minSize, .intrinsicContentSize, .maxSize]) installs
+        // Auto Layout constraints based on what the SwiftUI tree
+        // *wants* to be on its first layout pass — typically the
+        // pill's tiny resting size (~220×20). When `enterRestingMode`
+        // calls `panel.animator().setFrame(closedPillFrame, ...)`
+        // for 278×32 on first launch, AppKit's Auto Layout pass
+        // wins for one render and the host view shrinks to the
+        // intrinsic SwiftUI size — user reported as "small music
+        // pill looks shrunken on first launch, becomes stable after
+        // opening the slab once." Clearing sizingOptions makes the
+        // panel.frame the single source of truth: host fills the
+        // contentView verbatim, no first-render shrink.
+        if #available(macOS 13.0, *) {
+            host.sizingOptions = []
+        }
 
         // Wrap the SwiftUI host in an NSView that handles drag-destination
         // routing at the contentView level. This bypasses SwiftUI's
@@ -1183,6 +1200,22 @@ final class PanelWindowController {
         }
     }
 
+    /// Immediately remove the notch panel from the window list with no
+    /// animation. Used by the onboarding flow which lowers its window
+    /// level to .normal so system permission dialogs render above it
+    /// — without this orderOut, the panel at .popUpMenu (level 101)
+    /// would still float over the onboarding window. Pair with
+    /// `parkAtNotchHidden()` afterward to bring the panel back online.
+    func orderOutImmediately() {
+        currentSpring?.cancel()
+        currentSpring = nil
+        panel.alphaValue = 0
+        panel.orderOut(nil)
+        isVisible = false
+        presenter.isShown = false
+        isTeasing = false
+    }
+
     func hide() {
         NSLog("nox: hide() called, isVisible=\(isVisible)")
         guard isVisible else { return }
@@ -1865,6 +1898,38 @@ final class PanelWindowController {
     private func animateOpen(to target: NSRect) {
         animationGeneration &+= 1
         let myGen = animationGeneration
+
+        // 2026-05-06: HALT IN-FLIGHT NSANIMATIONCONTEXT before
+        // starting the spring. Root cause of the "double opening"
+        // hitch the user reported when hovering the music pill
+        // too fast.
+        //
+        // Timeline of the bug:
+        //   t=0      cursor enters hot zone
+        //   t=50ms   tease() runs → animateTease starts an
+        //            NSAnimationContext animation (0.18s
+        //            ease-out toward teaseFrame). Window-server
+        //            level — keeps running until completion.
+        //   t=150ms  dwell timer fires (100ms after tease) →
+        //            show() → animateOpen starts a SpringFrame
+        //            Animator ticking panel.setFrame(lerped) at
+        //            60Hz toward slabFrame.
+        //   t=150-230ms  TWO animation systems write to the same
+        //            panel.frame from different sources. They
+        //            visibly fight — the user sees the panel
+        //            grow, hitch back, then grow again. Reads
+        //            as "double opening."
+        //
+        // `currentSpring?.cancel()` only cancels in-flight
+        // SpringFrameAnimators; NSAnimationContext animations
+        // are window-server-side and oblivious to it.
+        //
+        // Fix: zero-duration `panel.animator().setFrame(...)`
+        // inside its own NSAnimationContext group. Forces the
+        // window-server to immediately settle the in-flight
+        // animation at the current frame; the spring then takes
+        // over from a stable position with no competing writer.
+        haltInflightFrameAnimation()
 
         // CADisplayLink/Timer-driven spring physics. Constants
         // tuned from a frame-by-frame teardown of Alcove's actual

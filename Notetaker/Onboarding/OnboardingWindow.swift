@@ -76,23 +76,30 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
         } else {
             NSApp.activate(ignoringOtherApps: true)
         }
-        // CRITICAL: the notch panel sits at NSWindow.Level.popUpMenu
-        // (101) so it always floats above normal app windows. A
-        // regular `.normal`-level onboarding window would render
-        // BEHIND the panel and the user would never see it (this is
-        // exactly the "I can't see any onboard page" symptom on the
-        // M2 Air). Bump to a custom raw value (200) — above the
-        // panel's level but well below `.screenSaver` (1000) so we
-        // don't compete with Mission Control / Spotlight / system
-        // overlays.
+        // 2026-05-06 — window level reset to .normal.
         //
-        // The panel itself is also told to hide (`AppDelegate
-        // .panelController?.hide()`) before the controller is
-        // constructed — see `OnboardingManager.present()`. Belt +
-        // suspenders: even if hide() is a no-op (resting-pill state
-        // doesn't trigger the slab-close path), the higher level
-        // keeps the window visible.
-        window?.level = NSWindow.Level(rawValue: 200)
+        // The earlier code put this window at NSWindow.Level(rawValue: 200)
+        // to keep it above the notch panel (level .popUpMenu = 101).
+        // But 200 is ALSO above the level system permission dialogs
+        // sit at (TCC alerts render at ~.modalPanel / .normal). User
+        // feedback: "all the permission [prompts] are coming in the
+        // background layer of the onboarding."
+        //
+        // Onboarding now fires BEFORE the notch panel is built (see
+        // AppDelegate.applicationDidFinishLaunching — the
+        // `presentIfNeeded` call moved to the top of that method),
+        // so the "panel covers onboarding" race the level=200 hack
+        // was guarding against doesn't exist anymore. And
+        // `OnboardingManager.present()` calls `panelController?
+        // .panel.orderOut(nil)` if the panel does happen to be up,
+        // so on the rare path where re-presenting onboarding from
+        // Settings finds the panel already visible, we explicitly
+        // hide it for the duration.
+        //
+        // Result: onboarding sits at .normal, system permission
+        // dialogs render on top of it as the user expects, and
+        // there's no race with the notch panel.
+        window?.level = .normal
         window?.makeKeyAndOrderFront(nil)
     }
 
@@ -113,6 +120,14 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
         // Drop back to menu-bar-only mode (matches Settings close
         // behavior so we don't leak a Dock icon).
         NSApp.setActivationPolicy(.accessory)
+        // Bring the notch panel back online. OnboardingManager.present()
+        // orderOut'd it for the duration; if the user closed the
+        // window via the red traffic light (not the Continue button
+        // which routes through completeOnboarding → onComplete),
+        // we still need to restore the panel here.
+        DispatchQueue.main.async {
+            (NSApp.delegate as? AppDelegate)?.panelController?.parkAtNotchHidden()
+        }
     }
 }
 
@@ -141,14 +156,28 @@ final class OnboardingManager {
     /// the flow.
     func present() {
         DictationOrchestrator.dlog("OnboardingManager.present — creating window")
-        // Hide the resting pill / open slab so it doesn't compete
-        // with the onboarding window for attention. The panel
-        // auto-restores on hover / events after onboarding closes
-        // — no need to track or restore state ourselves.
-        (NSApp.delegate as? AppDelegate)?.panelController?.hide()
+        // Fully orderOut the notch panel for the duration of
+        // onboarding. Earlier this called .hide() which animates
+        // the slab/pill down to notchHiddenFrame but keeps the
+        // panel ordered front — the resting pill could still
+        // appear over the onboarding window in some states. With
+        // the onboarding window now at .normal level (so system
+        // permission dialogs can render above it), even an
+        // invisible-silhouette notch panel at level .popUpMenu
+        // (101) would render above onboarding. orderOut takes the
+        // panel completely off the screen until the user finishes
+        // / dismisses onboarding; the panel auto-restores via the
+        // existing parkAtNotchHidden / orderFrontRegardless paths
+        // when music plays / hover fires / etc.
+        (NSApp.delegate as? AppDelegate)?.panelController?.orderOutImmediately()
 
         let controller = OnboardingWindowController(onComplete: { [weak self] in
             self?.windowController = nil
+            // Bring the notch panel back online so hover / music /
+            // drag events work again. parkAtNotchHidden is the
+            // standard "panel ready and waiting at the notch"
+            // entry point.
+            (NSApp.delegate as? AppDelegate)?.panelController?.parkAtNotchHidden()
         })
         windowController = controller
         controller.show()
