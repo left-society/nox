@@ -42,6 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Created lazily after `panelController` exists so it can share
     /// the same `PanelPresenter` for now-playing data.
     var lockMusicCard: LockMusicCardWindowController?
+    /// Small lock-pill that hangs from the notch on the lock screen.
+    /// Separate panel from the music card so it can sit at the
+    /// notch independently. Shake-on-tap conveys "you can't do
+    /// anything until you unlock" — the same affordance Alcove has.
+    var lockNotchIndicator: LockNotchIndicatorController?
     /// Countdown timer (Pomodoro-style). Drives a notch pill that
     /// shows live MM:SS remaining; on finish, fires a "Time's up"
     /// pill with a haptic ding.
@@ -332,6 +337,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // data the desktop pill does.
             if let presenter = panelController?.presenter {
                 lockMusicCard = LockMusicCardWindowController(presenter: presenter)
+                // Lock-screen notch indicator — small pill hanging
+                // from the notch with a "Locked" label and shake-on-
+                // tap. Visible whenever the screen is locked,
+                // regardless of whether music is playing. Same
+                // SkyLight space attach so it composites on the
+                // lock-screen surface.
+                lockNotchIndicator = LockNotchIndicatorController(presenter: presenter)
             }
             // Countdown timer service. Pushes a `.timerRunning(s)`
             // SystemEvent every tick (the pill stays pinned because

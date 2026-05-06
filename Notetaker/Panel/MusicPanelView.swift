@@ -114,6 +114,20 @@ struct MusicPanelView: View {
     /// on miss. Keeps the main thread off the NSImage(data:) decode
     /// hot path and gives instant return-to-recent.
     @State private var displayedArtworkImage: NSImage? = nil
+    /// The INCOMING artwork during a flip animation. Pre-loaded
+    /// onto the card's BACK face the moment a track change is
+    /// detected, so the rotation reveals the new artwork as it
+    /// rotates past 90° — a true card flip with two distinct sides
+    /// rather than the previous "same image rotates 178°, then snap
+    /// to new at 89% of the duration" pattern.
+    ///
+    /// User feedback 2026-05-06: "It is like changing two artworks
+    /// for two different pieces of music. We need to make the
+    /// animation between the first artwork and the second artwork.
+    /// On the other side of the flip, it is the second artwork."
+    /// Promoted to displayedArtworkImage at flip completion; reset
+    /// to nil after promotion so the next flip starts clean.
+    @State private var nextArtworkImage: NSImage? = nil
     /// Source-app sound volume on a 0-1 scale. Polled on track
     /// change and dispatched on slider drag. Spotify and Apple Music
     /// both expose `sound volume` (0-100) in AppleScript.
@@ -156,7 +170,14 @@ struct MusicPanelView: View {
         // of the play button clipping. `transportControls` is
         // kept as a private helper for now (referenced internally
         // by the dispatch chain) but isn't rendered.
-        VStack(spacing: 12) {
+        // 2026-05-06: split layout — music on the LEFT, today's
+        // calendar events on the RIGHT. Mirrors the layout the
+        // user sketched in their reference screenshot. Calendar
+        // pane connects to real Apple Calendar via the existing
+        // EventKit-backed `CalendarMonitorService` instance owned
+        // by AppDelegate.
+        HStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 12) {
             // PER-ELEMENT MATERIALIZATION (Alcove-inspired). User
             // 2026-05-05: "they apply [blur] inside of each content."
             //
@@ -197,6 +218,52 @@ struct MusicPanelView: View {
             // component file is still present (BluetoothBatteryRow.swift)
             // but isn't rendered.
             Spacer(minLength: 0)
+        }
+        // 2026-05-06 (rev 7): TRUE 50/50 SPLIT. User asked for the
+        // music side and the calendar side to take equal width so
+        // the panel reads as a balanced two-pane layout (was 310/
+        // 160 = music-dominant).
+        //
+        // Math (498pt inner content area):
+        //   music   235pt
+        //   spacer   14
+        //   divider   0.5
+        //   spacer   14
+        //   calendar 234.5pt   (filling remaining via maxWidth:.infinity)
+        // Total: 498pt. Music ≈ Calendar. Visually symmetric.
+        //
+        // Transport row was reworked in lockstep (rev 7): the
+        // inline volume slider doesn't fit at 235pt without
+        // squeezing the play button off-center. Volume removed
+        // entirely — system volume keys + the source-app's own
+        // controls cover that need.
+        .frame(width: 235)
+
+        // Fixed gap so the divider sits centered between the panes
+        // instead of being shoved to one side by SwiftUI's flex
+        // distribution. 14pt total = 7pt left of divider + 7pt right.
+        Color.clear.frame(width: 14)
+
+        // Vertical divider between music and calendar panes.
+        Rectangle()
+            .fill(Color.white.opacity(0.06))
+            .frame(width: 0.5)
+            .padding(.vertical, 4)
+
+        Color.clear.frame(width: 14)
+
+        // Calendar pane — fills the rest of the panel width.
+        // Inner content area ≈ 498pt (530 panel - 32 padding).
+        // Music 320 + 14 + 0.5 + 14 = 348.5pt, leaves 149.5pt for
+        // calendar. Tight but enough for date header + 2-3 events.
+        if let calendarService = AppDelegate.shared?.calendarMonitor {
+            CalendarTodayPane(service: calendarService)
+                .frame(maxWidth: .infinity)
+                .blur(radius: presenter.cascadeReady ? 0 : 14)
+                .opacity(presenter.cascadeReady ? 1 : 0)
+                .offset(y: presenter.cascadeReady ? 0 : -36)
+                .animation(cascadeAnimation.delay(0.10), value: presenter.cascadeReady)
+        }
         }
         // .compositingGroup() — same GPU-friendly batching as on
         // renderableContent. Preserves transport button hit testing
@@ -252,6 +319,10 @@ struct MusicPanelView: View {
         //     here was redundant.
         // Visually reads as "subtle elevation on the dark slab"
         // without any of the per-frame cost.
+        //
+        // 2026-05-06: briefly tried a hero+bloom variant (2C+9D
+        // from the design-ideas grid) at the user's request, but
+        // they reverted — back to this small-tile flat-glass card.
         infoRow
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -495,10 +566,16 @@ struct MusicPanelView: View {
                 // 2026-05-02: was capped at 200pt to leave room for
                 // the inline-controls cluster on the right. With
                 // controls moved to a row below, the title block
-                // can grow to fill the remaining width — same way
-                // iOS lock-screen Now Playing widget does. Long
-                // titles still truncate via .lineLimit(1).
-                .frame(maxWidth: .infinity, alignment: .leading)
+                // briefly grew to fill the remaining width.
+                // 2026-05-06: re-capped at 200pt now that the music
+                // panel is split — calendar pane lives on the right
+                // half. With `maxWidth: .infinity` the title block
+                // stretched the now-playing card to fill the whole
+                // music side (~320pt), which on the split slab read
+                // as a card with a big empty right side. 200pt
+                // keeps the card tight to its content while leaving
+                // text truncation working via .lineLimit(1).
+                .frame(maxWidth: 200, alignment: .leading)
                 // .clipped() — text views inside have
                 // .fixedSize(horizontal: true, vertical: false) so
                 // they render at full intrinsic width regardless
@@ -654,22 +731,29 @@ struct MusicPanelView: View {
     private var iosStyleTransportRow: some View {
         let isPlaying = presenter.nowPlaying?.isPlaying ?? false
         let accent = ArtworkColor.dominant(from: presenter.nowPlaying?.artworkData) ?? .white
-        let bundleID = presenter.nowPlaying?.sourceBundleID
-        let volumeSupported = bundleID == "com.spotify.client" || bundleID == "com.apple.Music"
-        // Both flanks are 100pt wide so the transport buttons
-        // stay centered on the panel midline.
-        let flankWidth: CGFloat = 100
 
+        // 2026-05-06 (rev 7): VOLUME REMOVED + just centered cluster.
+        //
+        // Was: [flank-spacer 65pt | spacer | prev play next | spacer
+        //       | volume-cluster 65pt] — needed 65pt flanks to keep
+        // the play button centered on the panel midline while the
+        // volume slider sat on the right.
+        //
+        // With the music VStack now at 235pt (50/50 split with the
+        // calendar pane), there's no room for the volume cluster
+        // without squeezing the buttons off-center. Cleanest fix
+        // is to drop the inline volume entirely. System volume
+        // keys + the source app's own controls cover that need;
+        // we'd rather have a clean centered transport than a
+        // cramped one.
+        //
+        // New layout: Spacer | prev play next | Spacer. Cluster
+        // (~166pt) centers in 235pt VStack with ~35pt of breathing
+        // room on each side.
         return HStack(spacing: 0) {
-            // LEFT: balance spacer — same width as the right-flank
-            // volume cluster so the play button lands on center.
-            Color.clear
-                .frame(width: flankWidth, height: 1)
-
             Spacer(minLength: 0)
 
-            // CENTER: transport cluster
-            HStack(spacing: 28) {
+            HStack(spacing: 22) {
                 MusicControlButton(
                     systemImage: "backward.fill",
                     glyphSize: 16,
@@ -697,33 +781,6 @@ struct MusicPanelView: View {
             }
 
             Spacer(minLength: 0)
-
-            // RIGHT: mini-volume — speaker icon + 70pt slider.
-            // Quiet trim control, not the focal element.
-            HStack(spacing: 5) {
-                Image(systemName: volumeIcon)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.white.opacity(volumeSupported ? 0.55 : 0.25))
-                    .frame(width: 12, alignment: .center)
-                Slider(
-                    value: Binding(
-                        get: { sourceVolume },
-                        set: { newValue in
-                            sourceVolume = newValue
-                            setSourceVolume(newValue)
-                        }
-                    ),
-                    in: 0...1,
-                    onEditingChanged: { editing in
-                        isAdjustingVolume = editing
-                    }
-                )
-                .controlSize(.mini)
-                .frame(width: 70)
-                .tint(Color.white.opacity(0.65))
-                .disabled(!volumeSupported)
-            }
-            .frame(width: flankWidth, alignment: .trailing)
         }
     }
 
@@ -959,55 +1016,86 @@ struct MusicPanelView: View {
         Button {
             openSourceApp()
         } label: {
-            Group {
-                // Use the cached/decoded NSImage directly. The
-                // cache lookup happens off the render hot path
-                // (in onAppear and onChange handlers), so this
-                // branch just reads the cached image without
-                // re-decoding.
-                if let image = displayedArtworkImage {
-                    Image(nsImage: image)
+            // TWO-FACED CARD FLIP. 2026-05-06 rewrite per user feedback:
+            // "the animation should be in between the two artworks so
+            // that the flipping is from one artwork to the other. On
+            // the other side of the flip, it is the second artwork."
+            //
+            // Previous version rotated a SINGLE image 180° and swapped
+            // the image data at 89% of the rotation — so for almost
+            // the entire flip, the user saw the OLD artwork rotating;
+            // the new artwork only appeared in the last 2° of motion.
+            // Now both faces of the card carry their own artwork:
+            //   • FRONT face — `displayedArtworkImage` (the current
+            //     track's art). Visible while cos(angle) > 0, i.e.
+            //     0°-90° and 270°-360°.
+            //   • BACK face — `nextArtworkImage` (the incoming track's
+            //     art, pre-loaded by `runFullArtworkSwap`). Has an
+            //     intrinsic 180° Y-rotation so when the outer rotation
+            //     reaches 180° the back face's content is right-side
+            //     up (180 + 180 = 360 = 0 mod 360). Visible while
+            //     cos(angle) < 0, i.e. 90°-270°.
+            //
+            // At the 90° edge-on moment both faces read as zero-width
+            // strips, so the opacity flip is invisible — the user
+            // sees a continuous rotation that LOSES the old artwork
+            // as the front recedes and GAINS the new artwork as the
+            // back rotates into view. True card flip, no snap.
+            //
+            // After the spring settles the completion handler in
+            // `runFullArtworkSwap` promotes nextArtworkImage →
+            // displayedArtworkImage and resets artworkFlipAngle to 0
+            // so the next flip starts from the same clean state.
+            ZStack {
+                // FRONT face — current artwork. The placeholder /
+                // source-icon fallback chain is preserved so first-
+                // paint and missing-art cases still work.
+                Group {
+                    if let image = displayedArtworkImage {
+                        Image(nsImage: image)
+                            .resizable()
+                            .interpolation(.high)
+                            .aspectRatio(contentMode: .fill)
+                    } else if let icon = sourceAppIcon(),
+                              !isMusicAppSource(presenter.nowPlaying?.sourceBundleID) {
+                        // Source-app-icon fallback ONLY for non-music
+                        // sources — WhatsApp audio, some YouTube tabs,
+                        // podcasts, browser-tab audio, etc. For Spotify
+                        // and Apple Music we deliberately skip this
+                        // branch and show the neutral placeholder so
+                        // the brief metadata-vs-artwork window doesn't
+                        // flash a Spotify logo.
+                        Image(nsImage: icon)
+                            .resizable()
+                            .interpolation(.high)
+                            .aspectRatio(contentMode: .fit)
+                            .padding(8)
+                            .background(
+                                LinearGradient(
+                                    colors: [DS.Color.bgSubtle, DS.Color.bgHover],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    } else {
+                        placeholderArt
+                    }
+                }
+                .opacity(artworkFlipCosineSign > 0 ? 1 : 0)
+
+                // BACK face — incoming artwork. Pre-rotated 180°
+                // around Y so when the outer rotation passes through
+                // 180° the back face content is right-side up.
+                if let nextImage = nextArtworkImage {
+                    Image(nsImage: nextImage)
                         .resizable()
                         .interpolation(.high)
                         .aspectRatio(contentMode: .fill)
-                } else if let icon = sourceAppIcon(),
-                          !isMusicAppSource(presenter.nowPlaying?.sourceBundleID) {
-                    // Source-app-icon fallback ONLY for non-music
-                    // sources — WhatsApp audio, some YouTube tabs,
-                    // podcasts, browser-tab audio, etc. — where
-                    // there's never going to be track art and the
-                    // user benefits from the visual anchor: "in any
-                    // other software or window where we use any
-                    // kind of sounds ... it should register as that."
-                    //
-                    // For Spotify and Apple Music we deliberately
-                    // skip this branch and fall through to
-                    // `placeholderArt` instead. Reason: those
-                    // sources DO have artwork, but the bytes can
-                    // briefly be nil during the window between a
-                    // notification firing (with title/artist only)
-                    // and the iTunes Search / cache fetch
-                    // completing. With this fallback enabled, that
-                    // ~500ms window read as the album art
-                    // "disappearing into a Spotify logo" — exactly
-                    // what the user reported. Showing the neutral
-                    // music-note placeholder instead means the
-                    // brief artwork gap is invisible: the eye reads
-                    // "art still loading" rather than "art gone."
-                    Image(nsImage: icon)
-                        .resizable()
-                        .interpolation(.high)
-                        .aspectRatio(contentMode: .fit)
-                        .padding(8)
-                        .background(
-                            LinearGradient(
-                                colors: [DS.Color.bgSubtle, DS.Color.bgHover],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
+                        .rotation3DEffect(
+                            .degrees(180),
+                            axis: (x: 0, y: 1, z: 0)
                         )
-                } else {
-                    placeholderArt
+                        .opacity(artworkFlipCosineSign < 0 ? 1 : 0)
                 }
             }
             .frame(width: 76, height: 76)
@@ -1016,57 +1104,29 @@ struct MusicPanelView: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
             )
-            // Flatten artwork+border+shadow into a single rasterized
-            // layer BEFORE the 3D rotation transform below. Without
-            // compositingGroup, SwiftUI re-rasterizes the bordered
-            // image + shadow on EVERY frame of the rotation as a
-            // separate layer per child — that's the visible jitter
-            // during track-change flips. With it, Core Animation
-            // applies the 3D transform to a single flat texture.
+            // Flatten the whole stack (both faces + border + shadow)
+            // into a single rasterized layer BEFORE the rotation.
+            // Without compositingGroup, SwiftUI re-rasterizes each
+            // child layer per frame during the rotation — visible
+            // jitter on track-change flips. With it, Core Animation
+            // applies the 3D transform to one flat texture.
             .compositingGroup()
             .shadow(color: Color.black.opacity(0.4), radius: 8, x: 0, y: 4)
             .contentShape(RoundedRectangle(cornerRadius: 12))
-            // Full layered 3D-tumble swap. The user reported the
-            // previous version's tilt was "not taking effect" —
-            // two things were strangling it:
-            //   1. ±32° at perspective 0.6 is subtle on a 76pt
-            //      tile. Apple's docs: perspective < 1.0 = LESS
-            //      foreshortening; default is 1.0; we need MORE.
-            //   2. The opacity fade was linear in phase, so by
-            //      the time rotation reached its peak (phase=±1),
-            //      opacity was already 0 — the dramatic tilt was
-            //      INVISIBLE.
+            // Outer Y-axis rotation drives the flip. perspective: 0.5
+            // gives modest foreshortening — the right edge recedes
+            // on a forward flip, left edge on a reverse, without the
+            // exaggerated cinematic depth that read as too dramatic
+            // for a music-card swap.
             //
-            // Fixed both:
-            //   • Bumped angle to ±72° at perspective 1.0 → real
-            //     foreshortening, the right edge clearly recedes
-            //     on a Next press, left edge on a Previous.
-            //   • Quadratic opacity (`1 - phase²`) keeps opacity
-            //     near 1.0 through the early/middle of the tilt,
-            //     dropping to 0 only in the final ~25% of the
-            //     swap. The full rotation is now visible.
-            //   • Slight x-axis component (0.15) adds a top-edge
-            //     tip during the tumble — reads as a real 3D
-            //     tumbling card, not just a y-axis flip.
-            //
-            // Direction-sensitive: `artworkSwapDirection` is +1
-            // for next, -1 for previous. Set in `dispatch(_:)`,
-            // NOT overwritten in `runFullArtworkSwap`, so back
-            // button reverses the rotation axis as the user asked.
-            //
-            // All transform-only — no layout impact, transport
-            // row stays nailed in place.
-            // Clean Y-axis flip — single rotation + cosineSign-based
-            // X-scale mirror so the back face of the rotation never
-            // appears as a mirrored image. Replaces the previous
-            // 5-axis transform stack (user feedback 2026-04-29:
-            // "weird tilted"). Pattern lifted verbatim from
-            // jackson-storm/DynamicNotch's AlbumArtFlipModifier.
-            //
-            // The image data swap (in `runFullArtworkSwap`) lands at
-            // the mid-flip moment when the card is exactly edge-on
-            // (angle ≡ 90° mod 180°), so the user never sees the
-            // crossfade — same visual signature as Alcove and Sleeve.
+            // No `scaleEffect(x: cosineSign)` here. The previous
+            // version mirrored the WHOLE card at >90° to compensate
+            // for the back face appearing flipped — but since each
+            // face now has its own image, mirroring would also flip
+            // the back face's pre-rotation, producing the wrong
+            // result. The back face's intrinsic 180° rotation handles
+            // its own orientation; the front face is invisible at
+            // >90° so its mirroring doesn't matter.
             .rotation3DEffect(
                 .degrees(artworkFlipAngle),
                 axis: (x: 0, y: 1, z: 0),
@@ -1074,7 +1134,6 @@ struct MusicPanelView: View {
                 anchorZ: 0,
                 perspective: 0.5
             )
-            .scaleEffect(x: artworkFlipCosineSign, y: 1)
         }
         .buttonStyle(.plain)
         .help(sourceAppHelpText())
@@ -1237,19 +1296,53 @@ struct MusicPanelView: View {
         let shouldFlip = oldHasArt && newHasArt
 
         if shouldFlip {
-            // Full vinyl-card flip. Image data swaps at the
-            // edge-on moment (89% of the flip) so the new
-            // artwork rides the front face into view.
+            // True two-faced card flip. Pre-load the incoming artwork
+            // onto the BACK face BEFORE starting the rotation, so the
+            // rotation reveals the actual new artwork at 90°+ rather
+            // than the previous "old image rotates 178°, snap to new
+            // at 89%" pattern.
+            //
+            // Resolve the next image synchronously from the cache
+            // (decodes off main thread on a miss; we accept a brief
+            // black-back-face if the decode lands mid-flip — much
+            // rarer than the previous mid-flip snap).
+            if let info = newInfo, let data = info.artworkData {
+                let key = "\(info.title)|\(info.artist)"
+                nextArtworkImage = ArtworkCache.shared.image(data: data, key: key)
+            } else {
+                nextArtworkImage = nil
+            }
+
+            // Run the flip. easeInOut keeps the motion symmetric
+            // around 90° — the front recedes at the same rate the
+            // back approaches, so the eye reads it as one continuous
+            // rotation rather than two phases.
             let flipDuration: TimeInterval = 0.45
-            let swapDelay: TimeInterval = 0.40
             withAnimation(.easeInOut(duration: flipDuration)) {
                 artworkFlipAngle += 180
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + swapDelay) {
-                withAnimation(.smooth(duration: 0.20)) {
-                    applyDisplayed(from: newInfo)
-                    displayedTrackKey = newKey
-                }
+
+            // Promote the back face to the front face AFTER the
+            // rotation settles. At this moment artworkFlipAngle is
+            // 180° (or a multiple) and cos(angle) is -1 — the back
+            // face is currently visible. Swap displayedArtworkImage
+            // to nextArtworkImage and reset artworkFlipAngle to 0
+            // INSIDE the same render pass: SwiftUI batches the two
+            // state changes, the now-visible back face becomes the
+            // new front face, and cos(0) = +1 keeps it visible. No
+            // visual flash because the image content doesn't change.
+            //
+            // Text fields update at the same beat so the title /
+            // artist read out the new track at the moment the new
+            // artwork is fully facing forward. Without this, the
+            // text would update at the flip START (when SwiftUI
+            // diffs presenter.nowPlaying) and snap ahead of the
+            // visible artwork.
+            DispatchQueue.main.asyncAfter(deadline: .now() + flipDuration) {
+                applyDisplayed(from: newInfo)
+                displayedTrackKey = newKey
+                nextArtworkImage = nil
+                artworkFlipAngle = 0
             }
         } else {
             // Quiet crossfade — no rotation. Mirrors Apple Music's

@@ -20,17 +20,33 @@ import SwiftUI
 ///
 /// **Layer structure**:
 /// ```
-/// containerLayer  (sublayerTransform: perspective m34 = -1/500)
-///   ├─ imageLayer       (contents = NSImage.cgImage)
-///   ├─ placeholderLayer (NSImage of "music.note" SF Symbol, hidden when image present)
-///   └─ strokeLayer      (CAShapeLayer for the 0.5pt 10%-white border)
+/// containerLayer  (sublayerTransform: perspective m34 = -1/800)
+///   ├─ placeholderBgLayer  (white @ 8%, fixed)
+///   ├─ placeholderGlyphLayer (SF Symbol music.note, fixed)
+///   ├─ imageLayer       (FRONT face — current artwork)
+///   ├─ nextImageLayer   (BACK face — incoming artwork during a flip;
+///   │                    intrinsically pre-rotated 180° around Y so
+///   │                    when the outer rotation reaches 180° the
+///   │                    back content is right-side up. Empty at
+///   │                    rest, populated by `setImage` when a track
+///   │                    change triggers an animated swap.)
+///   └─ strokeLayer      (CAShapeLayer, 0.5pt 10%-white border)
 /// ```
 ///
 /// The container has `masksToBounds = true` + `cornerRadius = 5`
 /// so all sublayers are clipped to the rounded square. The
 /// `sublayerTransform` applies perspective to children only — that
-/// way the 3D rotation on `imageLayer` reads as having depth, not
-/// a flat 2D rotation.
+/// way the 3D rotation on the image layers reads as having depth.
+///
+/// **Two-faced flip pattern** (2026-05-06): on a track change, the
+/// NEW artwork is pre-loaded onto `nextImageLayer` while the OLD
+/// artwork stays on `imageLayer`. Both rotate 180° around Y in sync,
+/// and step-keyframed opacity gates which face is visible — front
+/// fades to 0 at midpoint, back fades to 1. The user sees the OLD
+/// artwork rotating away on the front and the NEW artwork rotating
+/// into view on the back. After the flip settles `imageLayer`
+/// receives the new contents and `nextImageLayer` is cleared so the
+/// next flip starts from the same clean state.
 struct PillArtworkLayerView: NSViewRepresentable {
     let image: NSImage?
     let trackKey: String
@@ -77,6 +93,12 @@ struct PillArtworkLayerView: NSViewRepresentable {
 final class PillArtworkNSView: NSView {
     private let containerLayer = CALayer()
     private let imageLayer = CALayer()
+    /// BACK face for the two-faced flip — populated with the
+    /// incoming artwork only during a track-change flip. Has an
+    /// intrinsic 180° Y-rotation so when the outer rotation
+    /// reaches π the back content is right-side up. Empty at
+    /// rest.
+    private let nextImageLayer = CALayer()
     private let placeholderBgLayer = CALayer()
     private let placeholderGlyphLayer = CALayer()
     private let strokeLayer = CAShapeLayer()
@@ -137,10 +159,21 @@ final class PillArtworkNSView: NSView {
         placeholderGlyphLayer.opacity = 0.55
         containerLayer.addSublayer(placeholderGlyphLayer)
 
-        // Image layer — initially empty.
+        // Image layer — initially empty. This is the FRONT face
+        // of the two-faced flip card.
         imageLayer.contentsGravity = .resizeAspectFill
         imageLayer.opacity = 0
         containerLayer.addSublayer(imageLayer)
+
+        // Next-image layer — the BACK face. Pre-rotated 180°
+        // around Y so when the outer rotation passes through π
+        // the back content is right-side up (intrinsic 180° +
+        // outer 180° = 360° = 0° mod 2π). Hidden at rest;
+        // populated only during a track-change flip.
+        nextImageLayer.contentsGravity = .resizeAspectFill
+        nextImageLayer.opacity = 0
+        nextImageLayer.transform = CATransform3DMakeRotation(.pi, 0, 1, 0)
+        containerLayer.addSublayer(nextImageLayer)
 
         // Stroke (0.5pt 10%-white border).
         strokeLayer.fillColor = NSColor.clear.cgColor
@@ -167,6 +200,7 @@ final class PillArtworkNSView: NSView {
             height: glyphSize
         )
         imageLayer.frame = b
+        nextImageLayer.frame = b
         strokeLayer.frame = b
         // Inset stroke by 0.25pt so the 0.5pt line is centered on
         // the rounded rect edge — without inset half the stroke
@@ -202,80 +236,108 @@ final class PillArtworkNSView: NSView {
         }
     }
 
-    private func performFlipSwap(to cgImage: CGImage?, hasImage: Bool) {
-        // SINGLE continuous rotation + scale.x mirror compensation.
+    private func performFlipSwap(to newCGImage: CGImage?, hasImage: Bool) {
+        // Two-faced flip. Pre-load the new artwork onto nextImageLayer
+        // (which lives behind imageLayer with an intrinsic 180° Y
+        // rotation), then animate BOTH layers' rotation 0→π in lockstep
+        // while step-keyframing opacity to swap which face is visible.
         //
-        // Why this is smoother than the two-phase approach:
-        //   • Two phases (0→-π/2 then π/2→0) split the rotation
-        //     into separate animations that meet at the edge-on
-        //     moment. With ease-in on phase 1 and ease-out on
-        //     phase 2, the rotation DECELERATES into the midpoint,
-        //     pauses for one frame, then ACCELERATES out — visible
-        //     as a hesitation.
-        //   • One continuous 0→π rotation never decelerates at the
-        //     midpoint. The motion reads as one fluid gesture.
+        // Result: user sees OLD artwork rotating away on the front face
+        // for the first 90° of motion, then NEW artwork rotating into
+        // place on the back face for the second 90°. True card flip,
+        // no mid-motion content snap.
         //
-        // The mirror-compensation trick:
-        //   Rotating around Y axis flips the texture horizontally
-        //   when it passes 90° (the back face shows mirrored). To
-        //   compensate, we animate `transform.scale.x` as a step
-        //   keyframe: 1 from start to just before midpoint, then
-        //   -1 from just after midpoint to end. The instantaneous
-        //   sign flip at the edge-on moment is invisible (layer is
-        //   already foreshortened to a vertical line) but makes the
-        //   continuing rotation past 90° show the new content
-        //   un-mirrored. This is the `cosineSign` trick from
-        //   jackson-storm/DynamicNotch's AlbumArtFlipModifier
-        //   (referenced in the 2026-04-29 reverse-engineering
-        //   research) translated to Core Animation.
+        // After the rotation settles, imageLayer is promoted to hold
+        // the new contents and nextImageLayer is cleared so the next
+        // flip starts from the same clean state.
         let duration: TimeInterval = 0.36
-        let beginTime = CACurrentMediaTime()
 
-        let rotate = CABasicAnimation(keyPath: "transform.rotation.y")
-        rotate.fromValue = 0
-        rotate.toValue = CGFloat.pi
-        rotate.duration = duration
-        // Smooth ease-in-out with a slightly steeper acceleration —
-        // (0.4, 0, 0.6, 1) is a clean S-curve that doesn't linger
-        // at either end. Standard "smooth" bezier used by Alcove
-        // and most polished macOS animations.
-        rotate.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0, 0.6, 1)
-        rotate.fillMode = .forwards
-        rotate.isRemovedOnCompletion = false
+        // 1. Pre-load the new artwork onto the BACK face. No animation
+        //    here — direct content swap while the back is invisible.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        nextImageLayer.contents = newCGImage
+        // nextImageLayer.opacity stays 0 until the keyframe flips it
+        // to 1 at the midpoint. Setting transform back to its
+        // intrinsic 180° rotation in case a previous flip's cleanup
+        // didn't land cleanly.
+        nextImageLayer.transform = CATransform3DMakeRotation(.pi, 0, 1, 0)
+        CATransaction.commit()
 
-        let mirror = CAKeyframeAnimation(keyPath: "transform.scale.x")
-        mirror.values = [1.0, 1.0, -1.0, -1.0]
-        mirror.keyTimes = [0.0, 0.499, 0.501, 1.0]
-        mirror.calculationMode = .discrete  // step-function, no interpolation
-        mirror.duration = duration
-        mirror.fillMode = .forwards
-        mirror.isRemovedOnCompletion = false
+        // 2. Build the rotation animation. Front layer rotates 0→π;
+        //    back layer rotates from its intrinsic π to 2π so it
+        //    ends at identity (right-side up) when the flip lands.
+        //    Same easing on both so they stay in lockstep.
+        let timing = CAMediaTimingFunction(controlPoints: 0.4, 0, 0.6, 1)
 
-        imageLayer.add(rotate, forKey: "flipRotate")
-        imageLayer.add(mirror, forKey: "flipMirror")
+        let frontRotate = CABasicAnimation(keyPath: "transform.rotation.y")
+        frontRotate.fromValue = 0
+        frontRotate.toValue = CGFloat.pi
+        frontRotate.duration = duration
+        frontRotate.timingFunction = timing
+        frontRotate.fillMode = .forwards
+        frontRotate.isRemovedOnCompletion = false
 
-        // Swap content at the edge-on moment — the layer is a
-        // zero-width line at this instant, so the user never sees
-        // the swap itself, only the new content rotating in.
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration / 2) { [weak self] in
-            self?.applyImageContent(cgImage, hasImage: hasImage, animated: false)
-        }
+        let backRotate = CABasicAnimation(keyPath: "transform.rotation.y")
+        backRotate.fromValue = CGFloat.pi
+        backRotate.toValue = 2 * CGFloat.pi
+        backRotate.duration = duration
+        backRotate.timingFunction = timing
+        backRotate.fillMode = .forwards
+        backRotate.isRemovedOnCompletion = false
 
-        // After the full rotation completes, the layer is at
-        // rotation=π and scale.x=-1 — i.e. mirrored 180° upside-down
-        // from identity. Visually it READS as identical to identity
-        // (rotated 180° + horizontally mirrored = original), but
-        // we should explicitly reset to clean identity so cumulative
-        // animations don't drift over many flips.
+        // 3. Opacity step-keyframes — invisible-to-1 swap at midpoint.
+        //    The 0.499/0.501 split is one frame wide so the eye sees
+        //    one face crossfade out into the other at the edge-on
+        //    moment; with both faces at zero visible width during
+        //    that one frame the discrete swap is imperceptible.
+        let frontOpacity = CAKeyframeAnimation(keyPath: "opacity")
+        frontOpacity.values = [1.0, 1.0, 0.0, 0.0]
+        frontOpacity.keyTimes = [0.0, 0.499, 0.501, 1.0]
+        frontOpacity.calculationMode = .discrete
+        frontOpacity.duration = duration
+        frontOpacity.fillMode = .forwards
+        frontOpacity.isRemovedOnCompletion = false
+
+        let backOpacity = CAKeyframeAnimation(keyPath: "opacity")
+        backOpacity.values = [0.0, 0.0, 1.0, 1.0]
+        backOpacity.keyTimes = [0.0, 0.499, 0.501, 1.0]
+        backOpacity.calculationMode = .discrete
+        backOpacity.duration = duration
+        backOpacity.fillMode = .forwards
+        backOpacity.isRemovedOnCompletion = false
+
+        imageLayer.add(frontRotate, forKey: "flipRotate")
+        imageLayer.add(frontOpacity, forKey: "flipOpacity")
+        nextImageLayer.add(backRotate, forKey: "flipRotate")
+        nextImageLayer.add(backOpacity, forKey: "flipOpacity")
+
+        // 4. After the rotation settles: promote the new artwork to
+        //    the front layer and clean up the back. Done in one
+        //    CATransaction with actions disabled so SwiftUI's diff
+        //    pass doesn't see an intermediate state.
         DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.01) { [weak self] in
             guard let self else { return }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            self.imageLayer.removeAnimation(forKey: "flipRotate")
-            self.imageLayer.removeAnimation(forKey: "flipMirror")
+            // Front: receive the new image, reset rotation/opacity.
+            self.imageLayer.contents = newCGImage
+            self.imageLayer.opacity = hasImage ? 1 : 0
             self.imageLayer.transform = CATransform3DIdentity
+            self.imageLayer.removeAnimation(forKey: "flipRotate")
+            self.imageLayer.removeAnimation(forKey: "flipOpacity")
+            // Back: clear contents, reset to its at-rest state
+            // (opacity 0, intrinsic 180° rotation). Animations
+            // removed so the next flip starts clean.
+            self.nextImageLayer.contents = nil
+            self.nextImageLayer.opacity = 0
+            self.nextImageLayer.transform = CATransform3DMakeRotation(.pi, 0, 1, 0)
+            self.nextImageLayer.removeAnimation(forKey: "flipRotate")
+            self.nextImageLayer.removeAnimation(forKey: "flipOpacity")
+            // Placeholder visibility tracks the new image presence.
+            self.placeholderBgLayer.opacity = hasImage ? 0 : 1
+            self.placeholderGlyphLayer.opacity = hasImage ? 0 : 0.55
             CATransaction.commit()
-            _ = beginTime  // silence unused-variable warning if compiler complains
         }
     }
 

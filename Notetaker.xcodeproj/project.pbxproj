@@ -20,6 +20,7 @@
 		2392E7D0307561B283550D39 /* RetentionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C727DFD4A4E2C994662FBCD /* RetentionServiceTests.swift */; };
 		251BAF64E160A858D45552CE /* MarkdownTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97CDA86F6ECA5B63928EBC6 /* MarkdownTextEditor.swift */; };
 		256A0AED9F319A7E21DAB17A /* LockMusicCardWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28DD915C8DAF5516CFA60ECD /* LockMusicCardWindow.swift */; };
+		LNI0AB1B2C3D4E5F60123456A /* LockNotchIndicatorWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = LNI0AB1B2C3D4E5F60123456B /* LockNotchIndicatorWindow.swift */; };
 		29BFEF9F7B7F1D05891A1FCF /* WallpaperBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E34CFE45F822563424B45CA /* WallpaperBackdrop.swift */; };
 		2A3E5F59B43C598866A4D112 /* SystemAudioWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = B84F72E6A964E7C5AAB939D5 /* SystemAudioWatcher.swift */; };
 		2A4069BD9939F9C50685EC10 /* ChargingPillView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11E8C7CA7D68E76823EDE14B /* ChargingPillView.swift */; };
@@ -72,6 +73,7 @@
 		A03C329E9EC0564F99966060 /* NotchSpaceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDD1644F617ACB89D33B0AFC /* NotchSpaceManager.swift */; };
 		A1C755F02993CF170C67F3D9 /* VisualEffectBlur.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49F3E930B53845768E94455B /* VisualEffectBlur.swift */; };
 		A46458AD0F8C2134AE7B2430 /* MusicPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F1301544ED258BD8685CBC /* MusicPanelView.swift */; };
+		CTP0AB1B2C3D4E5F60123456A /* CalendarTodayPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = CTP0AB1B2C3D4E5F60123456B /* CalendarTodayPane.swift */; };
 		A6D71054CF33678CA76FFBF2 /* SystemAudioMuter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17C6831B98A974263726998E /* SystemAudioMuter.swift */; };
 		A7002471FBEA18FDA06E9933 /* WaveformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1777434BD7BE29A5FB27D0BD /* WaveformView.swift */; };
 		A9518BBFE8601B16A7F4B893 /* NoteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE8C4545B6EB30E073A8D77E /* NoteStore.swift */; };
@@ -145,6 +147,7 @@
 		200887B134644E26FF57F8EE /* FileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileStore.swift; sourceTree = "<group>"; };
 		23137B87C33CCD23343DD8E7 /* DictationRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DictationRecorder.swift; sourceTree = "<group>"; };
 		28DD915C8DAF5516CFA60ECD /* LockMusicCardWindow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LockMusicCardWindow.swift; sourceTree = "<group>"; };
+		LNI0AB1B2C3D4E5F60123456B /* LockNotchIndicatorWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockNotchIndicatorWindow.swift; sourceTree = "<group>"; };
 		2D0433C667BB1E97BF099E71 /* LocalWhisperService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalWhisperService.swift; sourceTree = "<group>"; };
 		SECKEY00001A1B2C3D4E5F03 /* SecureKeyStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SecureKeyStore.swift; sourceTree = "<group>"; };
 		2D4C3A2DAAE3213444EE781E /* ArtworkCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ArtworkCache.swift; sourceTree = "<group>"; };
@@ -208,6 +211,7 @@
 		C31BA8766D55CD5B624A2524 /* MediaRemoteAdapterService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MediaRemoteAdapterService.swift; sourceTree = "<group>"; };
 		C4D95CDD3FF7B623707D6BE4 /* DictationRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DictationRouter.swift; sourceTree = "<group>"; };
 		C7F1301544ED258BD8685CBC /* MusicPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicPanelView.swift; sourceTree = "<group>"; };
+		CTP0AB1B2C3D4E5F60123456B /* CalendarTodayPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarTodayPane.swift; sourceTree = "<group>"; };
 		C896F1E795F01FD77D8AE30E /* DictationPillView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DictationPillView.swift; sourceTree = "<group>"; };
 		C97BC580878C88D99FE7AB2F /* CelebrateIfRecent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CelebrateIfRecent.swift; sourceTree = "<group>"; };
 		C97CDA86F6ECA5B63928EBC6 /* MarkdownTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextEditor.swift; sourceTree = "<group>"; };
@@ -397,6 +401,7 @@
 				C97CDA86F6ECA5B63928EBC6 /* MarkdownTextEditor.swift */,
 				D047BF968A9B749E20E50F79 /* MultiFileDragSource.swift */,
 				C7F1301544ED258BD8685CBC /* MusicPanelView.swift */,
+				CTP0AB1B2C3D4E5F60123456B /* CalendarTodayPane.swift */,
 				4AF23A9CA540FCB310042CA3 /* NotesListView.swift */,
 				BACKDROP02A1B2C3D4E5F0002 /* BackdropController.swift */,
 				BTROW00002A1B2C3D4E5F002 /* BluetoothBatteryRow.swift */,
@@ -408,6 +413,7 @@
 				VCMPF001A1B2C3D4E5F00002 /* PopoutNoteWindow.swift */,
 				49F3E930B53845768E94455B /* VisualEffectBlur.swift */,
 				28DD915C8DAF5516CFA60ECD /* LockMusicCardWindow.swift */,
+				LNI0AB1B2C3D4E5F60123456B /* LockNotchIndicatorWindow.swift */,
 				6BED01A6318CC7BB6DECC1BF /* LiquidGlass.swift */,
 				AB0C6249F53F126335E3007E /* LiquidGlass.metal */,
 				0E34CFE45F822563424B45CA /* WallpaperBackdrop.swift */,
@@ -661,6 +667,7 @@
 				4E42547CCEB204EE181E2B34 /* Models.swift in Sources */,
 				DC88E07E27734DDB1B3F9E22 /* MultiFileDragSource.swift in Sources */,
 				A46458AD0F8C2134AE7B2430 /* MusicPanelView.swift in Sources */,
+				CTP0AB1B2C3D4E5F60123456A /* CalendarTodayPane.swift in Sources */,
 				3EB8D6E02C178E831BFDF952 /* NotchHUDWindowController.swift in Sources */,
 				E50303E046B702C2890C02B9 /* NotchOrchestrator.swift in Sources */,
 				A9518BBFE8601B16A7F4B893 /* NoteStore.swift in Sources */,
@@ -690,6 +697,7 @@
 				A03C329E9EC0564F99966060 /* NotchSpaceManager.swift in Sources */,
 				176305FF71A81155D7870BB8 /* LockScreenWatcher.swift in Sources */,
 				256A0AED9F319A7E21DAB17A /* LockMusicCardWindow.swift in Sources */,
+				LNI0AB1B2C3D4E5F60123456A /* LockNotchIndicatorWindow.swift in Sources */,
 				94C68DED0EA881E8B6221E04 /* LiquidGlass.swift in Sources */,
 				8700FB67E5E6CF2643437CE5 /* LiquidGlass.metal in Sources */,
 				29BFEF9F7B7F1D05891A1FCF /* WallpaperBackdrop.swift in Sources */,

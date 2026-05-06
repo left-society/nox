@@ -298,10 +298,15 @@ private struct FileRow: View {
 
     var body: some View {
         HStack(spacing: DS.Spacing.md) {
-            // Finder icon — exact same Quick Look icon the user sees
-            // when looking at the file in Finder. Cheap to fetch
-            // and keeps the row instantly recognisable.
-            Image(nsImage: NSWorkspace.shared.icon(forFile: file.url.path))
+            // Finder icon — pre-resolved at stage time and cached
+            // on the StagedFile struct. Reading the cached NSImage
+            // is a property access; the previous version called
+            // `NSWorkspace.shared.icon(forFile:)` synchronously
+            // inside body() which for PDFs and other Quick-Look-
+            // rendered types could take 50-200ms per body
+            // evaluation, stalling the panel-open animation every
+            // time the user re-opened with a fresh file in the list.
+            Image(nsImage: file.icon)
                 .resizable()
                 .interpolation(.high)
                 .frame(width: 28, height: 28)

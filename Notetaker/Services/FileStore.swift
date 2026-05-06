@@ -19,6 +19,17 @@ final class FileStore: ObservableObject {
         let displayName: String
         let sizeBytes: Int64?
         let stagedAt: Date
+        /// Pre-resolved Finder icon. Cached at stage time so the
+        /// FilesGridView cells don't have to call
+        /// `NSWorkspace.shared.icon(forFile:)` synchronously inside
+        /// `body` — that call can take 50-200ms for PDFs and other
+        /// types that trigger Quick Look preview rendering, which
+        /// stalled the panel-open animation every time the user
+        /// re-opened with a recently-staged file. Resolving once at
+        /// stage time means the cost lands during the drop (when the
+        /// panel is already open, so a brief blip is imperceptible)
+        /// instead of on every subsequent reopen.
+        let icon: NSImage
 
         static func == (lhs: StagedFile, rhs: StagedFile) -> Bool {
             lhs.id == rhs.id
@@ -36,12 +47,19 @@ final class FileStore: ObservableObject {
             existingPaths.insert(path)
             let attrs = try? FileManager.default.attributesOfItem(atPath: path)
             let size = (attrs?[.size] as? NSNumber)?.int64Value
+            // Resolve icon ONCE at stage time (see StagedFile.icon
+            // doc above for why). Synchronous on the main actor is
+            // fine here — the panel is open during a drop, so any
+            // Quick Look preview generation cost is hidden by the
+            // ongoing drop interaction.
+            let icon = NSWorkspace.shared.icon(forFile: path)
             let staged = StagedFile(
                 id: UUID().uuidString,
                 url: url.standardizedFileURL,
                 displayName: url.lastPathComponent,
                 sizeBytes: size,
-                stagedAt: Date()
+                stagedAt: Date(),
+                icon: icon
             )
             files.append(staged)
             changed = true

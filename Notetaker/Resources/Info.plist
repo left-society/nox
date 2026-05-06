@@ -17,9 +17,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.8</string>
+	<string>1.9</string>
 	<key>CFBundleVersion</key>
-	<string>9</string>
+	<string>10</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>LSUIElement</key>
@@ -30,6 +30,17 @@
 	<string>Copyright © 2026 Aritra Debnath.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Notetaker transcribes your voice offline to create notes. Audio never leaves your Mac.</string>
+	<!-- Calendar access — required for the music-panel calendar pane
+	     and the meeting pill on the closed notch. Without these
+	     strings macOS silently denies EKEventStore.requestFullAccessToEvents,
+	     so the "Connect Calendar" affordance does nothing.
+	     Two keys: the macOS 14+ "full access" key and the legacy
+	     pre-14 "calendars" key — both should be present so the
+	     prompt shows correctly across deployment targets. -->
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>nox shows today's events from Calendar in the music panel and surfaces the next meeting on the notch pill.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>nox shows today's events from Calendar in the music panel and surfaces the next meeting on the notch pill.</string>
 	<!-- Sparkle auto-update — see scripts/release.sh + appcast.xml -->
 	<!-- Sparkle polls this XML for new versions daily. Hosted via
 	     GitHub Pages on the public release repo (left-society/nox)

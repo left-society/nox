@@ -48,7 +48,12 @@ enum PanelTab: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .music: return "Music"
+        // 2026-05-06: renamed Music → Live. The tab now shows
+        // both what's playing AND today's calendar events, so the
+        // music-only label was stale. "Live" captures the
+        // "happening right now" character of both panes — a track
+        // is playing live, and the day is unfolding live.
+        case .music: return "Live"
         case .notes: return "Notes"
         case .images: return "Images"
         case .videos: return "Videos"
@@ -364,10 +369,23 @@ struct PanelRootView: View {
         if presenter.nowPlaying != nil {
             return 6
         }
-        // No-music closed (notch-hidden): sharp 90° top corners
-        // matching the actual MacBook notch hardware boundary.
-        // Silhouette merges invisibly with the physical cutout.
-        return 0
+        // No-music closed (notch-hidden): 4pt subtle shoulder.
+        // 2026-05-06 measured against Alcove: their `NotchShape`
+        // class uses dynamic corner radii on BOTH ends in the
+        // empty state, giving a subtle pill character at rest
+        // and through the tease morph. Previously this returned
+        // 0 (sharp 90° corners) to match the hardware notch
+        // exactly, but the resulting tease read as "a black
+        // rectangle widening" instead of "a pill flexing" — user
+        // feedback: "still getting wider instead of that gentle
+        // eye view." The hardware-notch feel was a pyrrhic win:
+        // perfect at rest, broken on hover.
+        //
+        // 4pt is subtler than the music pill's 6 (so the no-music
+        // pill still reads as smaller / less prominent than music),
+        // but enough that the tease grow from 185→200pt looks like
+        // a soft pill flexing instead of a sharp-cornered widening.
+        return 4
     }
 
     // MARK: - Body
@@ -3872,7 +3890,11 @@ extension AnyTransition {
 // during the pill→slab morph, so the shoulder curve scales
 // smoothly alongside the bottom radius animation.
 
-private struct OutwardFlaredShape: Shape {
+// Module-internal (was `private`) so other panels in the same
+// target — currently `LockNotchIndicatorView` — can render with
+// the EXACT same alcove silhouette (inverse-bow top shoulders,
+// rounded bottom corners) instead of approximating with Capsule.
+struct OutwardFlaredShape: Shape {
     /// Inverse-bow shoulder radius at the top corners. Drives the
     /// extent of the concave-outward dip where the slab edge
     /// "tucks under" the menu bar. Pill ~6pt, slab ~22pt — small

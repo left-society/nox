@@ -61,13 +61,15 @@ final class LockMusicCardWindowController {
     init(presenter: PanelPresenter) {
         self.presenter = presenter
 
-        // Card geometry: 520×190 — measured against Alcove's
-        // lock-screen card (user 2026-05-06 photo with both apps
-        // open simultaneously showed our 420×160 card noticeably
-        // smaller than Alcove's). 520 is the new horizontal width
-        // and 190 the new height; the y-anchor (18% from screen
-        // bottom) stays — only the dimensions changed.
-        let initialFrame = NSRect(x: 0, y: 0, width: 520, height: 190)
+        // 2026-05-06 (rev 3): user said the previous state was
+        // better and asked for SMALLER + HIGHER on the lock
+        // screen. Reverting from 520×190 → 380×140 (smaller than
+        // even the original 420×160), and y-anchor moves up to
+        // 0.22 in `positionForLockScreen()`. The card no longer
+        // tries to match Alcove's exact size — the user prefers
+        // a more compact card sitting higher above the password
+        // prompt.
+        let initialFrame = NSRect(x: 0, y: 0, width: 380, height: 140)
         self.panel = LockMusicCardPanel(
             contentRect: initialFrame,
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView, .hudWindow, .utilityWindow],
@@ -212,13 +214,20 @@ final class LockMusicCardWindowController {
     private func positionForLockScreen() {
         guard let screen = NSScreen.main else { return }
         let frame = screen.frame
-        let cardWidth: CGFloat = 420
-        let cardHeight: CGFloat = 160
+        let cardWidth: CGFloat = 380
+        let cardHeight: CGFloat = 140
         let x = frame.midX - cardWidth / 2
         // 18% from the bottom — empirically matches Alcove's card
         // placement (it sits clearly above the password prompt
         // with breathing room, not centered).
-        let y = frame.minY + frame.height * 0.18
+        // 2026-05-06 (rev 3): y-anchor moved UP to 0.22. User asked
+        // to "move the music card above" after the 0.12 attempt
+        // sat too close to the password prompt. With cardHeight
+        // 140 on a 1080-tall display, 0.22 puts the card BOTTOM at
+        // ~22% above screen bottom — clearly above the password
+        // area but still in the lower-middle band where lock-screen
+        // glance content typically sits.
+        let y = frame.minY + frame.height * 0.22
         panel.setFrame(
             NSRect(x: x, y: y, width: cardWidth, height: cardHeight),
             display: false
@@ -272,8 +281,8 @@ struct LockMusicCardView: View {
     /// up the right `NSScreen` if the user changed displays.
     private var cardScreenFrame: NSRect {
         guard let screen = NSScreen.main else { return .zero }
-        let cardWidth: CGFloat = 420
-        let cardHeight: CGFloat = 160
+        let cardWidth: CGFloat = 380
+        let cardHeight: CGFloat = 140
         let x = screen.frame.midX - cardWidth / 2
         let y = screen.frame.minY + screen.frame.height * 0.18
         return NSRect(x: x, y: y, width: cardWidth, height: cardHeight)
@@ -284,7 +293,7 @@ struct LockMusicCardView: View {
         return cardContent
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .frame(width: 420, height: 160)
+            .frame(width: 380, height: 140)
             .background {
                 // Real Liquid Glass via wallpaper-image backdrop.
                 //
@@ -310,32 +319,37 @@ struct LockMusicCardView: View {
                 // and live wallpaper-tint that the static
                 // wallpaper image alone wouldn't.
                 ZStack {
-                    WallpaperBackdrop(cardScreenFrame: cardScreenFrame)
-                        // Lensing strength was 22 — too aggressive,
-                        // showed the displacement obviously which
-                        // read as "warped wrong" instead of "real
-                        // glass." Pulled back to 10 (subtle) +
-                        // aberration 3 so it whispers rather than
-                        // shouts. This matches what real glass at
-                        // this thickness would do — a slight
-                        // refraction at the edges, almost
-                        // imperceptible chromatic fringe.
-                        .liquidGlass(strength: 10, aberration: 3)
-                        .clipShape(cardShape)
-                    // 2026-05-01: switched from `.menu` material to
-                    // `.hudWindow` and added a dark tint overlay.
-                    // The previous `.menu` + forced light colorScheme
-                    // gave a washed-out light-blue look against
-                    // colourful wallpapers (user shot showed Sequoia
-                    // blue wallpaper bleeding through, made the card
-                    // look cyan-tinted instead of premium dark
-                    // glass). The hudWindow material is darker by
-                    // default and reads as proper "frosted dark
-                    // glass" — same vocabulary as the panel above.
-                    VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
-                        .clipShape(cardShape)
-                    Color.black.opacity(0.18)
-                        .clipShape(cardShape)
+                    // 2026-05-06 (rev 5): tiered glass strategy.
+                    //
+                    // macOS 26+ → Apple's native Liquid Glass
+                    //   (`glassEffect(.regular, in: shape)`,
+                    //   introduced WWDC25 session 219). One
+                    //   modifier; uses the system's real lensing
+                    //   + adaptive tinting + specular pipeline.
+                    //   No backport exists, so anything older
+                    //   gets the custom path below.
+                    //
+                    // macOS 13–25 → our custom Metal pipeline
+                    //   (wallpaper sampled directly from disk
+                    //   via NSWorkspace.desktopImageURL → blur
+                    //   for frosted softness → liquidGlass
+                    //   shader for edge refraction → clipShape).
+                    //   Wallpaper-direct sampling is the ONLY
+                    //   approach that survives the lock-screen
+                    //   compositor — `NSVisualEffectView` and
+                    //   `CABackdropLayer` both go black there.
+                    //
+                    // Both branches end with the same hairline
+                    // stroke for silhouette definition.
+                    if #available(macOS 26.0, *) {
+                        Color.clear
+                            .glassEffect(.regular, in: cardShape)
+                    } else {
+                        WallpaperBackdrop(cardScreenFrame: cardScreenFrame)
+                            .blur(radius: 22)
+                            .liquidGlass(strength: 22, aberration: 6)
+                            .clipShape(cardShape)
+                    }
                     cardShape
                         .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5)
                 }
@@ -633,7 +647,11 @@ struct LockMusicCardView: View {
 /// drives a damped sin oscillation across the X axis. Three full
 /// cycles per unit so the shake reads as a deliberate "no, you
 /// need to actually unlock" feedback rather than a glitch.
-private struct ShakeEffect: GeometryEffect {
+// Module-internal (was `private`) so other lock-screen views in
+// the same target — currently `LockNotchIndicatorView` — can reuse
+// the exact same shake curve without copy-pasting it. Keeps the
+// "tap-while-locked" gesture feeling identical across both pills.
+struct ShakeEffect: GeometryEffect {
     var animatableData: CGFloat
     /// Pixels of horizontal travel per oscillation.
     private let amplitude: CGFloat = 6

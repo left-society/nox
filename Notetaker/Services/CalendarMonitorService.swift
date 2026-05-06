@@ -32,6 +32,40 @@ final class CalendarMonitorService: ObservableObject {
     /// hooks into to drive the pill.
     @Published private(set) var upcoming: UpcomingEvent?
 
+    /// All of TODAY's calendar events (post-filter), sorted
+    /// chronologically. Refreshed in the same poll as `upcoming`.
+    /// Used by the music-panel calendar widget — separate from
+    /// `upcoming` because the widget shows the full day's events
+    /// regardless of `leadTime`, including all-day banners which
+    /// the meeting pill explicitly excludes.
+    @Published private(set) var todayEvents: [TodayEvent] = []
+
+    /// Lightweight payload for the calendar widget. Carries only
+    /// what the widget needs (title, time range, calendar color
+    /// for the dot). Independent of `UpcomingEvent` because the
+    /// surface area + filtering rules differ — UpcomingEvent is
+    /// "join-meeting-now" pill data, TodayEvent is "what's on
+    /// your day at a glance" widget data.
+    struct TodayEvent: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let startDate: Date
+        let endDate: Date
+        let isAllDay: Bool
+        /// CGColor → SwiftUI Color via `Color(cgColor:)`. Used for
+        /// the colored dot next to each row, matching Apple
+        /// Calendar's per-calendar tint.
+        let calendarColorRGB: (red: Double, green: Double, blue: Double, alpha: Double)?
+
+        static func == (lhs: TodayEvent, rhs: TodayEvent) -> Bool {
+            lhs.id == rhs.id
+                && lhs.title == rhs.title
+                && lhs.startDate == rhs.startDate
+                && lhs.endDate == rhs.endDate
+                && lhs.isAllDay == rhs.isAllDay
+        }
+    }
+
     /// Authorization state. Mirrors `EKEventStore.authorizationStatus`
     /// but published so SwiftUI views can react to flips.
     @Published private(set) var authorizationStatus: EKAuthorizationStatus = .notDetermined
@@ -171,8 +205,16 @@ final class CalendarMonitorService: ObservableObject {
                 upcoming = nil
                 onUpcomingChange?(nil)
             }
+            if !todayEvents.isEmpty { todayEvents = [] }
             return
         }
+
+        // Populate today's events for the music-panel calendar
+        // widget. Independent of the `leadTime` window — the widget
+        // wants the FULL day, including all-day banners and events
+        // earlier in the day that are already done (so the user can
+        // glance and confirm "yeah, my day is over").
+        refreshTodayEvents()
 
         let now = Date()
         // Look forward `leadTime` seconds plus a 60-second slop
@@ -217,6 +259,66 @@ final class CalendarMonitorService: ObservableObject {
         if upcoming != snapshot {
             upcoming = snapshot
             onUpcomingChange?(snapshot)
+        }
+    }
+
+    /// Re-read today's events for the music-panel calendar widget.
+    /// Pulls the WHOLE day (00:00:00 → 23:59:59), filters declined
+    /// events but keeps all-day banners (the widget wants to show
+    /// "Birthday: Aritra" type entries that the meeting pill drops).
+    /// Sorted chronologically, with all-day events floated to the
+    /// top — matches Apple Calendar's day-view ordering.
+    private func refreshTodayEvents() {
+        let cal = Calendar.current
+        let now = Date()
+        let startOfDay = cal.startOfDay(for: now)
+        guard let endOfDay = cal.date(byAdding: .day, value: 1, to: startOfDay) else {
+            todayEvents = []
+            return
+        }
+        let calendars = store.calendars(for: .event)
+        let predicate = store.predicateForEvents(
+            withStart: startOfDay,
+            end: endOfDay,
+            calendars: calendars
+        )
+        let raw = store.events(matching: predicate)
+            .filter { event in
+                // Drop declined invites — same logic the meeting
+                // pill uses. EKEvent.attendees is nil if the user
+                // is the organizer; in that case `me` is nil and
+                // we keep the event.
+                let me = event.attendees?.first(where: { $0.isCurrentUser })
+                return (me?.participantStatus ?? .accepted) != .declined
+            }
+            .sorted { a, b in
+                // All-day events first, then chronological.
+                if a.isAllDay != b.isAllDay { return a.isAllDay }
+                return a.startDate < b.startDate
+            }
+
+        let mapped: [TodayEvent] = raw.map { event in
+            let cgColor = event.calendar?.cgColor
+            var rgba: (red: Double, green: Double, blue: Double, alpha: Double)?
+            if let c = cgColor,
+               let comps = c.components, comps.count >= 3 {
+                let alpha = comps.count >= 4 ? Double(comps[3]) : 1.0
+                rgba = (Double(comps[0]), Double(comps[1]), Double(comps[2]), alpha)
+            }
+            let id = event.eventIdentifier
+                ?? "\(event.startDate.timeIntervalSince1970)-\(event.title ?? "")"
+            return TodayEvent(
+                id: id,
+                title: event.title ?? "Untitled",
+                startDate: event.startDate,
+                endDate: event.endDate,
+                isAllDay: event.isAllDay,
+                calendarColorRGB: rgba
+            )
+        }
+
+        if mapped != todayEvents {
+            todayEvents = mapped
         }
     }
 

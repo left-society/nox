@@ -205,13 +205,33 @@ final class PanelWindowController {
     /// notch hardware width (~200pt), making it feel like a separate
     /// pill below the notch.
     ///
-    /// Now 220×8 — 220pt wide is just slightly past the notch
-    /// boundary (10pt visible past hardware on each side), 8pt bump
-    /// is a barely-perceptible visible tail below the menu bar.
-    /// Reads as "the notch hardware itself nudged slightly forward
-    /// in response to my cursor" — what the user described as
-    /// "working on the notch."
-    static let teasePillWidth: CGFloat = 220
+    /// Now 213×8 — fourth-pass tune calibrated to the FIRM TEASE
+    /// state captured in Alcove's frame-by-frame recording.
+    ///
+    /// Alcove has multiple tease tiers measured across 1706 frames:
+    ///   • IDLE         247-251 × 41-46 px (~185 × 33 pt total)
+    ///   • LIGHT TEASE  252-269 × 44-50 px (cursor near hot zone)
+    ///   • FIRM TEASE   270-319 × 65-74 px (cursor about to commit)
+    ///   • EXPANDED     320-440 × varies
+    ///   • OPEN         440-450 × 46-74
+    ///
+    /// FIRM TEASE peak (286 × 69 px ≈ 213 × 52 pt total) is the
+    /// state the user wants to match — that's the "I see you, hold
+    /// to commit" character with a clear sideways spread AND a
+    /// visible drop. Deltas vs idle:
+    ///   • Width:  185 → 213 pt = +28 pt (~+15% wider)
+    ///   • Height: 33 → 52 pt total, visible portion ~ +8pt
+    ///   Width-grow magnitude is ~3.5× the height-grow.
+    ///
+    /// Earlier 200×22 build was the OPPOSITE asymmetry: +15pt width
+    /// vs +22pt visible bump, so the eye read it as height-dominant
+    /// → "only moving down of the notch not the other sides." The
+    /// fix is to flip the ratio: width grow > height grow.
+    ///
+    ///   • teasePillWidth = 213 → +28pt past hardware notch
+    ///     (14pt visible spread on each side)
+    ///   • teasePillBump = 8 → modest visible drop below menu bar
+    static let teasePillWidth: CGFloat = 213
     static let teasePillBump: CGFloat = 8
     private static let edgeGap: CGFloat = 10
     private static let topGap: CGFloat = 40
@@ -1363,7 +1383,21 @@ final class PanelWindowController {
         isTeasing = false
 
         let screen = panel.screen ?? NSScreen.main
-        let closedFrame = closedPillFrame(for: screen)
+        // CRITICAL bug fixed 2026-05-06: was unconditionally retracting
+        // to `closedPillFrame` which is the MUSIC pill geometry
+        // (278pt wide). In no-music state this caused the panel to
+        // briefly grow WIDER mid-retract (from teasePill 200pt → music
+        // pill 278pt) before orderOut. User saw it as "going
+        // horizontally and creating a weird effect" — fast cursor hid
+        // the artifact, slow cursor exposed the morph.
+        //
+        // Mirror what hide() does: pick close target based on
+        // whether music is resting. No-music goes to notchHiddenFrame
+        // (matches hardware notch dimensions, the genuinely-closed
+        // state) instead of the wider music pill.
+        let closedFrame = presenter.isResting
+            ? closedPillFrame(for: screen)
+            : notchHiddenFrame(for: screen)
 
         animationGeneration &+= 1
         let myGen = animationGeneration
@@ -1640,12 +1674,24 @@ final class PanelWindowController {
             return s.frame.width - auxL.width - auxR.width
         }()
 
-        // visibleBump = 0 — silhouette is exactly flush with the
-        // menu-bar boundary (matches Apple's safeAreaInsets.top
-        // behavior). The close ends entirely tucked into the notch
-        // area with no visible portion below — exactly the real
-        // MacBook notch character. Halo on horizontal + bottom
-        // gives the GPU shadow room to render.
+        // visibleBump = 0 — silhouette is flush with the menu-bar
+        // boundary, fully tucked into the hardware notch. Tested
+        // visibleBump=8 briefly (2026-05-06) to give an Alcove-style
+        // visible idle nub, but the resulting silhouette overlapped
+        // browser tabs / window title bars sitting just below the
+        // menu bar — user reported "it's touching my bars." The
+        // hardware-notch close character is more important than
+        // matching Alcove's idle exactly.
+        //
+        // The Alcove-like tease feel still works without an idle
+        // nub because:
+        //   1. Tease draws with rounded shoulders (panelTopRadius=4
+        //      in the no-music state), so the grow reads as a
+        //      soft pill flexing rather than a sharp rectangle
+        //      sprouting from nothing.
+        //   2. teasePillBump is 22pt — substantial enough that the
+        //      tease pill is unambiguously visible even though the
+        //      idle state is invisible.
         let visibleBump: CGFloat = 0
         let width = visualNotchWidth + 2 * halo
         let height = overlap + visibleBump + halo
