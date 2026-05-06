@@ -847,7 +847,7 @@
   }
   .feature-list .head .self { color: var(--fg); }
   .feature-list .row {
-    padding: 14px 24px;
+    padding: 18px 24px;
     display: grid;
     grid-template-columns: 2fr repeat(4, 1fr);
     gap: 12px;
@@ -856,7 +856,25 @@
     font-size: 14.5px;
   }
   .feature-list .row:last-child { border-bottom: none; }
-  .feature-list .row .label { color: var(--fg-soft); font-weight: 500; }
+  /*  Each row is now a label + a one-line explainer that tells
+      a regular person WHY they'd want this — turning a terse
+      feature checklist into something a non-developer can
+      actually understand at a glance. */
+  .feature-list .row .label-col {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .feature-list .row .label {
+    color: var(--fg);
+    font-weight: 500;
+    font-size: 14.5px;
+  }
+  .feature-list .row .sub {
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
   .feature-list .row .self {
     color: var(--fg);
     font-weight: 600;
@@ -1274,7 +1292,10 @@
       </div>
 
       <div class="row">
-        <span class="label">Voice-to-text on your Mac</span>
+        <div class="label-col">
+          <span class="label">Talk and the words appear, no internet needed</span>
+          <span class="sub">Hold a key and speak. nox writes it out, right on your Mac. Works on a plane.</span>
+        </div>
         <span class="self" data-app="nox"><span class="check">✓</span></span>
         <span class="answer" data-app="Alcove"><span class="cross">✕</span></span>
         <span class="answer" data-app="NotchNook"><span class="cross">✕</span></span>
@@ -1282,7 +1303,10 @@
       </div>
 
       <div class="row">
-        <span class="label">Tells you what it does with your data</span>
+        <div class="label-col">
+          <span class="label">Tells you exactly what it does with your stuff</span>
+          <span class="sub">Plain-English promises in writing. What we touch, what we don't, what stays on your Mac.</span>
+        </div>
         <span class="self" data-app="nox"><span class="check">✓</span></span>
         <span class="answer" data-app="Alcove"><span class="cross">✕</span></span>
         <span class="answer" data-app="NotchNook"><span class="cross">✕</span></span>
@@ -1290,7 +1314,10 @@
       </div>
 
       <div class="row">
-        <span class="label">Updates itself automatically</span>
+        <div class="label-col">
+          <span class="label">Stays up to date on its own</span>
+          <span class="sub">A new version comes out, your app just becomes the new version. You don't do anything.</span>
+        </div>
         <span class="self" data-app="nox"><span class="check">✓</span></span>
         <span class="answer" data-app="Alcove"><span class="check">✓</span></span>
         <span class="answer" data-app="NotchNook"><span class="cross">✕</span></span>
@@ -1298,7 +1325,10 @@
       </div>
 
       <div class="row">
-        <span class="label">Code you can read yourself</span>
+        <div class="label-col">
+          <span class="label">Anyone can check what's inside</span>
+          <span class="sub">The whole app is on GitHub for anyone to read. Don't trust us? Look for yourself.</span>
+        </div>
         <span class="self" data-app="nox"><span class="check">✓</span></span>
         <span class="answer" data-app="Alcove"><span class="cross">✕</span></span>
         <span class="answer" data-app="NotchNook"><span class="cross">✕</span></span>
@@ -1306,7 +1336,10 @@
       </div>
 
       <div class="row">
-        <span class="label">Save videos from your browser</span>
+        <div class="label-col">
+          <span class="label">Save any video you're watching online</span>
+          <span class="sub">YouTube, Vimeo, anywhere. One keyboard shortcut and the video lives on your Mac.</span>
+        </div>
         <span class="self" data-app="nox"><span class="check">✓</span></span>
         <span class="answer" data-app="Alcove"><span class="cross">✕</span></span>
         <span class="answer" data-app="NotchNook"><span class="check">✓</span></span>
@@ -1314,7 +1347,10 @@
       </div>
 
       <div class="row">
-        <span class="label">Plain-English setup with privacy explainers</span>
+        <div class="label-col">
+          <span class="label">Setup tells you what it's asking for, before asking</span>
+          <span class="sub">Every permission gets a plain-English reason on screen first. No surprise pop-ups.</span>
+        </div>
         <span class="self" data-app="nox"><span class="check">✓</span></span>
         <span class="answer" data-app="Alcove"><span class="cross">✕</span></span>
         <span class="answer" data-app="NotchNook"><span class="cross">✕</span></span>
