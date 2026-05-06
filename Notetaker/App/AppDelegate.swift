@@ -230,6 +230,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // installs skip this and proceed straight to setup).
         onboardingManager.presentIfNeeded()
 
+        // 2026-05-06 — defer EVERYTHING below by one runloop tick.
+        //
+        // applicationDidFinishLaunching runs synchronously on the
+        // main thread before AppKit spins its first event loop.
+        // Until this method returns, `makeKeyAndOrderFront(nil)`
+        // only QUEUES the onboarding window — AppKit doesn't
+        // composite its NSHostingController content until the
+        // runloop ticks and CA commits a frame. Symptom: the user
+        // saw permission dialogs (Apple Events for Spotify/Music,
+        // mic, calendar) land over a featureless dark rectangle
+        // before the welcome panel painted, which read as "what
+        // is this thing trying to do?" instead of "I'm setting
+        // nox up."
+        //
+        // The fix is structural, not cosmetic. TCC-prompt-firing
+        // services below (MediaRemote AppleScript polls in
+        // NotchOrchestrator, CalendarMonitorService → EventKit,
+        // DictationOrchestrator → microphone, CoreAudio listener,
+        // BrowserMediaProbe) all kick off during this method.
+        // Hopping through DispatchQueue.main.async lets one runloop
+        // tick complete first — SwiftUI paints the welcome content,
+        // THEN service init proceeds and any permission dialogs
+        // land on top of a fully drawn UI. Cost: ~16ms of perceived
+        // launch delay (one frame). Benefit: the prompts make sense.
+        //
+        // [weak self] + `guard let self` keeps implicit-self syntax
+        // working below without a 900-line re-indent. AppDelegate
+        // lives for the process lifetime so the weak ref will
+        // always resolve, but the dance keeps Swift happy and
+        // keeps us safe if AppDelegate ever becomes non-singleton.
+        DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+
         // 2026-05-04: disable App Nap for the lifetime of this
         // process. Notch HUD must respond instantly to user
         // gestures; we cannot afford ~500ms of "wake up the
@@ -1132,6 +1165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (right after setActivationPolicy) so it appears BEFORE
         // service-startup-triggered TCC prompts. See the call-site
         // comment up there for the full rationale.
+        } // closes DispatchQueue.main.async — defer-services hop
     }
 
     /// Re-runs the onboarding flow on demand (Settings → "Show

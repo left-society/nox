@@ -50,5 +50,22 @@
     <true/>
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
     <true/>
+
+    <!--
+        2026-05-06 — REQUIRED for AVCaptureDevice.requestAccess(for:.audio)
+        to actually fire the TCC microphone prompt on hardened-runtime,
+        unsandboxed apps. Without this entitlement the call silently
+        no-ops: no prompt, no log line, no error — just nothing happens
+        and the user thinks dictation is broken. Confirmed via Apple
+        Developer Forums thread "Audio Entitlements stopped working".
+
+        On sandboxed apps the same key gates mic access at sandbox
+        level; on hardened-runtime-only apps (us) it's what tells
+        TCC the binary is allowed to even REQUEST microphone access.
+        Drop this and 1.9.x's "I tapped Fn and nothing transcribed"
+        bug returns.
+    -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
 </dict>
 </plist>
