@@ -681,16 +681,15 @@
   .liquid-glass {
     position: relative;
     background: rgba(255, 255, 255, 0.035);
-    /*  Real refraction via SVG feDisplacementMap.
-        The filter is defined inline in <body> as #liquid-distort.
-        Chrome / Edge / Firefox 103+ apply both blur and the
-        displacement (the backdrop bends like real glass with
-        an irregular surface). Safari currently ignores the
-        url() portion silently and falls back to plain blur,
-        which still reads as frosted glass. The -webkit- prefix
-        below ships ONLY blur+saturate to Safari so its
-        fallback path stays clean. */
-    backdrop-filter: blur(14px) saturate(180%) url(#liquid-distort);
+    /*  Frosted-glass FALLBACK only. The real per-card
+        displacement filter is computed in JS at the bottom
+        of <body> (see initLiquidGlass), reading each card's
+        live width/height/border-radius and writing
+        `backdrop-filter: url(svg-data-uri-with-feDisplacementMap)`
+        directly onto the element. Browsers without
+        url()-in-backdrop-filter support (Safari) keep this
+        plain blur. */
+    backdrop-filter: blur(20px) saturate(160%);
     -webkit-backdrop-filter: blur(20px) saturate(160%);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 20px;
@@ -1096,42 +1095,6 @@
 </head>
 <body>
 
-<!--  Liquid-glass refraction filter.
-      Two-stage SVG filter that turns a noise field into a
-      displacement map applied to the backdrop of any element with
-      class .liquid-glass. The result is real wave-bend refraction
-      (what the github.com/nikdelvin/liquid-glass library does),
-      not just a frosted blur.
-
-      feTurbulence   — generates a smooth fractal noise field.
-                       baseFrequency low ~ wider, slower waves;
-                       higher ~ tight ripples. 0.014/0.018 gives
-                       the gentle "wide glass surface" feel.
-      feGaussianBlur — softens the noise so the displacement
-                       reads as smooth refraction, not pixelated.
-      feDisplacementMap — bends pixels of the backdrop using
-                       the blurred-noise R channel for X and G
-                       for Y. scale="35" controls how much the
-                       backdrop bends; high values look unnatural,
-                       single-digits are imperceptible. -->
-<svg width="0" height="0" style="position:absolute;width:0;height:0;pointer-events:none" aria-hidden="true">
-  <filter id="liquid-distort" x="0%" y="0%" width="100%" height="100%">
-    <feTurbulence
-      type="fractalNoise"
-      baseFrequency="0.014 0.018"
-      numOctaves="2"
-      seed="7"
-      result="noise" />
-    <feGaussianBlur in="noise" stdDeviation="2" result="blurNoise" />
-    <feDisplacementMap
-      in="SourceGraphic"
-      in2="blurNoise"
-      scale="35"
-      xChannelSelector="R"
-      yChannelSelector="G" />
-  </filter>
-</svg>
-
 <header>
   <div class="wrap">
     <a class="logo" href="/">nox</a>
@@ -1401,6 +1364,160 @@
     </div>
   </div>
 </footer>
+
+<script>
+/*  ----------------------------------------------------------------
+    Per-card liquid-glass displacement filter.
+
+    Direct port of the technique from
+    github.com/nikdelvin/liquid-glass (LiquidGlass.astro +
+    utils/liquidGlass.ts). The earlier attempt used global
+    feTurbulence + feDisplacementMap, which warped the backdrop
+    everywhere and produced the visible purple-blob artifacts
+    over the radial glow. That's wrong. The real technique:
+
+    1) Build a custom displacement map (NOT noise-based) with:
+         - solid mid-gray (#808080 = "no displacement")
+         - inner solid #808080 rect inset by `depth` pixels with
+           rounded corners and a `blur(depth)` filter — this is
+           what creates the soft edge falloff
+         - OUTER linear gradients in R (left→right) and G
+           (top→bottom) channels mixed via screen — these encode
+           the X and Y displacement vectors
+       Result: in the middle of the card the backdrop stays
+       sharp; only the edges bend, exactly like a physical
+       glass lens with rounded corners.
+
+    2) Run feDisplacementMap with that map as in2:
+         scale = strength controls bend amount; xChannelSelector=R
+         and yChannelSelector=G match the displacement-vector
+         encoding in the map.
+
+    3) Apply the resulting filter via
+         backdrop-filter: url('data:image/svg+xml;...#displace')
+       so the FILTER, not the source content, runs on the
+       backdrop behind the card.
+
+    Each .liquid-glass card has its own dimensions, so the
+    filter SVG is regenerated per card (and on resize) with
+    that card's actual width/height/border-radius.  ---------- */
+(function() {
+  // Detect support — Safari currently ignores url() inside
+  // backdrop-filter and silently falls back. We bail out for
+  // unsupported browsers and let the CSS frosted-blur stand.
+  const supportsBackdropFilterUrl = (() => {
+    const t = document.createElement('div');
+    t.style.cssText = "backdrop-filter: url(#x)";
+    return t.style.backdropFilter === "url(#x)" ||
+           t.style.backdropFilter === 'url("#x")';
+  })();
+  if (!supportsBackdropFilterUrl) return;
+
+  // Tunable defaults. The library's defaults are tuned for
+  // larger glass surfaces (full-page panels). For 4-up
+  // pricing cards I dial strength down so the bend reads as
+  // subtle refraction at the edges, not a fishbowl.
+  const DEPTH = 10;       // px of edge bevel
+  const STRENGTH = 60;    // displacement scale in feDisplacementMap
+
+  function displacementMapURI(width, height, radius, depth) {
+    // Edge gradient stops — clamped slightly inward of the
+    // border by 15% of the radius/dimension ratio so the
+    // displacement vectors die off cleanly into the rounded
+    // corners.
+    const ys = Math.ceil((radius / height) * 15);
+    const ye = Math.floor(100 - (radius / height) * 15);
+    const xs = Math.ceil((radius / width) * 15);
+    const xe = Math.floor(100 - (radius / width) * 15);
+    const innerW = width - 2 * depth;
+    const innerH = height - 2 * depth;
+    const svg =
+      '<svg height="' + height + '" width="' + width +
+      '" viewBox="0 0 ' + width + ' ' + height +
+      '" xmlns="http://www.w3.org/2000/svg">' +
+      '<style>.mix{mix-blend-mode:screen}</style>' +
+      '<defs>' +
+        '<linearGradient id="Y" x1="0" x2="0" y1="' + ys + '%" y2="' + ye + '%">' +
+          '<stop offset="0%" stop-color="#0F0"/>' +
+          '<stop offset="100%" stop-color="#000"/>' +
+        '</linearGradient>' +
+        '<linearGradient id="X" x1="' + xs + '%" x2="' + xe + '%" y1="0" y2="0">' +
+          '<stop offset="0%" stop-color="#F00"/>' +
+          '<stop offset="100%" stop-color="#000"/>' +
+        '</linearGradient>' +
+      '</defs>' +
+      // Neutral base — #808080 means "do not displace".
+      '<rect x="0" y="0" height="' + height + '" width="' + width + '" fill="#808080"/>' +
+      '<g filter="blur(2px)">' +
+        // Slight blue cast helps the displacement-vector field.
+        '<rect x="0" y="0" height="' + height + '" width="' + width + '" fill="#000080"/>' +
+        // Y displacement gradient (encoded in green channel).
+        '<rect x="0" y="0" height="' + height + '" width="' + width + '" fill="url(#Y)" class="mix"/>' +
+        // X displacement gradient (encoded in red channel).
+        '<rect x="0" y="0" height="' + height + '" width="' + width + '" fill="url(#X)" class="mix"/>' +
+        // Inner neutral rect blurred — this is what kills the
+        // displacement in the middle of the card.
+        '<rect x="' + depth + '" y="' + depth + '" height="' + innerH + '" width="' + innerW +
+        '" fill="#808080" rx="' + radius + '" ry="' + radius + '" filter="blur(' + depth + 'px)"/>' +
+      '</g>' +
+      '</svg>';
+    return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+  }
+
+  function filterURI(width, height, radius, depth, strength) {
+    const dispMap = displacementMapURI(width, height, radius, depth);
+    const svg =
+      '<svg height="' + height + '" width="' + width +
+      '" viewBox="0 0 ' + width + ' ' + height +
+      '" xmlns="http://www.w3.org/2000/svg">' +
+      '<defs>' +
+        '<filter id="d" color-interpolation-filters="sRGB">' +
+          '<feImage x="0" y="0" height="' + height + '" width="' + width +
+          '" href="' + dispMap + '" result="m"/>' +
+          '<feDisplacementMap in="SourceGraphic" in2="m" scale="' + strength +
+          '" xChannelSelector="R" yChannelSelector="G"/>' +
+        '</filter>' +
+      '</defs>' +
+      '</svg>';
+    return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg) + '#d';
+  }
+
+  function applyGlass(el) {
+    const r = el.getBoundingClientRect();
+    const w = Math.round(r.width);
+    const h = Math.round(r.height);
+    if (!w || !h) return;
+    const cs = getComputedStyle(el);
+    const radius = parseFloat(cs.borderTopLeftRadius) || 20;
+    const uri = filterURI(w, h, radius, DEPTH, STRENGTH);
+    // The filter URL goes BEFORE the blur so the backdrop
+    // is displaced first, then frosted slightly. saturate
+    // amplifies the colors that come through; brightness
+    // lifts the whole thing a hair.
+    el.style.backdropFilter =
+      "url('" + uri + "') blur(2px) saturate(160%) brightness(1.05)";
+  }
+
+  function init() {
+    const cards = document.querySelectorAll('.liquid-glass');
+    cards.forEach(el => {
+      applyGlass(el);
+      // Recompute on resize — different viewport widths change
+      // card dimensions which need a fresh filter.
+      if (window.ResizeObserver) {
+        const ro = new ResizeObserver(() => applyGlass(el));
+        ro.observe(el);
+      }
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
 
 </body>
 </html>
