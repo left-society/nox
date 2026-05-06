@@ -1259,6 +1259,158 @@
   }
 
   /*  ----------------------------------------------------------------
+      Storage panel — two cards side by side under the privacy
+      headline. Left card lists what nox writes to disk and
+      where. Right card lists what nox never collects. Same
+      liquid-glass shell as the rest of the site so it slots
+      into the privacy section visually.
+      ----------------------------------------------------------------  */
+  .storage-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin: 56px auto 0;
+    max-width: 940px;
+    text-align: left;
+  }
+  @media (max-width: 760px) { .storage-grid { grid-template-columns: 1fr; } }
+  .storage-card {
+    padding: 28px 26px 22px;
+  }
+  .storage-card h3 {
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--fg);
+    margin: 0 0 18px;
+  }
+  .storage-card ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .storage-card ul li {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid var(--line-soft);
+  }
+  .storage-card .lab {
+    color: var(--fg);
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .storage-card .loc {
+    color: var(--muted);
+    font-size: 11.5px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: -0.01em;
+  }
+  .storage-card ul.bad li {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 10px;
+    background: transparent;
+    border: 0;
+    padding: 6px 0;
+    color: var(--muted);
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+  .storage-card ul.bad li::before {
+    content: "";
+    flex: 0 0 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--dim);
+    margin-top: 8px;
+  }
+  .storage-foot {
+    margin: 18px 0 0 !important;
+    padding-top: 14px;
+    border-top: 1px solid var(--line-soft);
+    color: var(--muted);
+    font-size: 12.5px !important;
+    line-height: 1.55 !important;
+    text-align: left !important;
+    max-width: none !important;
+  }
+  .storage-foot code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11.5px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--fg-soft);
+  }
+
+  /*  ----------------------------------------------------------------
+      FAQ grid — liquid-glass cards, two columns at desktop,
+      single column on phones. Each card shows Q + A always
+      visible (faster to scan than collapsing details).
+      ----------------------------------------------------------------  */
+  .faq {
+    background: linear-gradient(180deg,
+      var(--bg) 0%,
+      rgba(168, 130, 232, 0.025) 50%,
+      var(--bg) 100%);
+  }
+  .faq-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    margin-top: 48px;
+  }
+  @media (max-width: 760px) { .faq-grid { grid-template-columns: 1fr; } }
+  .faq-card {
+    padding: 22px 24px;
+  }
+  .faq-card h3 {
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--fg);
+    margin: 0 0 8px;
+    line-height: 1.35;
+  }
+  .faq-card p {
+    color: var(--muted);
+    font-size: 13.5px;
+    line-height: 1.6;
+    margin: 0;
+  }
+  .faq-card code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--fg-soft);
+  }
+  .faq-foot {
+    margin: 32px auto 0;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13.5px;
+  }
+  .faq-foot a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .faq-foot a:hover { color: var(--fg); }
+
+  /*  ----------------------------------------------------------------
       Final CTA
       ----------------------------------------------------------------  */
   .cta { text-align: center; padding: 130px 0; }
@@ -1323,6 +1475,7 @@
         <a href="#features">Features</a>
         <a href="#why">Why nox</a>
         <a href="#privacy">Privacy</a>
+        <a href="#faq">FAQ</a>
         <a href="https://github.com/left-society/nox">GitHub</a>
       </div>
       <a class="btn btn-primary" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">
@@ -1612,6 +1765,105 @@
     <p>
       When you talk, your voice becomes text right on your Mac. Nothing goes online. nox doesn't track what you do, doesn't ask you to make an account, and doesn't have a server we send your stuff to. The only thing nox ever sends online is a quick check for new updates. That's it.
     </p>
+
+    <!-- "What we store" panel — itemizes EVERY piece of data
+         that nox writes to the Mac so users can see the full
+         scope at a glance. Two-column grid of "kept on your
+         Mac" vs "never collected" so the boundary reads as
+         binary and definitive, not weasel-worded. -->
+    <div class="storage-grid">
+      <div class="storage-card liquid-glass">
+        <h3>What nox keeps on your Mac</h3>
+        <ul>
+          <li><span class="lab">Notes</span><span class="loc">~/Library/Application Support/nox/notes.db</span></li>
+          <li><span class="lab">Screenshots you drop in</span><span class="loc">~/Library/Application Support/nox/Images/</span></li>
+          <li><span class="lab">Videos you saved</span><span class="loc">~/Library/Application Support/nox/Videos/</span></li>
+          <li><span class="lab">Files you parked</span><span class="loc">~/Library/Application Support/nox/Files/</span></li>
+          <li><span class="lab">Settings and hotkeys</span><span class="loc">com.aritradebnath.notetaker plist</span></li>
+          <li><span class="lab">Cached album art</span><span class="loc">in memory only, never written</span></li>
+        </ul>
+        <p class="storage-foot">Drag <code>nox.app</code> to Trash. Everything above goes with it.</p>
+      </div>
+
+      <div class="storage-card liquid-glass">
+        <h3>What nox never collects</h3>
+        <ul class="bad">
+          <li>Account info. There is no account.</li>
+          <li>Your name, email, or phone.</li>
+          <li>Telemetry, analytics, crash reports.</li>
+          <li>What you typed, said, or pasted.</li>
+          <li>Which apps you use, when, or for how long.</li>
+          <li>Anything from your other tabs or windows.</li>
+        </ul>
+        <p class="storage-foot">The only thing nox ever asks the internet for is "any updates?" once every few hours.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── FAQ ──────────────────────────────────────────────────── -->
+<!--
+  Inspired by NotchNook's card grid pattern but in our typeface
+  and case. Each Q + A is always visible (not collapsed) so
+  scanning is faster. Two-column grid at desktop, single at
+  phone widths.
+-->
+<section id="faq" class="faq">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="section-eyebrow">Common questions</span>
+      <h2>Everything you might wonder.</h2>
+      <p>Quick answers. Email us if anything is missing.</p>
+    </div>
+
+    <div class="faq-grid">
+      <div class="faq-card liquid-glass">
+        <h3>Does it work on Macs without a notch?</h3>
+        <p>Yes. On non-notched MacBooks and external displays the panel sits at the top center of the screen and behaves the same way. The notch is a nice landmark, not a requirement.</p>
+      </div>
+
+      <div class="faq-card liquid-glass">
+        <h3>How do I open the panel?</h3>
+        <p>Move your cursor to the dark cutout. The panel grows out. Move your cursor away to close it. You can also press <code>⌥&nbsp;Space</code> from anywhere.</p>
+      </div>
+
+      <div class="faq-card liquid-glass">
+        <h3>Which music apps does it work with?</h3>
+        <p>Spotify, Apple Music, YouTube in any browser, podcasts, audiobooks, anything that publishes Now Playing info to macOS. Skip and pause work for Spotify and Apple Music. For everything else you still see what's playing.</p>
+      </div>
+
+      <div class="faq-card liquid-glass">
+        <h3>Will it slow my Mac down?</h3>
+        <p>No. Tiny native binary. Zero CPU when nothing is happening. No background polling, no telemetry. Built to feel like part of the Mac, not a window stuck on top of it.</p>
+      </div>
+
+      <div class="faq-card liquid-glass">
+        <h3>Does it support multiple monitors?</h3>
+        <p>Yes. nox follows whichever screen has your focused window. Plug in a second display and it shows up on whichever notch you're working with.</p>
+      </div>
+
+      <div class="faq-card liquid-glass">
+        <h3>What permissions does it ask for?</h3>
+        <p>All optional. Calendar to show today's events. Microphone for voice to text. Accessibility so the hotkey works system wide. Deny any one and the rest still works.</p>
+      </div>
+
+      <div class="faq-card liquid-glass">
+        <h3>How do I uninstall it?</h3>
+        <p>Drag <code>nox.app</code> to Trash. Everything nox kept on your Mac (notes, screenshots, videos, settings) sits inside the app's container, so it goes with it. Nothing left behind.</p>
+      </div>
+
+      <div class="faq-card liquid-glass">
+        <h3>What does it cost?</h3>
+        <p>Free while we're testing. One time price at v1.0. We will email beta users the number first. No subscription, no in app upgrades, no "pro" tier. Buy it once, own it forever.</p>
+      </div>
+
+      <div class="faq-card liquid-glass">
+        <h3>Can I get my notes out?</h3>
+        <p>Yes. Notes export as plain Markdown. Screenshots and videos are already plain files on disk. You always own your stuff and can take it anywhere.</p>
+      </div>
+    </div>
+
+    <p class="faq-foot">Still wondering? <a href="mailto:hello@trynox.app">hello@trynox.app</a></p>
   </div>
 </section>
 
