@@ -708,24 +708,35 @@
       ----------------------------------------------------------------  */
   .liquid-glass {
     position: relative;
-    /*  Card body is now NEAR transparent (was 3.5% white) so the
-        wallpaper colors come through and refract via the glass
-        layer rather than getting masked by a flat tint. */
-    background: rgba(255, 255, 255, 0.012);
-    /*  Frosted-glass FALLBACK + crank. The real per-card
-        displacement filter is computed in JS at the bottom
-        of <body> (see initLiquidGlass), reading each card's
-        live width/height/border-radius and writing
-        `backdrop-filter: url(svg-data-uri-with-feDisplacementMap)`
-        directly onto the element. The base blur and saturation
+    /*  Frosted card body. 5% white tint so the surface reads as
+        actual glass (a frost layer) rather than a transparent
+        film that lets the wallpaper bleed straight through.
+        Earlier 1.2% was too transparent against a colorful
+        wallpaper — wallpaper's green swooshes saturated into
+        solid green tiles via the saturate() filter.
+        Dark glass tint (0.04 black) keeps the frost feeling
+        cool and quiet, especially on the dark Sonoma backdrop. */
+    background:
+      linear-gradient(180deg,
+        rgba(255, 255, 255, 0.05),
+        rgba(255, 255, 255, 0.02)),
+      rgba(0, 0, 0, 0.18);
+    /*  Frosted-glass treatment. The real per-card displacement
+        filter is computed in JS at the bottom of <body> (see
+        initLiquidGlass) and writes a custom feDisplacementMap
+        backdrop-filter onto each element. The blur/saturate
         below is what every browser falls back to when the
         per-card displacement isn't supported (Safari, Firefox).
-        Saturation pushed 160→210 so the wallpaper's warm hue
-        actually reads through the glass. Blur trimmed 20→16
-        so the underlying color stays visible instead of being
-        smeared into uniform gray. */
-    backdrop-filter: blur(16px) saturate(210%) brightness(1.05);
-    -webkit-backdrop-filter: blur(16px) saturate(210%) brightness(1.05);
+
+        Saturation kept at 130%, NOT cranked. 210% earlier
+        was multiplying the wallpaper's green/red hues into
+        full-color stains (visible as the bright-green FAQ
+        cards). Real Apple glass is closer to neutral — it
+        picks up a hint of the underlying color, not a
+        pigmented copy of it. Brightness lift removed for
+        the same reason. */
+    backdrop-filter: blur(22px) saturate(130%);
+    -webkit-backdrop-filter: blur(22px) saturate(130%);
     border: 1px solid rgba(255, 255, 255, 0.085);
     border-radius: 20px;
     overflow: hidden;
@@ -1393,10 +1404,18 @@
       visible (faster to scan than collapsing details).
       ----------------------------------------------------------------  */
   .faq {
-    background: linear-gradient(180deg,
-      var(--bg) 0%,
-      rgba(168, 130, 232, 0.025) 50%,
-      var(--bg) 100%);
+    /*  No section-level background. The body's wallpaper +
+        vignette veil already creates a consistent backdrop
+        across every section; layering an additional gradient
+        here was making the section transparent in the middle
+        (so wallpaper bled through) and opaque at the edges
+        (so the section border was visible against the
+        adjacent fully-transparent sections). The result was
+        the FAQ cards looking like green tiles because the
+        wallpaper's green swooshes leaked through unfiltered.
+        Letting the global backdrop carry the visuals keeps
+        every section visually consistent. */
+    background: transparent;
   }
   .faq-grid {
     display: grid;
