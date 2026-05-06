@@ -88,13 +88,41 @@
       wallpaper now provides the warm color anchor.
       ----------------------------------------------------------------  */
   body {
-    /*  Sonoma Horizon — the dark variant of the system wallpaper.
-        Deep midnight blue with a thin gradient horizon strip.
-        Matches the page's dark frame instead of fighting it
-        like the bright Sonoma sunset did. */
+    background: var(--bg);
+  }
+  /*  Wallpaper layer.
+      Apple ships TahoeDark.heic but no Tahoe Dark VIDEO variant
+      (only Tahoe Day has a .mov, and it stays bright through
+      the whole 120s timeline). Using TahoeDark as a still image
+      is the closest we can get to "Tahoe dark video" without
+      synthesizing motion that wasn't in the source. To give the
+      backdrop some life without the bandwidth cost of a real
+      background video (a typical web background mp4 is 5–15MB),
+      a very slow Ken-Burns scale + drift is animated in CSS:
+      scales 1.00 → 1.06 over 60s, drifts a few pixels, ease-in-
+      out, infinite alternate. Reads as "the wallpaper is
+      breathing" instead of "this is a still picture." */
+  .wallpaper {
+    position: fixed;
+    inset: -3%;
+    z-index: -3;
+    pointer-events: none;
     background:
-      url("/assets/wallpaper-sonoma-dark.jpg") center/cover fixed no-repeat,
-      var(--bg);
+      url("/assets/wallpaper-tahoe-dark.jpg") center/cover no-repeat;
+    /*  Slight bleed past viewport so the scale animation
+        doesn't reveal an edge. */
+    transform-origin: 50% 50%;
+    will-change: transform;
+    animation: wallpaperBreathe 60s ease-in-out infinite alternate;
+  }
+  @keyframes wallpaperBreathe {
+    from { transform: scale(1.0) translate(0, 0); }
+    to   { transform: scale(1.06) translate(-1.2%, 0.6%); }
+  }
+  /*  Reduced-motion: lock to the mid-state so users with
+      vestibular sensitivity don't get drift. */
+  @media (prefers-reduced-motion: reduce) {
+    .wallpaper { animation: none; transform: scale(1.03); }
   }
   body::before {
     content: "";
@@ -1564,6 +1592,11 @@
 </style>
 </head>
 <body>
+
+<!-- Animated wallpaper layer (Tahoe Dark + slow breathing
+     scale). Sits at z-index: -3 behind the body's vignette
+     veil and grain. See .wallpaper rule in <style>. -->
+<div class="wallpaper" aria-hidden="true"></div>
 
 <header>
   <div class="wrap">
