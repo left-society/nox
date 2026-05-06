@@ -88,8 +88,12 @@
       wallpaper now provides the warm color anchor.
       ----------------------------------------------------------------  */
   body {
+    /*  Sonoma Horizon — the dark variant of the system wallpaper.
+        Deep midnight blue with a thin gradient horizon strip.
+        Matches the page's dark frame instead of fighting it
+        like the bright Sonoma sunset did. */
     background:
-      url("/assets/wallpaper-sonoma.jpg") center/cover fixed no-repeat,
+      url("/assets/wallpaper-sonoma-dark.jpg") center/cover fixed no-repeat,
       var(--bg);
   }
   body::before {
@@ -98,17 +102,20 @@
     inset: 0;
     z-index: -2;
     pointer-events: none;
-    /*  Vignette + dark veil. Top is slightly lighter so the
-        hero's animated mockup pops; bottom is darker so footer
-        text reads cleanly. Lavender tint baked into the veil
-        keeps the brand color present without a separate glow. */
+    /*  Lighter veil now that the wallpaper itself is dark
+        (Sonoma Horizon is midnight blue). The veil is just for
+        contrast under content cards, not to mask wallpaper hue.
+        Center 18% black, edges 55% so the dark blue wallpaper
+        is clearly visible across the whole page while text
+        cards still have enough contrast.
+        Lavender top/bottom hairlines keep brand color present. */
     background:
-      radial-gradient(circle at 50% 30%,
-        rgba(7, 7, 10, 0.40),
-        rgba(7, 7, 10, 0.78) 60%,
-        rgba(7, 7, 10, 0.92) 100%),
+      radial-gradient(ellipse at 50% 30%,
+        rgba(7, 7, 10, 0.18),
+        rgba(7, 7, 10, 0.42) 55%,
+        rgba(7, 7, 10, 0.62) 100%),
       linear-gradient(180deg,
-        rgba(168, 130, 232, 0.06) 0%,
+        rgba(168, 130, 232, 0.05) 0%,
         rgba(7, 7, 10, 0.0) 30%,
         rgba(7, 7, 10, 0.0) 70%,
         rgba(168, 130, 232, 0.04) 100%);
