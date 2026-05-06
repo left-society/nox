@@ -76,7 +76,7 @@ final class SystemAudioWatcher {
     /// Bundle IDs for our own process — we never want to publish
     /// "Notetaker is playing audio."
     private static let selfBundleIDs: Set<String> = [
-        "com.aritradebnath.notetaker"
+        "app.trynox"
     ]
 
     /// Audio that comes out of these processes is system-level

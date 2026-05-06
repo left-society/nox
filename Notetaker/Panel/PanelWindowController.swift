@@ -1836,6 +1836,34 @@ final class PanelWindowController {
         })
     }
 
+    /// Settle any in-flight `NSAnimationContext` animation on
+    /// `panel.frame` at its current value, instantly. Used by
+    /// `animateOpen` and `animateClose` before they kick off their
+    /// own SpringFrameAnimator-driven motion, so a previously-
+    /// started tease (which uses NSAnimationContext, not the
+    /// spring) doesn't continue writing to panel.frame in
+    /// parallel with the new spring's per-tick setFrame calls.
+    ///
+    /// Mechanism: a zero-duration `panel.animator().setFrame`
+    /// inside its own NSAnimationContext group. Window-server
+    /// receives "animate to current frame in 0s," which collapses
+    /// any pending animation to the current visible frame and
+    /// emits no further geometry updates. Cheap, surgical, and
+    /// correctly scoped — doesn't touch the SpringFrameAnimator
+    /// path or the SwiftUI side at all.
+    ///
+    /// Without this, opening/closing the panel during the tease's
+    /// 0.18s ease-out window produces a visible "double opening"
+    /// hitch because both animation systems are concurrently
+    /// driving panel.frame. See animateOpen's comment for the
+    /// full timeline.
+    private func haltInflightFrameAnimation() {
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        panel.animator().setFrame(panel.frame, display: false)
+        NSAnimationContext.endGrouping()
+    }
+
     // MARK: - Two-stage Core Animation morph
     //
     // ComfyNotch's `ScrollOpening.swift` (open-source notch HUD) uses
@@ -2020,6 +2048,14 @@ final class PanelWindowController {
         // a still-running grow.
         currentSpring?.cancel()
         currentSpring = nil
+
+        // Same NSAnimationContext halt as animateOpen — see comment
+        // there for the full root-cause analysis. A close that
+        // interrupts a still-running tease (e.g., user hovers,
+        // tease starts, then immediately decides to dismiss)
+        // would otherwise compete with the tease's window-server
+        // animation for ~30ms of overlap.
+        haltInflightFrameAnimation()
 
         // Branch the close spring on target type so apparent velocity
         // reads similarly in both cases.

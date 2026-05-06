@@ -53,7 +53,7 @@ final class DictationService {
         ///
         /// Use case: the user reported "sometimes it's mispronouncing
         /// some special words" — i.e. names, project terms, jargon.
-        /// Adding "Aritra Debnath, Notetaker, SwiftUI, Whisper, Groq"
+        /// Adding ""Acme Corp, Acme App, SwiftUI, Whisper, Groq""
         /// to this field tells Whisper those are valid words to listen
         /// for, which fixes ~90% of proper-noun mistranscriptions
         /// without a fine-tune.
@@ -61,7 +61,7 @@ final class DictationService {
         /// Limit: ~224 tokens (Whisper API constraint). Longer prompts
         /// get truncated by the server.
         ///
-        /// Format tip: prose works best ("Aritra is building Notetaker
+        /// Format tip: prose works best (""Alex is building MyApp
         /// using SwiftUI and the Groq Whisper API.") because Whisper
         /// matches the prompt's style. Comma-separated lists work too
         /// but slightly less reliably.
@@ -453,7 +453,7 @@ final class DictationService {
     /// to the system prompt listing those terms — second line of
     /// defense when Whisper mishears a proper noun even with the
     /// prompt-bias active. The LLM can then correct e.g.
-    /// "ari trade nat" → "Aritra Debnath" because it knows the
+    /// "alex sample" → "Alex Sample" because it knows the
     /// correct spelling is in scope.
     private func cleanup(rawTranscript: String, model: String) async throws -> String {
         let url = configuration.baseURL.appendingPathComponent("chat/completions")

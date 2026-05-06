@@ -295,7 +295,7 @@ final class PanelDropContainer: NSView {
         // browser drag → AirDrop). The previous timestamp-only name
         // would have N images all overwrite the same path; AirDrop
         // would only receive the last write.
-        let name = "Notetaker-AirDrop-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(8)).\(ext)"
+        let name = "nox-AirDrop-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(8)).\(ext)"
         let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(name)
         do {
             try data.write(to: url)

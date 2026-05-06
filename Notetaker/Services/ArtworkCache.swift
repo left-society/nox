@@ -47,7 +47,7 @@ final class ArtworkCache {
     /// Background queue for decode work. Concurrent so multiple
     /// tracks' decodes can run in parallel (cheap on modern CPUs).
     private let decodeQueue = DispatchQueue(
-        label: "com.aritradebnath.notetaker.artwork-decode",
+        label: "app.trynox.artwork-decode",
         qos: .userInitiated,
         attributes: .concurrent
     )

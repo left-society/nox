@@ -491,7 +491,7 @@ final class MediaRemoteService {
                 "Player State": state
             ]
             let note = Notification(
-                name: Notification.Name("Notetaker.SyntheticInitialProbe"),
+                name: Notification.Name("nox.SyntheticInitialProbe"),
                 object: nil,
                 userInfo: userInfo
             )

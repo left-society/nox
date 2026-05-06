@@ -9,7 +9,7 @@
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
-	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<string>app.trynox</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -17,56 +17,29 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.9.2</string>
+	<string>1.9.3</string>
 	<key>CFBundleVersion</key>
-	<string>12</string>
+	<string>13</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Notetaker reads the current tab URL from your browser when you press ⌥⌘V so it can download the video you're watching.</string>
-	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2026 Aritra Debnath.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Notetaker transcribes your voice offline to create notes. Audio never leaves your Mac.</string>
-	<!-- Calendar access — required for the music-panel calendar pane
-	     and the meeting pill on the closed notch. Without these
-	     strings macOS silently denies EKEventStore.requestFullAccessToEvents,
-	     so the "Connect Calendar" affordance does nothing.
-	     Two keys: the macOS 14+ "full access" key and the legacy
-	     pre-14 "calendars" key — both should be present so the
-	     prompt shows correctly across deployment targets. -->
+	<string>nox reads the current tab URL from your browser when you press ⌥⌘V so it can download the video you’re watching.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>nox shows today's events from Calendar in the music panel and surfaces the next meeting on the notch pill.</string>
 	<key>NSCalendarsUsageDescription</key>
 	<string>nox shows today's events from Calendar in the music panel and surfaces the next meeting on the notch pill.</string>
-	<!-- Sparkle auto-update — see scripts/release.sh + appcast.xml -->
-	<!-- Sparkle polls this XML for new versions daily. Hosted via
-	     GitHub Pages on the public release repo (left-society/nox)
-	     and served from the custom domain trynox.app. The same
-	     repo stores release notes HTML. Actual DMG files are
-	     attached to GitHub Releases. The appcast points to the
-	     per release download URLs. -->
-	<key>SUFeedURL</key>
-	<string>https://trynox.app/appcast.xml</string>
-	<!-- SUPublicEDKey: Sparkle's EdDSA public key. The matching
-	     PRIVATE key lives ONLY in your local keychain (generated
-	     by scripts/sparkle-bin/generate_keys). Sparkle verifies
-	     each downloaded update against this public key before
-	     installing — protects users from MITM/CDN compromise. -->
-	<key>SUPublicEDKey</key>
-	<string>n/eovhDL82Gp75QMByGpBpwU9/SpYLFEFOoElzSIkoo=</string>
-	<!-- Check every 4 hours. Sparkle's default is 24h, but for a
-	     fast-moving app shipping multiple versions a day, that
-	     means users wait a full day after install to see the next
-	     version. Sparkle is silent when nothing new is available
-	     (no UI), so 4h is not intrusive — the prompt only appears
-	     when there is genuinely a new build. Users can also trigger
-	     a manual check from the menubar ("Check for Updates…")
-	     when they want it instantly. -->
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 nox.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>nox transcribes your voice offline to create notes. Audio never leaves your Mac.</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
+	<key>SUFeedURL</key>
+	<string>https://trynox.app/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>n/eovhDL82Gp75QMByGpBpwU9/SpYLFEFOoElzSIkoo=</string>
 	<key>SUScheduledCheckInterval</key>
 	<integer>14400</integer>
 </dict>

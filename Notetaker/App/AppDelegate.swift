@@ -504,7 +504,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // The terminate happens AFTER the alert is dismissed,
             // so the user has a clear story for what happened
             // instead of "the app just crashed."
-            NSLog("Notetaker failed to initialize: \(error)")
+            NSLog("nox failed to initialize: \(error)")
             let alert = NSAlert()
             alert.alertStyle = .critical
             alert.messageText = "nox can't start"

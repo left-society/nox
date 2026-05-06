@@ -1081,7 +1081,7 @@ private struct AboutSettings: View {
                             subtitle: "Bug reports, feature requests, kind words",
                             divider: false) {
                     Button("Email") {
-                        if let url = URL(string: "mailto:aritra13.debnath@gmail.com?subject=nox%20Feedback") {
+                        if let url = URL(string: "mailto:feedback@trynox.app?subject=nox%20Feedback") {
                             NSWorkspace.shared.open(url)
                         }
                     }

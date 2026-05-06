@@ -6,7 +6,7 @@ import Security
 /// Earlier the Groq dictation key and the Gemini OCR/Summary key were
 /// stored in `UserDefaults` via `@AppStorage`. Plain `UserDefaults`
 /// writes a property list to
-/// `~/Library/Preferences/com.aritradebnath.notetaker.plist` in
+/// `~/Library/Preferences/app.trynox.plist` in
 /// CLEARTEXT — readable by any process running as the user, included
 /// in Time Machine backups, synced to iCloud Drive if the user has
 /// "Desktop & Documents" turned on with Library access. A pentester
@@ -51,7 +51,7 @@ final class SecureKeyStore {
         }
     }
 
-    private static let service = Bundle.main.bundleIdentifier ?? "com.aritradebnath.notetaker"
+    private static let service = Bundle.main.bundleIdentifier ?? "app.trynox"
 
     // MARK: - Read / write / delete
 

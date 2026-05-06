@@ -74,8 +74,8 @@ final class DictationRecorder: NSObject {
     private var sourceFormat: AVAudioFormat?
     private var totalFramesWritten: AVAudioFramePosition = 0
 
-    private let sessionQueue = DispatchQueue(label: "com.aritradebnath.notetaker.dictation.session")
-    private let bufferQueue = DispatchQueue(label: "com.aritradebnath.notetaker.dictation.buffers")
+    private let sessionQueue = DispatchQueue(label: "app.trynox.dictation.session")
+    private let bufferQueue = DispatchQueue(label: "app.trynox.dictation.buffers")
 
     /// Flag for `stopRecording` so the buffer-queue handler stops
     /// appending samples mid-finalization. Locked because reads

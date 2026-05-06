@@ -190,7 +190,7 @@ if [ ! -f "$ENTITLEMENTS" ]; then
 fi
 codesign --force \
   --sign "$SIGN_IDENTITY" \
-  --identifier com.aritradebnath.notetaker \
+  --identifier app.trynox \
   --options runtime \
   --timestamp \
   --entitlements "$ENTITLEMENTS" \
