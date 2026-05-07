@@ -95,120 +95,67 @@
     position: relative;
   }
 
-  /*  ATMOSPHERE — cinematic gradient backdrop with glowing orbs.
-      Replaces the three-photo-wallpaper stack which the author
-      called "too bad to even look at, I want something like GTA."
+  /*  WALLPAPER STACK — fixed-position layers that crossfade as
+      the user scrolls past section boundaries.
 
-      No photo wallpapers. Pure CSS atmospheric design:
-        1. Vertical color grade — deep purple → midnight → blue
-           runs the full document height, so as you scroll the
-           color slowly shifts (like a sky cycling through hours)
-        2. Five blurred color orbs at different scroll positions
-           (magenta, lavender, cyan, deep purple, soft pink) at
-           80px Gaussian blur with screen blend mode → ambient
-           color washes that bleed through the gradient
-        3. Subtle starfield as a tiled noise pattern, low opacity
-        4. Slow drift animation on the orbs so the scene feels
-           "alive" rather than a static gradient
+      Author wanted real Apple wallpapers (not a CSS-orb scene)
+      with the same smoothness the atmosphere gave: "actual
+      wallpapers, not like these kinds of things. Apple wallpaper,
+      but in this form. They should be having some transition
+      while scrolling, just the wallpaper transitions, like
+      cross-fading between two wallpapers while scrolling to
+      another page or two pages, so that we can separate the
+      individual things from each other."
 
-      Everything is position:absolute on body so it scrolls WITH
-      the page like it's part of the document. The body's veil
-      and grain stay fixed on top for consistent legibility.   */
-  .atmosphere {
-    position: absolute;
+      Implementation:
+        - Each wallpaper is its own position:fixed full-viewport
+          layer with background-size:cover. Fixed-position avoids
+          the photo-tile stretching that broke the previous
+          absolute-position attempt.
+        - Opacity is JS-driven from window.scrollY mapped through
+          smoothstep so adjacent wallpapers crossfade over a
+          scroll band, then sit solid through the next "section
+          zone." See the IIFE at the bottom of <body>.
+
+      Section zones (mapped to scroll progress 0–1):
+        wp-1 (Tahoe Dark)        solid  0–25%, fade out 25–42%
+        wp-2 (Sonoma Dark)       fade in 25–42%, solid 42–60%, fade out 60–78%
+        wp-3 (Sonoma Horizon)    fade in 60–78%, solid 78–100%
+
+      Result: distinct wallpaper for each phase of the page
+      (top, middle, bottom), with smooth section-aligned
+      crossfades that mark the transition. No tiling, no
+      stretching — each wallpaper is just there, then fades to
+      the next.
+  */
+  .wallpaper-stack {
+    position: fixed;
     inset: 0;
     z-index: -3;
     pointer-events: none;
-    overflow: hidden;
   }
-
-  /*  1. Vertical color grade. Stops chosen so the dominant hue
-      shifts as you scroll: deep aubergine at the top (rich,
-      cinematic), through magenta and royal blue, into a
-      midnight teal-black at the bottom. */
-  .atm-gradient {
+  .wp-layer {
     position: absolute;
     inset: 0;
-    background: linear-gradient(180deg,
-      #1c0a2e  0%,
-      #2a0d3f 12%,
-      #34104a 22%,
-      #1d1444 38%,
-      #1a1a4f 52%,
-      #0e1a3c 68%,
-      #060e26 84%,
-      #03061a 100%);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    opacity: 0;
+    /*  No CSS transition — the JS scroll handler writes opacity
+        continuously per rAF tick, smoothstep-eased on scroll
+        progress, so any CSS transition would just lag the
+        crossfade behind the scroll position. */
+    will-change: opacity;
   }
-
-  /*  2. Glowing orbs. Positioned absolutely relative to the
-      .atmosphere container, so their TOP value is a percentage
-      of the FULL document height. Each is a heavily-blurred
-      radial gradient acting as a soft volumetric color wash.
-      Screen blend so they amplify the underlying gradient
-      rather than darkening it. */
-  .atm-orbs { position: absolute; inset: 0; }
-  .orb {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(90px);
-    opacity: 0.55;
-    mix-blend-mode: screen;
-    animation: orbDrift 18s ease-in-out infinite alternate;
+  .wp-1 {
+    background-image: url("/assets/wallpaper-tahoe-dark.jpg");
+    opacity: 1;
   }
-  @keyframes orbDrift {
-    from { transform: translate(0, 0)        scale(1.00); }
-    to   { transform: translate(40px, -30px) scale(1.08); }
+  .wp-2 {
+    background-image: url("/assets/wallpaper-sonoma-dark.jpg");
   }
-  .orb.o-1 {
-    top: 6%; left: -8%;
-    width: 720px; height: 720px;
-    background: radial-gradient(circle, #c64bff 0%, transparent 65%);
-    animation-duration: 22s;
-  }
-  .orb.o-2 {
-    top: 22%; right: -10%;
-    width: 640px; height: 640px;
-    background: radial-gradient(circle, #ff4ba8 0%, transparent 65%);
-    animation-duration: 26s; animation-direction: alternate-reverse;
-  }
-  .orb.o-3 {
-    top: 44%; left: 20%;
-    width: 820px; height: 820px;
-    background: radial-gradient(circle, #6c5cff 0%, transparent 65%);
-    animation-duration: 28s;
-  }
-  .orb.o-4 {
-    top: 64%; right: -5%;
-    width: 700px; height: 700px;
-    background: radial-gradient(circle, #4bd6ff 0%, transparent 65%);
-    animation-duration: 24s; animation-direction: alternate-reverse;
-  }
-  .orb.o-5 {
-    top: 86%; left: 5%;
-    width: 760px; height: 760px;
-    background: radial-gradient(circle, #c5a3ff 0%, transparent 65%);
-    animation-duration: 30s;
-  }
-
-  /*  3. Subtle starfield — twinkly white dots scattered across
-      the document. Tile a small SVG pattern so it repeats
-      naturally as the page is scrolled. Low opacity so it reads
-      as ambient sparkle, not a grid of pixels. */
-  .atm-stars {
-    position: absolute;
-    inset: 0;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='420' height='420' viewBox='0 0 420 420'><circle cx='30' cy='40' r='0.8' fill='white' opacity='0.55'/><circle cx='180' cy='90' r='0.5' fill='white' opacity='0.40'/><circle cx='300' cy='120' r='0.9' fill='white' opacity='0.65'/><circle cx='90' cy='200' r='0.6' fill='white' opacity='0.45'/><circle cx='240' cy='240' r='0.4' fill='white' opacity='0.35'/><circle cx='370' cy='260' r='0.7' fill='white' opacity='0.50'/><circle cx='50' cy='330' r='0.5' fill='white' opacity='0.40'/><circle cx='200' cy='370' r='0.8' fill='white' opacity='0.55'/><circle cx='340' cy='390' r='0.4' fill='white' opacity='0.30'/></svg>");
-    background-size: 420px 420px;
-    background-repeat: repeat;
-    opacity: 0.55;
-  }
-
-  /*  Reduced motion: still show the atmosphere, just stop the
-      orbs drifting. Page is fundamentally static for users with
-      vestibular sensitivity; the gradient and orbs still
-      provide visual interest. */
-  @media (prefers-reduced-motion: reduce) {
-    .orb { animation: none; }
+  .wp-3 {
+    background-image: url("/assets/wallpaper-sonoma-horizon.jpg");
   }
   body::before {
     content: "";
@@ -1843,34 +1790,21 @@
 <body>
 
 <!--
-  Cinematic atmosphere backdrop. Replaces the photo-wallpaper
-  approach (author called that "too bad to even look at, want
-  something like GTA"). Pure CSS — no images:
+  Wallpaper stack. Three real Apple macOS dark wallpapers,
+  each fixed to the viewport, opacity-crossfaded by JS as the
+  user scrolls past section boundaries. See .wallpaper-stack
+  in <style> and the scroll handler at the bottom of <body>
+  for the smoothstep math.
 
-    1. Vertical color grade running the full document height
-       (deep purple → magenta → midnight → blue → near-black)
-    2. Five glowing color orbs (magenta, rose, indigo, cyan,
-       lavender) heavily blurred at different scroll positions,
-       slowly drifting via CSS animation
-    3. Tiled SVG starfield at low opacity for ambient sparkle
-
-  Everything is position:absolute on body so the whole scene
-  scrolls WITH the page like it's part of the document. The
-  body's vignette veil and film grain stay fixed on top for
-  consistent legibility regardless of scroll position.
-
-  See .atmosphere rule in <style> for the full layout.
+  Wallpaper journey (top → bottom):
+    wp-1  Tahoe Dark        Hero + Features
+    wp-2  Sonoma Dark       Why nox + Privacy
+    wp-3  Sonoma Horizon    FAQ + CTA
 -->
-<div class="atmosphere" aria-hidden="true">
-  <div class="atm-gradient"></div>
-  <div class="atm-orbs">
-    <span class="orb o-1"></span>
-    <span class="orb o-2"></span>
-    <span class="orb o-3"></span>
-    <span class="orb o-4"></span>
-    <span class="orb o-5"></span>
-  </div>
-  <div class="atm-stars"></div>
+<div class="wallpaper-stack" aria-hidden="true">
+  <div class="wp-layer wp-1"></div>
+  <div class="wp-layer wp-2"></div>
+  <div class="wp-layer wp-3"></div>
 </div>
 
 <!--
@@ -2843,6 +2777,91 @@
     },
     { passive: true }
   );
+})();
+</script>
+
+<script>
+/*  ----------------------------------------------------------------
+    Wallpaper crossfade — scroll-driven smoothstep opacity.
+
+    Three fixed-position wallpapers. As the user scrolls, each
+    layer's opacity is computed continuously from window.scrollY
+    so adjacent wallpapers crossfade across a "fade band" while
+    one section transitions to the next.
+
+    Mapping (scroll progress 0–1):
+      wp-1   1   0   0   0
+              ↘
+      wp-2   0   1   1   0
+                    ↘
+      wp-3   0   0   1   1
+
+    Anchors: 0%, 33%, 66%, 100%
+    Fade bands: 25–42%, 60–78% (configurable below)
+
+    Smoothstep ease so the crossfade has a soft S-curve rather
+    than linear ramps — feels more organic, matches Apple-style
+    motion.
+    ----------------------------------------------------------------  */
+(() => {
+  const wp1 = document.querySelector(".wp-1");
+  const wp2 = document.querySelector(".wp-2");
+  const wp3 = document.querySelector(".wp-3");
+  if (!wp1 || !wp2 || !wp3) return;
+
+  /*  Fade-band edges as fractions of total scroll. The first
+      number is where the previous wallpaper starts fading out
+      (and the next starts fading in); the second is where the
+      crossfade is complete. */
+  const FADE1_START = 0.25;
+  const FADE1_END   = 0.42;
+  const FADE2_START = 0.60;
+  const FADE2_END   = 0.78;
+
+  /*  Hermite smoothstep — 3t² − 2t³ — gives a soft S-curve
+      between 0 and 1 instead of a linear ramp. */
+  const smoothstep = (a, b, x) => {
+    if (x <= a) return 0;
+    if (x >= b) return 1;
+    const t = (x - a) / (b - a);
+    return t * t * (3 - 2 * t);
+  };
+
+  let pending = false;
+  const update = () => {
+    pending = false;
+    const max = Math.max(1, document.body.scrollHeight - window.innerHeight);
+    const p = window.scrollY / max;
+
+    /*  Each layer gets:
+          op1 = 1 − smoothstep(FADE1)               (full → 0 in band 1)
+          op2 = smoothstep(FADE1) − smoothstep(FADE2) (peaks in middle)
+          op3 = smoothstep(FADE2)                   (0 → full in band 2)
+        Subtracting the second smoothstep from op2 makes wp2
+        fade BACK to 0 across the second band, just as wp3 is
+        fading in. */
+    const f1 = smoothstep(FADE1_START, FADE1_END, p);
+    const f2 = smoothstep(FADE2_START, FADE2_END, p);
+
+    wp1.style.opacity = 1 - f1;
+    wp2.style.opacity = f1 - f2;
+    wp3.style.opacity = f2;
+  };
+
+  /*  rAF-throttled scroll listener so we don't fight 120Hz
+      ProMotion scroll. Run once on load to set initial state. */
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(update);
+    },
+    { passive: true }
+  );
+  /*  Re-run on resize too, since scrollHeight changes. */
+  window.addEventListener("resize", () => requestAnimationFrame(update));
+  update();
 })();
 </script>
 
