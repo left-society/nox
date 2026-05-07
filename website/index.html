@@ -1,323 +1,2943 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>nox — it's there.</title>
-<meta name="description" content="Music, notes, files — in the notch you already own. A quiet HUD for macOS that lives in the strip above your screen." />
-<meta property="og:title" content="nox — it's there." />
-<meta property="og:description" content="Music, notes, files — in the notch you already own." />
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>nox. Your MacBook notch, actually useful.</title>
+<meta name="description" content="The dark cutout at the top of your MacBook becomes useful. See your music, take voice notes, drop files in, never miss a meeting. Free while we're testing." />
+
+<!-- Open Graph (iMessage, Slack, Discord, WhatsApp, LinkedIn, Facebook) -->
+<meta property="og:title" content="nox. Your MacBook notch, actually useful." />
+<meta property="og:description" content="The dark cutout at the top of your MacBook becomes useful. See your music, take voice notes, drop files in, never miss a meeting. Free while we're testing." />
 <meta property="og:type" content="website" />
-<meta property="og:url" content="https://nox.app" />
-<meta name="theme-color" content="#000000" />
+<meta property="og:url" content="https://trynox.app" />
+<meta property="og:site_name" content="nox" />
+<meta property="og:image" content="https://trynox.app/assets/og-image.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:alt" content="nox — your MacBook notch, actually useful" />
 
-<link rel="icon" type="image/png" href="assets/app-icon-128.png" />
-<link rel="apple-touch-icon" href="assets/app-icon-256.png" />
+<!-- Twitter card (uses og:* by default for most fields, but
+     summary_large_image needs the Twitter-specific opt-in) -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="nox. Your MacBook notch, actually useful." />
+<meta name="twitter:description" content="The dark cutout at the top of your MacBook becomes useful. Music, voice notes, files, your next meeting, all without opening anything." />
+<meta name="twitter:image" content="https://trynox.app/assets/og-image.png" />
+<meta name="twitter:image:alt" content="nox — your MacBook notch, actually useful" />
 
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+<meta name="theme-color" content="#07070a" />
 
-<link rel="stylesheet" href="style.css" />
+<!-- Favicons + iOS / Android touch icons. App icon source:
+     /Notetaker/Resources/nox-icon.svg (rendered to PNG via sips
+     into multiple sizes for each launch surface). -->
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="/assets/icon-192.png" />
+<link rel="icon" type="image/png" sizes="512x512" href="/assets/icon-512.png" />
+
+<style>
+  /*  ----------------------------------------------------------------
+      Design system — May 2026 redesign
+
+      The previous pass borrowed too much from generic dark-mode
+      SaaS. This one is anchored on the patterns that actually work
+      for premium Mac apps:
+
+        – Boring Notch's "spotlight on a dark stage" glow + huge
+          two-line headline with one bold emphasis line
+        – Alcove's tight typography, real product preview, generous
+          whitespace, Apple-clean confidence
+        – Linear / Raycast's precise spacing scale and accent
+          discipline (one purple, used sparingly)
+
+      Color anchor: #07070a — almost pure black with a hint of
+      blue-purple, identical in feel to the app's own onboarding
+      window. Single warm purple radial glow centered above the
+      hero, no second accent radial elsewhere — keeps the eye
+      where the content is instead of distracting with ambient
+      gradient noise.
+      ----------------------------------------------------------------  */
+  :root {
+    --bg:          #07070a;
+    --surface:     rgba(255, 255, 255, 0.025);
+    --surface-2:   rgba(255, 255, 255, 0.045);
+    --line:        rgba(255, 255, 255, 0.075);
+    --line-soft:   rgba(255, 255, 255, 0.04);
+
+    --fg:          #fff;
+    --fg-soft:     rgba(255, 255, 255, 0.78);
+    --muted:       rgba(255, 255, 255, 0.55);
+    --dim:         rgba(255, 255, 255, 0.36);
+
+    /*  Brand lavender — pulled from /Notetaker/Resources/nox-icon.svg.
+        These two stops are the 55% and 80% stops of the icon's
+        gradient ring, the same colors the macOS app uses for
+        its accent. Was #c8b5ff / #a882e8 (close but not exact). */
+    --accent:        #C5A3FF;
+    --accent-strong: #A688E8;
+    --success:       #7cee9f;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg-soft);
+    /*  Type scale — SF Pro on Apple, Inter as cross-OS fallback.
+        Body face is SF Pro Text (the 14-19pt body face); headlines
+        opt into SF Pro Display via font-family override. */
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text",
+          "Inter", system-ui, sans-serif;
+    text-rendering: optimizeLegibility;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /*  ----------------------------------------------------------------
+      Backdrop: macOS Sonoma wallpaper.
+
+      Real Apple liquid glass works because it sits on top of an
+      actual colorful desktop. Refraction has something to bend.
+      We extract the system Sonoma wallpaper (cherry-red / pink
+      sunset gradient) and lock it behind everything as a fixed
+      backdrop so liquid-glass cards have real color content to
+      displace and saturate.
+
+      The dark veil on top keeps copy legible (the wallpaper alone
+      is too bright in the warm regions for white body text), but
+      stays at 65% so the wallpaper hue is still felt through it.
+      The lavender radial glow that was here before is gone — the
+      wallpaper now provides the warm color anchor.
+      ----------------------------------------------------------------  */
+  body {
+    background: var(--bg);
+    /*  Body needs to be relative-positioned so the absolutely-
+        positioned .wallpaper-stack can size to the document
+        height (its containing block becomes <body>). */
+    position: relative;
+  }
+
+  /*  WALLPAPER STACK — fixed-position layers that crossfade as
+      the user scrolls past section boundaries.
+
+      Author wanted real Apple wallpapers (not a CSS-orb scene)
+      with the same smoothness the atmosphere gave: "actual
+      wallpapers, not like these kinds of things. Apple wallpaper,
+      but in this form. They should be having some transition
+      while scrolling, just the wallpaper transitions, like
+      cross-fading between two wallpapers while scrolling to
+      another page or two pages, so that we can separate the
+      individual things from each other."
+
+      Implementation:
+        - Each wallpaper is its own position:fixed full-viewport
+          layer with background-size:cover. Fixed-position avoids
+          the photo-tile stretching that broke the previous
+          absolute-position attempt.
+        - Opacity is JS-driven from window.scrollY mapped through
+          smoothstep so adjacent wallpapers crossfade over a
+          scroll band, then sit solid through the next "section
+          zone." See the IIFE at the bottom of <body>.
+
+      Section zones (mapped to scroll progress 0–1):
+        wp-1 (Tahoe Dark)        solid  0–25%, fade out 25–42%
+        wp-2 (Sonoma Dark)       fade in 25–42%, solid 42–60%, fade out 60–78%
+        wp-3 (Sonoma Horizon)    fade in 60–78%, solid 78–100%
+
+      Result: distinct wallpaper for each phase of the page
+      (top, middle, bottom), with smooth section-aligned
+      crossfades that mark the transition. No tiling, no
+      stretching — each wallpaper is just there, then fades to
+      the next.
+  */
+  .wallpaper-stack {
+    position: fixed;
+    inset: 0;
+    z-index: -3;
+    pointer-events: none;
+  }
+  .wp-layer {
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    opacity: 0;
+    /*  No CSS transition — the JS scroll handler writes opacity
+        continuously per rAF tick, smoothstep-eased on scroll
+        progress, so any CSS transition would just lag the
+        crossfade behind the scroll position. */
+    will-change: opacity;
+  }
+  /*  Wallpaper journey — atmospheric Apple wallpapers, all dark.
+
+      Earlier passes used Mac Purple / iMac Purple (the brand-
+      colored Apple wallpapers) for "brand alignment", but those
+      images carry prominent photo features — Mac Purple's bright
+      blue swirl and iMac Purple's giant vertical pill stripes —
+      that compete with the page content. Even after darkening
+      them via ffmpeg the shapes were still legible behind text
+      and made every section feel like one continuous wallpaper
+      reel rather than distinct sections.
+
+      Reverted to the original quieter trio. Each one is dark
+      and largely featureless — pure ambient color:
+        wp-1  Tahoe Dark        deep midnight blue + faint horizon
+        wp-2  Sonoma Dark       muted dawn — calm fade
+        wp-3  Sonoma Horizon    midnight blue with soft light hint
+
+      A heavy darkening + blur veil (body::before) sits on top of
+      this stack so the wallpapers read as ambient hue, not as
+      photographs. */
+  .wp-1 {
+    background-image: url("/assets/wallpaper-tahoe-dark.jpg");
+    opacity: 1;
+  }
+  .wp-2 {
+    background-image: url("/assets/wallpaper-sonoma-dark.jpg");
+  }
+  .wp-3 {
+    background-image: url("/assets/wallpaper-sonoma-horizon.jpg");
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    pointer-events: none;
+    /*  Heavy darkening + a soft backdrop blur on the wallpaper
+        layer behind. Earlier the veil sat at ~18% center / 62%
+        edges and the wallpapers' photographic features (Mac
+        Purple's swirls, iMac Purple's vertical pill stripes,
+        Tahoe Dark's bright sky stripe) showed through clearly
+        enough to compete with content. Now:
+
+          – darker veil (52% center → 88% edges) so wallpapers
+            read as ambient color, not photographs
+          – backdrop-filter blur(14px) so any remaining photo
+            shapes (light bands, soft swirls) become diffused
+            color, not recognizable forms
+
+        The lavender top/bottom tints stay (1-2%) just to keep
+        brand presence at the page extremes. */
+    background:
+      radial-gradient(ellipse at 50% 30%,
+        rgba(7, 7, 10, 0.52),
+        rgba(7, 7, 10, 0.78) 55%,
+        rgba(7, 7, 10, 0.88) 100%),
+      linear-gradient(180deg,
+        rgba(168, 130, 232, 0.06) 0%,
+        rgba(7, 7, 10, 0.0) 30%,
+        rgba(7, 7, 10, 0.0) 70%,
+        rgba(168, 130, 232, 0.05) 100%);
+    backdrop-filter: blur(14px) saturate(115%);
+    -webkit-backdrop-filter: blur(14px) saturate(115%);
+  }
+  /*  Subtle film grain to break up the gradient banding and
+      give the page a film-stock feel against the warm wallpaper. */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.04;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+
+  ::selection { background: rgba(168,130,232,0.32); color: var(--fg); }
+
+  /*  ----------------------------------------------------------------
+      Layout primitives
+      ----------------------------------------------------------------  */
+  .wrap {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+  section { padding: 120px 0; position: relative; }
+  @media (max-width: 720px) { section { padding: 80px 0; } }
+
+  /*  Add the floating-header clearance to the first section.
+      Header is fixed and ~70px tall + 18px top margin = ~88px;
+      give the hero an extra ~80px of top padding so its
+      eyebrow chip sits visually clear of the pill. */
+  .hero { padding-top: 200px !important; }
+  @media (max-width: 720px) { .hero { padding-top: 140px !important; } }
+
+  /*  ----------------------------------------------------------------
+      Section dividers — give each section a clearly visible top
+      hairline and a darkening band so adjacent sections feel
+      distinct. Earlier the divider was 1px @ 10% white over a
+      480px width which read as zero against the bright wallpaper
+      — sections bled into one another. Now:
+
+        section + section::before  → wide, brighter hairline with
+                                     a faint lavender hint at the
+                                     center (matches brand)
+        section::after             → ~140px dark gradient at the
+                                     top of every new section so
+                                     the eye sees a clear "section
+                                     started here" band
+
+      Together they create a clean break between sections without
+      requiring a hard horizontal rule.
+      ----------------------------------------------------------------  */
+  section + section::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.06) 18%,
+      rgba(200, 181, 255, 0.32) 50%,
+      rgba(255, 255, 255, 0.06) 82%,
+      transparent 100%);
+    z-index: 1;
+    pointer-events: none;
+  }
+  /*  Top-of-section darkening band. Fades from a strong dark
+      band at the very top of each section (right under the
+      hairline) to transparent ~140px down. The eye reads this
+      as "this section starts here, the previous section is
+      done" — a stronger signal than the wallpaper alone gives. */
+  section::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 140px;
+    background: linear-gradient(180deg,
+      rgba(7, 7, 10, 0.55) 0%,
+      rgba(7, 7, 10, 0.18) 60%,
+      transparent 100%);
+    pointer-events: none;
+    z-index: -1;
+  }
+  /*  Hero already has the header clearance + radial glow,
+      doesn't need the extra fade. */
+  .hero::after { display: none; }
+
+  /*  ----------------------------------------------------------------
+      Header — floating pill nav with scroll-driven morph.
+
+      Default state: full pill (logo + nav links + CTA).
+      Collapsed state (.collapsed class added when scrolled past
+      150px): morphs into a 44px circle with only the brand
+      mark visible. Click to re-expand.
+
+      Spring-like motion is approximated with a back-out
+      cubic-bezier on width / padding / border-radius.
+      ----------------------------------------------------------------  */
+  header {
+    position: fixed;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 0 6px 0 18px;
+    /*  Real glass treatment matching the page's .liquid-glass
+        cards. Subtle white-tint gradient over a near-transparent
+        dark base lets the wallpaper bleed through; backdrop-filter
+        blur + saturate gives the actual glass refraction. */
+    background:
+      linear-gradient(180deg,
+        rgba(255, 255, 255, 0.07),
+        rgba(255, 255, 255, 0.02)),
+      rgba(20, 20, 28, 0.30);
+    backdrop-filter: blur(22px) saturate(180%);
+    -webkit-backdrop-filter: blur(22px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    box-shadow:
+      0 14px 40px rgba(0, 0, 0, 0.55),
+      0 1px 0 rgba(255, 255, 255, 0.10) inset,
+      0 -1px 0 rgba(0, 0, 0, 0.35) inset;
+    overflow: hidden;
+    /*  No CSS transition on width / padding / gap — those are
+        animated by the JS damped-spring integrator (matching
+        framer-motion's stiffness:260 damping:22) so we get
+        real spring physics with proper bounce-back, not just a
+        bezier curve approximation. See the inline spring
+        animator at the bottom of <body>.
+
+        Padding and gap still need a transition so they morph
+        in lockstep with the JS-driven width — keep them at
+        the same duration the spring takes to settle (~600ms). */
+    transition:
+      padding 0.55s cubic-bezier(0.4, 0, 0.2, 1),
+      gap 0.55s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /*  Brand area: lavender notch glyph + "nox" wordmark. */
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    text-decoration: none;
+    color: var(--fg);
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    flex-shrink: 0;
+    transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  /*  Brand mark — wraps the inline #noxMark SVG (compact ring +
+      notch, no squircle background — at 22px the full app icon
+      compresses into an unreadable dark square, see the user's
+      screenshot). drop-shadow on the wrapper gives the ring the
+      soft lavender corona glow that matches the app icon. */
+  .brand-mark {
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 8px rgba(200, 181, 255, 0.55));
+    transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .brand-mark svg { display: block; }
+  /*  No CSS transition on .brand-name, .nav-links, or .nav-cta.
+      Their opacity / x-translate / scale are spring-animated
+      by JS (matching framer-motion's variants in the original
+      AnimatedNav.tsx) with explicit per-element delays for
+      the staggered fade. */
+  .brand-name { /* spring-animated by JS */ }
+
+  /*  Nav links — pill-highlight hover, fade out on collapse. */
+  .nav-links {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .nav-links a {
+    text-decoration: none;
+    color: var(--muted);
+    font-size: 13.5px;
+    font-weight: 500;
+    transition: color 0.18s ease, background 0.18s ease;
+    padding: 6px 12px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .nav-links a:hover {
+    color: var(--fg);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  /*  CTA inside the nav pill — lavender on near-black for
+      brand recall. */
+  header .btn-primary.nav-cta {
+    background: var(--accent);
+    color: #1a0e2a;
+    padding: 0 16px;
+    height: 32px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 999px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+    flex-shrink: 0;
+    /*  Hover/active color transitions only. Opacity/transform
+        animations on collapse/expand are spring-driven by JS. */
+    transition:
+      background 0.18s ease,
+      filter 0.18s ease;
+  }
+  header .btn-primary.nav-cta:hover {
+    background: var(--accent-strong);
+    color: #fff;
+    filter: brightness(1.08);
+    transform: translateY(-1px);
+  }
+  header .btn-primary.nav-cta svg { fill: currentColor; }
+
+  /*  COLLAPSED-MARK
+      Sits absolute-centered, opacity 0 by default. JS fades it
+      to 1 on collapse and back to 0 on expand. Same pattern as
+      Subedit's separate <motion.div> with collapsedMarkVariants.
+      Lets the brand area crossfade between expanded (badge
+      visible) and collapsed (this mark visible) without a
+      position-flip jump. */
+  .collapsed-mark {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    opacity: 0;
+    /*  Slight scale spring on the mark itself when it appears
+        is animated by JS, but the base scale starts at 0.85
+        so it has somewhere to spring up FROM. */
+    transform: scale(0.85);
+    filter: drop-shadow(0 0 6px rgba(200, 181, 255, 0.45));
+  }
+  .collapsed-mark svg { display: block; }
+
+  /*  COLLAPSED STATE — structural CSS only. Width, opacity,
+      and transform are JS-spring-driven. */
+  header.collapsed {
+    padding: 0;
+    gap: 0;
+    cursor: pointer;
+  }
+  header.collapsed:hover { transform: translateX(-50%) scale(1.06); }
+  header.collapsed:active { transform: translateX(-50%) scale(0.94); }
+
+  header.collapsed .brand,
+  header.collapsed .nav-cta,
+  header.collapsed .nav-links {
+    pointer-events: none;
+  }
+
+  @media (max-width: 720px) {
+    header { gap: 12px; padding: 0 4px 0 14px; }
+    .nav-links { display: none; }
+    .brand { font-size: 14.5px; }
+    header .btn-primary.nav-cta { height: 30px; padding: 0 14px; font-size: 12.5px; }
+  }
+
+  /*  ----------------------------------------------------------------
+      Buttons
+      ----------------------------------------------------------------  */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 11px 22px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    text-decoration: none;
+    border: 1px solid transparent;
+    transition: transform 0.18s ease, opacity 0.18s ease,
+                background 0.18s ease, border-color 0.18s ease;
+    white-space: nowrap;
+  }
+  .btn-primary { background: var(--fg); color: var(--bg); }
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    opacity: 0.92;
+  }
+  .btn-ghost {
+    background: rgba(255,255,255,0.04);
+    color: var(--fg-soft);
+    border-color: var(--line);
+  }
+  .btn-ghost:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.18);
+    color: var(--fg);
+  }
+  .btn-large {
+    padding: 14px 28px;
+    font-size: 15px;
+  }
+  .btn-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+  }
+
+  /*  ----------------------------------------------------------------
+      Eyebrow chip (small pill above headlines)
+      ----------------------------------------------------------------  */
+  .eyebrow-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: rgba(200, 181, 255, 0.07);
+    border: 1px solid rgba(200, 181, 255, 0.18);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.015em;
+  }
+  .eyebrow-chip::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 12px var(--accent);
+  }
+
+  /*  Section eyebrow — uppercase, accent-colored, sits above H2 */
+  .section-eyebrow {
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    display: inline-block;
+  }
+
+  /*  ----------------------------------------------------------------
+      Hero — large two-line headline with one bold emphasis line.
+      Pattern lifted from Boring Notch's approach: lighter "Not so
+      boring" / heavier "Notch". For nox: lighter "Your MacBook
+      notch," / heavier "actually useful."
+      ----------------------------------------------------------------  */
+  .hero {
+    text-align: center;
+    padding: 130px 0 60px;
+  }
+  .hero .eyebrow-chip { margin-bottom: 28px; }
+  .hero h1 {
+    margin: 0 0 26px;
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
+    font-size: clamp(50px, 8.6vw, 108px);
+    line-height: 1.0;
+    letter-spacing: -0.05em;
+    color: var(--fg);
+    /*  Soft drop shadow so the headline always wins against
+        the wallpaper underneath, no matter which hue happens
+        to sit behind a given letter. Two layers: a tight dark
+        bed (1px) for crispness and a wider soft halo (10px)
+        for separation from busy backdrops. */
+    text-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.55),
+      0 6px 22px rgba(0, 0, 0, 0.40);
+  }
+  .hero h1 .lead {
+    display: block;
+    font-weight: 500;
+    /*  Was var(--muted) (55% white) which got eaten by the
+        bright green/red regions of the Sonoma wallpaper. Bump
+        to fg-soft (78%) so the lead line reads cleanly across
+        every hue while still sitting visually behind the
+        bolder .punch line. */
+    color: var(--fg-soft);
+  }
+  .hero h1 .punch {
+    display: block;
+    font-weight: 700;
+    color: var(--fg);
+    margin-top: 4px;
+  }
+  .hero .tagline {
+    margin: 0 auto 36px;
+    max-width: 580px;
+    font-size: clamp(17px, 1.9vw, 19px);
+    /*  Tagline lifted from --muted (55%) to --fg-soft (78%)
+        for legibility on top of the wallpaper. Same reason as
+        the lead line above. */
+    color: var(--fg-soft);
+    line-height: 1.55;
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.50);
+  }
+  .hero .tagline strong {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  /*  CTA + stats wrap into vertical stack — `inline-flex` was
+      letting them collapse onto the same line at desktop widths.
+      Block-level `flex` plus center-justify keeps them stacked
+      and centered both. */
+  .hero-cta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .hero-stats {
+    margin-top: 28px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 14px;
+    /*  Was --dim (36% white). Bumped to --muted (55%) so the
+        "Free while we're testing · Most Macs from 2017
+        onwards" line reads clearly against the wallpaper. */
+    color: var(--muted);
+    font-size: 13px;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+  }
+  .hero-stats > * {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .hero-stats .sep {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--dim);
+    flex-shrink: 0;
+  }
+  .hero-stats a {
+    color: var(--muted);
+    text-decoration: none;
+    border-bottom: 1px dotted rgba(255,255,255,0.18);
+  }
+  .hero-stats a:hover { color: var(--fg); }
+
+  /*  ----------------------------------------------------------------
+      Hero visual — fake macOS menu bar with the notch silhouette
+      and a morphing pill underneath. Pure CSS animation; no JS,
+      no images.
+
+      The mockup is more convincing than the previous "demo stage"
+      because it surrounds the notch with the actual macOS menu
+      bar context: an Apple logo, app menus on the left, a clock
+      and a battery on the right. Reads as "this is what your
+      menu bar looks like with nox on" instead of "here is a
+      black pill in a void."
+      ----------------------------------------------------------------  */
+  .hero-mockup {
+    margin: 64px auto 0;
+    max-width: 1040px;
+    aspect-ratio: 16 / 8.5;
+    position: relative;
+    border-radius: 20px;
+    /*  Wallpaper inside the lid — moody dark with subtle purple
+        radial so the menu bar reads as overlay, not floating. */
+    background:
+      radial-gradient(circle at 30% 20%,
+        rgba(168, 130, 232, 0.16), transparent 50%),
+      radial-gradient(circle at 75% 70%,
+        rgba(80, 140, 220, 0.10), transparent 50%),
+      #0d0c14;
+    border: 1px solid var(--line);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.04) inset,
+      0 40px 100px -40px rgba(0, 0, 0, 0.65),
+      0 0 0 1px rgba(168, 130, 232, 0.04);
+    overflow: hidden;
+  }
+  /*  The macOS menu bar strip across the top. Semi-translucent
+      so the wallpaper bleeds through, like the real OS. */
+  .menu-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 32px;
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(15, 14, 22, 0.42);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    color: rgba(255,255,255,0.78);
+    font-size: 12.5px;
+    font-weight: 500;
+    letter-spacing: 0.005em;
+  }
+  .menu-bar .left,
+  .menu-bar .right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  /*  Apple logo glyph — solid white circle with a tiny leaf to
+      hint at the silhouette. Approximation; the real Apple
+      logo isn't redistributable as-is. */
+  .menu-bar .apple {
+    display: inline-block;
+    width: 12px;
+    height: 14px;
+    background: var(--fg);
+    /*  Apple-logo silhouette via mask. The path is a
+        simplification but reads correctly at this size. */
+    -webkit-mask: radial-gradient(circle at 65% 22%, transparent 12%, #000 13%) 0 0 / 100% 100%, linear-gradient(#000, #000);
+    mask: radial-gradient(circle at 65% 22%, transparent 12%, #000 13%) 0 0 / 100% 100%, linear-gradient(#000, #000);
+    border-radius: 30% 30% 32% 32%;
+  }
+  .menu-bar .menu-item {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .menu-bar .menu-item.dim { color: rgba(255,255,255,0.62); font-weight: 400; }
+  /*  Status icons on the right — battery glyph + clock. Tiny,
+      simple. */
+  .menu-bar .battery {
+    width: 22px;
+    height: 10px;
+    border-radius: 2px;
+    border: 1px solid rgba(255,255,255,0.55);
+    position: relative;
+  }
+  .menu-bar .battery::after {
+    content: "";
+    position: absolute;
+    right: -3px;
+    top: 2px;
+    width: 2px;
+    height: 4px;
+    background: rgba(255,255,255,0.55);
+    border-radius: 0 1px 1px 0;
+  }
+  .menu-bar .battery::before {
+    content: "";
+    position: absolute;
+    inset: 1px;
+    width: 60%;
+    background: rgba(255,255,255,0.78);
+    border-radius: 1px;
+  }
+
+  /*  The notch silhouette + pill. Centered horizontally. Black-
+      on-black so it nests into the top bezel of the rendered lid. */
+  .hero-pill {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #000;
+    border-radius: 0 0 18px 18px;
+    width: 220px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    box-shadow:
+      0 4px 14px -2px rgba(0,0,0,0.6),
+      inset 0 -1px 0 rgba(255,255,255,0.04);
+    animation: pill-morph 9s ease-in-out infinite;
+    z-index: 2;
+  }
+  /*  Pill content states — fade through three. Pure CSS via
+      keyframed opacity per state. */
+  .pill-state {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--fg);
+    font-size: 11.5px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    opacity: 0;
+    animation-duration: 9s;
+    animation-iteration-count: infinite;
+    animation-timing-function: ease-in-out;
+    padding: 0 12px;
+  }
+  .pill-state.idle  { animation-name: state-idle; }
+  .pill-state.music { animation-name: state-music; }
+  .pill-state.drag  { animation-name: state-drag; }
+
+  .pill-state .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-right: 8px;
+    box-shadow: 0 0 12px var(--accent);
+  }
+  .pill-state .album {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    background: linear-gradient(135deg, #FF6F61 0%, #B048D6 100%);
+    margin-right: 8px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.4);
+    flex-shrink: 0;
+  }
+  .pill-state .bars {
+    display: inline-flex;
+    align-items: end;
+    gap: 2px;
+    margin-left: 8px;
+    height: 12px;
+  }
+  .pill-state .bars span {
+    width: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+    animation: bars 0.9s ease-in-out infinite;
+  }
+  .pill-state .bars span:nth-child(1) { height: 4px;  animation-delay: 0.0s; }
+  .pill-state .bars span:nth-child(2) { height: 8px;  animation-delay: 0.15s; }
+  .pill-state .bars span:nth-child(3) { height: 12px; animation-delay: 0.3s; }
+  .pill-state .bars span:nth-child(4) { height: 6px;  animation-delay: 0.45s; }
+
+  @keyframes bars {
+    0%, 100% { transform: scaleY(0.5); }
+    50%      { transform: scaleY(1); }
+  }
+  /*  Pill morph — resting (220x32) → music card (320x40) → drag
+      pill (260x40) → resting. */
+  @keyframes pill-morph {
+    0%,  20%  { width: 220px; height: 32px; border-radius: 0 0 18px 18px; }
+    28%, 58%  { width: 320px; height: 40px; border-radius: 0 0 22px 22px; }
+    66%, 88%  { width: 260px; height: 40px; border-radius: 0 0 22px 22px; }
+    100%      { width: 220px; height: 32px; border-radius: 0 0 18px 18px; }
+  }
+  @keyframes state-idle {
+    0%, 16%   { opacity: 1; }
+    22%, 92%  { opacity: 0; }
+    96%, 100% { opacity: 1; }
+  }
+  @keyframes state-music {
+    0%, 24%   { opacity: 0; }
+    32%, 58%  { opacity: 1; }
+    62%, 100% { opacity: 0; }
+  }
+  @keyframes state-drag {
+    0%, 60%   { opacity: 0; }
+    66%, 86%  { opacity: 1; }
+    90%, 100% { opacity: 0; }
+  }
+
+  /*  "Hover the notch" hint under the mockup — same pattern
+      Boring Notch uses. For us this is just a static label
+      since the website pill animates on its own. */
+  .mockup-caption {
+    margin-top: 18px;
+    text-align: center;
+    color: var(--dim);
+    font-size: 13px;
+    letter-spacing: 0.005em;
+  }
+  .mockup-caption .accent { color: var(--accent); }
+
+  /*  ----------------------------------------------------------------
+      Section heads — eyebrow + big H2 + one-line subhead
+      ----------------------------------------------------------------  */
+  .section-head {
+    text-align: center;
+    margin-bottom: 72px;
+    max-width: 660px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .section-head h2 {
+    margin: 0 0 16px;
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
+    font-size: clamp(32px, 4.8vw, 54px);
+    letter-spacing: -0.038em;
+    line-height: 1.05;
+    font-weight: 600;
+    color: var(--fg);
+    /*  Soft drop shadow so section headings stay legible
+        across the wallpaper's brighter regions. Same idea
+        as the hero h1 treatment, scaled down. */
+    text-shadow: 0 2px 16px rgba(0, 0, 0, 0.40);
+  }
+  .section-head p {
+    margin: 0;
+    /*  Lifted from --muted (55%) to --fg-soft (78%) so the
+        section subtitle reads against the wallpaper. */
+    color: var(--fg-soft);
+    font-size: 16.5px;
+    line-height: 1.6;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
+  }
+
+  /*  ----------------------------------------------------------------
+      Feature cards — glass with hover lift + accent border
+      ----------------------------------------------------------------  */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  @media (max-width: 960px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    position: relative;
+    border-radius: 18px;
+    padding: 28px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    transition: transform 0.28s ease, border-color 0.28s ease,
+                background 0.28s ease;
+  }
+  .card:hover {
+    transform: translateY(-3px);
+    background: var(--surface-2);
+    border-color: rgba(200, 181, 255, 0.22);
+  }
+  .card .icon-tile {
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
+    background: linear-gradient(135deg,
+      rgba(200, 181, 255, 0.20),
+      rgba(200, 181, 255, 0.06));
+    border: 1px solid rgba(200, 181, 255, 0.18);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 20px;
+    color: var(--accent);
+    font-size: 18px;
+    font-weight: 500;
+  }
+  .card h3 {
+    margin: 0 0 8px;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.012em;
+    color: var(--fg);
+  }
+  .card p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14.5px;
+    line-height: 1.6;
+  }
+
+  /*  ----------------------------------------------------------------
+      Liquid-glass card treatment
+
+      Inspiration: github.com/nikdelvin/liquid-glass — the iOS-26
+      "frosted glass with inner light reflection" aesthetic. Three-
+      layer build:
+        1. Frosted backdrop (.liquid-glass) — heavy backdrop-blur
+           + saturate so what's behind it shows as a soft tint
+        2. Inner border highlight (::before) — diagonal gradient
+           painted as a 1px ring so the card edge catches light
+           on the top-left and dims toward the bottom-right
+        3. Soft top-corner accent radial (::after) — adds the
+           tiny gleam at the top edge that real frosted-glass
+           panels show under a soft light
+
+      Used on the pricing cards and on any glass surface where we
+      want the card itself to feel like a physical object instead
+      of a flat dark panel.
+      ----------------------------------------------------------------  */
+  .liquid-glass {
+    position: relative;
+    /*  Frosted card body. 5% white tint so the surface reads as
+        actual glass (a frost layer) rather than a transparent
+        film that lets the wallpaper bleed straight through.
+        Earlier 1.2% was too transparent against a colorful
+        wallpaper — wallpaper's green swooshes saturated into
+        solid green tiles via the saturate() filter.
+        Dark glass tint (0.04 black) keeps the frost feeling
+        cool and quiet, especially on the dark Sonoma backdrop. */
+    background:
+      linear-gradient(180deg,
+        rgba(255, 255, 255, 0.05),
+        rgba(255, 255, 255, 0.02)),
+      rgba(0, 0, 0, 0.18);
+    /*  Frosted-glass treatment. The real per-card displacement
+        filter is computed in JS at the bottom of <body> (see
+        initLiquidGlass) and writes a custom feDisplacementMap
+        backdrop-filter onto each element. The blur/saturate
+        below is what every browser falls back to when the
+        per-card displacement isn't supported (Safari, Firefox).
+
+        Saturation kept at 130%, NOT cranked. 210% earlier
+        was multiplying the wallpaper's green/red hues into
+        full-color stains (visible as the bright-green FAQ
+        cards). Real Apple glass is closer to neutral — it
+        picks up a hint of the underlying color, not a
+        pigmented copy of it. Brightness lift removed for
+        the same reason. */
+    backdrop-filter: blur(22px) saturate(130%);
+    -webkit-backdrop-filter: blur(22px) saturate(130%);
+    border: 1px solid rgba(255, 255, 255, 0.085);
+    border-radius: 20px;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .liquid-glass::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.22) 0%,
+      rgba(255, 255, 255, 0.04) 28%,
+      rgba(255, 255, 255, 0.02) 65%,
+      rgba(255, 255, 255, 0.10) 100%
+    );
+    -webkit-mask:
+      linear-gradient(#000, #000) content-box,
+      linear-gradient(#000, #000);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .liquid-glass::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background:
+      radial-gradient(circle at 30% 0%,
+        rgba(200, 181, 255, 0.10), transparent 55%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .liquid-glass > * { position: relative; z-index: 1; }
+
+  /*  Featured variant — the nox card. Picks up a stronger inner
+      glow so it visually leads the row. */
+  .liquid-glass.featured {
+    background:
+      linear-gradient(180deg,
+        rgba(200, 181, 255, 0.08),
+        rgba(200, 181, 255, 0.02) 50%,
+        rgba(255, 255, 255, 0.02) 100%),
+      rgba(255, 255, 255, 0.03);
+    border-color: rgba(200, 181, 255, 0.22);
+  }
+  .liquid-glass.featured::after {
+    background:
+      radial-gradient(circle at 50% 0%,
+        rgba(200, 181, 255, 0.20), transparent 65%);
+  }
+
+  /*  ----------------------------------------------------------------
+      Pricing-style comparison cards (Threekit-inspired)
+
+      Replaces the old 18-row dense table. Same 4 apps, but laid
+      out as side-by-side cards so each app reads as one object
+      to scan instead of a column of cells. The short feature
+      checklist below is reduced to ONLY rows where the apps
+      actually differ — universal "everyone has it" rows like
+      Music controls, Drag files, Notes were dropped because
+      they don't help anyone choose between options.
+      ----------------------------------------------------------------  */
+  .pricing-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 32px;
+  }
+  @media (max-width: 960px) { .pricing-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 540px) { .pricing-grid { grid-template-columns: 1fr; } }
+
+  /*  ----------------------------------------------------------------
+      Why nox · numbered principles
+
+      Editorial manifesto layout. Big SF Display numerals in
+      lavender, copy beside them, no card frames. Reads as a
+      magazine spread. Visually distinct from the Features
+      cards above (which use icon-tile + bordered cards). Two
+      columns at desktop so each row pairs cleanly; collapses
+      to one column under 720px.
+
+      `list-style: none` + reset the OL counter ourselves via
+      data-supplied numerals so we can style the digits as
+      display type rather than relying on the browser's default
+      ordered-list rendering.
+      ----------------------------------------------------------------  */
+  .principles {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 56px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 56px 64px;
+  }
+  @media (max-width: 720px) {
+    .principles {
+      grid-template-columns: 1fr;
+      gap: 40px;
+      margin-bottom: 40px;
+    }
+  }
+  .principles li {
+    display: grid;
+    grid-template-columns: 96px 1fr;
+    gap: 18px;
+    align-items: start;
+  }
+  @media (max-width: 540px) {
+    .principles li { grid-template-columns: 64px 1fr; gap: 12px; }
+  }
+  .principles .num {
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
+    font-size: 80px;
+    font-weight: 200;
+    letter-spacing: -0.05em;
+    line-height: 0.85;
+    color: var(--accent);
+    /*  Subtle gradient on the numeral itself for a touch of
+        depth without making the digit shouty. Kept very
+        narrow in opacity range so it still reads as one
+        confident lavender stroke. */
+    background: linear-gradient(180deg,
+      var(--accent) 0%,
+      rgba(168, 130, 232, 0.55) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    display: inline-block;
+  }
+  @media (max-width: 540px) {
+    .principles .num { font-size: 56px; }
+  }
+  .principles h3 {
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+    margin: 8px 0 8px;
+  }
+  .principles p {
+    /*  Open section (no card background), so muted text
+        gets eaten by the wallpaper. Lifted to --fg-soft +
+        soft shadow for legibility. */
+    color: var(--fg-soft);
+    font-size: 14.5px;
+    line-height: 1.6;
+    margin: 0;
+    max-width: 38ch;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
+  }
+  .principles h3 {
+    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.40);
+  }
+
+  /*  Compare table — feature inventory with side-by-side
+      yes/no across nox + three other notch apps. The first
+      column carries the feature label AND a plain-language
+      sub line so a non-technical reader still understands
+      what each row means. The four right columns are narrow
+      tile cells with a green ✓ or muted ○ glyph. nox column
+      is highlighted with the lavender accent so the eye lands
+      on it first.
+      ----------------------------------------------------------------  */
+  .compare-table {
+    overflow: hidden;
+  }
+  .compare-table .head {
+    padding: 16px 24px 14px;
+    border-bottom: 1px solid var(--line-soft);
+    display: grid;
+    grid-template-columns: 2.4fr 0.7fr 0.7fr 0.9fr 0.9fr;
+    gap: 14px;
+    align-items: center;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+  }
+  .compare-table .head .feat {
+    text-align: left;
+    color: var(--muted);
+  }
+  .compare-table .head .self,
+  .compare-table .head > span:not(.feat) {
+    text-align: center;
+  }
+  .compare-table .head .self { color: var(--accent); }
+  .compare-table .row {
+    padding: 18px 24px;
+    display: grid;
+    grid-template-columns: 2.4fr 0.7fr 0.7fr 0.9fr 0.9fr;
+    gap: 14px;
+    align-items: center;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .compare-table .row:last-child { border-bottom: none; }
+  .compare-table .row .feat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .compare-table .row .label {
+    color: var(--fg);
+    font-weight: 500;
+    font-size: 14.5px;
+  }
+  .compare-table .row .sub {
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  .compare-table .row > span:not(.feat) {
+    text-align: center;
+    font-size: 14px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .compare-table .row .self { color: var(--fg); font-weight: 600; }
+  .compare-table .yes {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: rgba(124, 238, 159, 0.14);
+    color: var(--success);
+    font-size: 14px;
+    font-weight: 700;
+  }
+  .compare-table .no {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    color: var(--dim);
+    font-size: 14px;
+    font-weight: 400;
+  }
+  .compare-table .price-row {
+    background: rgba(200, 181, 255, 0.04);
+  }
+  .compare-table .price-row > span:not(.feat) { font-weight: 600; color: var(--fg-soft); }
+  .compare-table .price-row .self strong { color: var(--accent); }
+
+  .compare-note {
+    margin-top: 18px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.6;
+    max-width: 70ch;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /*  Mobile: hide the four app-name columns and show only
+      the feature label + plain description. The takeaway on
+      a phone is what the app does, not which competitor
+      lacks the row. The desktop table still does that work
+      for buyers who scroll on a laptop.
+      ----------------------------------------------------------------  */
+  @media (max-width: 720px) {
+    .compare-table .head { display: none; }
+    .compare-table .row {
+      grid-template-columns: 1fr;
+      gap: 8px;
+      padding: 18px 20px;
+    }
+    .compare-table .row > span:not(.feat) {
+      display: none;
+    }
+  }
+
+  .pricing-card {
+    padding: 24px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    transition: transform 0.28s ease;
+  }
+  .pricing-card:hover { transform: translateY(-3px); }
+
+  .pricing-card .badge {
+    align-self: flex-start;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(200, 181, 255, 0.12);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border: 1px solid rgba(200, 181, 255, 0.22);
+  }
+  .pricing-card .name {
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+    margin: 0;
+  }
+  .pricing-card .tagline {
+    color: var(--muted);
+    font-size: 13.5px;
+    line-height: 1.5;
+    margin: 0;
+    /*  Reserve roughly 2 lines so the card heights match across
+        4 cards regardless of tagline length. */
+    min-height: 40px;
+  }
+  .pricing-card .price {
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+    line-height: 1.1;
+  }
+  .pricing-card .price small {
+    display: block;
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--muted);
+    letter-spacing: 0;
+    margin-top: 4px;
+  }
+  .pricing-card .btn { margin-top: auto; }
+
+  /*  Compact differentiator list — 6 rows max, all of which are
+      moments where nox actually behaves differently from the
+      other three. Same liquid-glass shell as the cards so the
+      pair reads as one comparison block. */
+  .feature-list {
+    padding: 8px 0;
+  }
+  .feature-list .head {
+    padding: 18px 24px 14px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--line-soft);
+    display: grid;
+    grid-template-columns: 2fr repeat(4, 1fr);
+    gap: 12px;
+    align-items: center;
+  }
+  .feature-list .head .self { color: var(--fg); }
+  .feature-list .row {
+    padding: 18px 24px;
+    display: grid;
+    grid-template-columns: 2fr repeat(4, 1fr);
+    gap: 12px;
+    align-items: center;
+    border-bottom: 1px solid var(--line-soft);
+    font-size: 14.5px;
+  }
+  .feature-list .row:last-child { border-bottom: none; }
+  /*  Each row is now a label + a one-line explainer that tells
+      a regular person WHY they'd want this — turning a terse
+      feature checklist into something a non-developer can
+      actually understand at a glance. */
+  .feature-list .row .label-col {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .feature-list .row .label {
+    color: var(--fg);
+    font-weight: 500;
+    font-size: 14.5px;
+  }
+  .feature-list .row .sub {
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+  .feature-list .row .self {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  /*  Check / X glyphs — circular tile so each cell scans at a
+      glance without reading. Green-positive for "yes", muted
+      gray for "no/unclear". */
+  .check, .cross {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .check {
+    background: rgba(124, 238, 159, 0.12);
+    color: var(--success);
+    border: 1px solid rgba(124, 238, 159, 0.28);
+  }
+  .cross {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--dim);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  @media (max-width: 720px) {
+    /*  On phones the 5-column grid breaks. Flip to a stacked
+        layout where each row shows the feature name on its own
+        line and the four answers below. */
+    .feature-list .head { display: none; }
+    .feature-list .row {
+      grid-template-columns: 1fr;
+      gap: 10px;
+      padding: 16px 18px;
+    }
+    .feature-list .row .label {
+      font-size: 14px;
+      color: var(--fg);
+    }
+    .feature-list .row .answer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .feature-list .row .answer::before {
+      content: attr(data-app);
+      color: var(--dim);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-size: 11px;
+    }
+  }
+
+  /*  ----------------------------------------------------------------
+      Comparison table (DEPRECATED — kept for backward compat in
+      case anything else references the class)
+      ----------------------------------------------------------------  */
+  .compare-table {
+    overflow-x: auto;
+    border-radius: 18px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+  }
+  .compare-table table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14.5px;
+    min-width: 720px;
+  }
+  .compare-table th,
+  .compare-table td {
+    padding: 14px 18px;
+    text-align: left;
+    border-bottom: 1px solid var(--line-soft);
+    vertical-align: middle;
+  }
+  .compare-table tr:last-child td { border-bottom: none; }
+  .compare-table thead th {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    padding: 22px 18px 14px;
+  }
+  .compare-table thead th.self { color: var(--fg); }
+  .compare-table td:first-child,
+  .compare-table th:first-child {
+    color: var(--fg-soft);
+    font-weight: 500;
+    width: 32%;
+  }
+  .compare-table th.self,
+  .compare-table td.self {
+    background: linear-gradient(180deg,
+      rgba(200, 181, 255, 0.10),
+      rgba(200, 181, 255, 0.04));
+    color: var(--fg);
+    font-weight: 500;
+    border-left: 1px solid rgba(200, 181, 255, 0.16);
+    border-right: 1px solid rgba(200, 181, 255, 0.16);
+  }
+  .compare-yes  { color: var(--success); font-weight: 600; }
+  .compare-no   { color: var(--dim); font-weight: 400; }
+  .compare-soon {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.05);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    text-transform: lowercase;
+  }
+  .compare-note { color: var(--muted); font-size: 13.5px; }
+  .compare-footnote {
+    margin-top: 24px;
+    color: var(--dim);
+    font-size: 12.5px;
+    text-align: center;
+    line-height: 1.6;
+  }
+  .compare-footnote a {
+    color: var(--muted);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-color: rgba(255,255,255,0.2);
+  }
+  .compare-footnote a:hover { color: var(--fg); }
+  @media (max-width: 720px) {
+    .compare-table th, .compare-table td { padding: 12px 14px; }
+  }
+
+  /*  ----------------------------------------------------------------
+      Privacy callout
+      ----------------------------------------------------------------  */
+  .privacy {
+    text-align: center;
+    border-top: 1px solid var(--line-soft);
+    border-bottom: 1px solid var(--line-soft);
+    padding: 110px 0;
+  }
+  .privacy .eyebrow-chip {
+    background: rgba(124, 238, 159, 0.06);
+    border-color: rgba(124, 238, 159, 0.20);
+    color: var(--success);
+    margin-bottom: 24px;
+  }
+  .privacy .eyebrow-chip::before {
+    background: var(--success);
+    box-shadow: 0 0 12px var(--success);
+  }
+  .privacy h2 {
+    margin: 0 0 20px;
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
+    font-size: clamp(30px, 4.4vw, 48px);
+    letter-spacing: -0.035em;
+    line-height: 1.12;
+    font-weight: 600;
+    color: var(--fg);
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .privacy p {
+    margin: 0 auto;
+    max-width: 620px;
+    /*  Brightened from --muted (55%) to --fg-soft (78%) so
+        the privacy paragraph reads against the wallpaper.
+        Plus soft shadow for legibility on busy hues. */
+    color: var(--fg-soft);
+    font-size: 16.5px;
+    line-height: 1.65;
+    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.40);
+  }
+  .privacy h2 {
+    text-shadow: 0 2px 16px rgba(0, 0, 0, 0.45);
+  }
+
+  /*  ----------------------------------------------------------------
+      Storage panel — two cards side by side under the privacy
+      headline. Left card lists what nox writes to disk and
+      where. Right card lists what nox never collects. Same
+      liquid-glass shell as the rest of the site so it slots
+      into the privacy section visually.
+      ----------------------------------------------------------------  */
+  .storage-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin: 56px auto 0;
+    max-width: 940px;
+    text-align: left;
+  }
+  @media (max-width: 760px) { .storage-grid { grid-template-columns: 1fr; } }
+  .storage-card {
+    padding: 28px 26px 22px;
+  }
+  .storage-card h3 {
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--fg);
+    margin: 0 0 18px;
+  }
+  .storage-card ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .storage-card ul li {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid var(--line-soft);
+  }
+  .storage-card .lab {
+    color: var(--fg);
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .storage-card .loc {
+    color: var(--muted);
+    font-size: 11.5px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: -0.01em;
+  }
+  .storage-card ul.bad li {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 10px;
+    background: transparent;
+    border: 0;
+    padding: 6px 0;
+    color: var(--muted);
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+  .storage-card ul.bad li::before {
+    content: "";
+    flex: 0 0 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--dim);
+    margin-top: 8px;
+  }
+  .storage-foot {
+    margin: 18px 0 0 !important;
+    padding-top: 14px;
+    border-top: 1px solid var(--line-soft);
+    color: var(--muted);
+    font-size: 12.5px !important;
+    line-height: 1.55 !important;
+    text-align: left !important;
+    max-width: none !important;
+  }
+  .storage-foot code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11.5px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--fg-soft);
+  }
+
+  /*  ----------------------------------------------------------------
+      FAQ grid — liquid-glass cards, two columns at desktop,
+      single column on phones. Each card shows Q + A always
+      visible (faster to scan than collapsing details).
+      ----------------------------------------------------------------  */
+  .faq {
+    /*  No section-level background. The body's wallpaper +
+        vignette veil already creates a consistent backdrop
+        across every section; layering an additional gradient
+        here was making the section transparent in the middle
+        (so wallpaper bled through) and opaque at the edges
+        (so the section border was visible against the
+        adjacent fully-transparent sections). The result was
+        the FAQ cards looking like green tiles because the
+        wallpaper's green swooshes leaked through unfiltered.
+        Letting the global backdrop carry the visuals keeps
+        every section visually consistent. */
+    background: transparent;
+  }
+  .faq-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    margin-top: 48px;
+  }
+  @media (max-width: 760px) { .faq-grid { grid-template-columns: 1fr; } }
+  .faq-card {
+    padding: 22px 24px;
+  }
+  .faq-card h3 {
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--fg);
+    margin: 0 0 8px;
+    line-height: 1.35;
+  }
+  .faq-card p {
+    color: var(--muted);
+    font-size: 13.5px;
+    line-height: 1.6;
+    margin: 0;
+  }
+  .faq-card code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--fg-soft);
+  }
+  .faq-foot {
+    margin: 32px auto 0;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13.5px;
+  }
+  .faq-foot a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .faq-foot a:hover { color: var(--fg); }
+
+  /*  ----------------------------------------------------------------
+      Final CTA
+      ----------------------------------------------------------------  */
+  .cta { text-align: center; padding: 130px 0; }
+  .cta h2 {
+    margin: 0 0 16px;
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "SF Pro Display", "Inter", system-ui, sans-serif;
+    font-size: clamp(40px, 6vw, 68px);
+    letter-spacing: -0.045em;
+    font-weight: 600;
+    color: var(--fg);
+    line-height: 1.0;
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.45);
+  }
+  .cta p {
+    /*  Lifted from --muted (55%) to --fg-soft (78%) so it
+        reads against the wallpaper. */
+    color: var(--fg-soft);
+    margin: 0 auto 36px;
+    max-width: 480px;
+    font-size: 16.5px;
+    line-height: 1.55;
+    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.40);
+  }
+
+  /*  ----------------------------------------------------------------
+      Footer
+      ----------------------------------------------------------------  */
+  footer {
+    border-top: 1px solid var(--line-soft);
+    padding: 38px 0;
+    color: var(--dim);
+    font-size: 13px;
+  }
+  footer .wrap {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  footer a { color: var(--muted); text-decoration: none; }
+  footer a:hover { color: var(--fg); }
+  footer .links { display: flex; gap: 24px; flex-wrap: wrap; }
+
+  /*  ----------------------------------------------------------------
+      Reduced motion
+      ----------------------------------------------------------------  */
+  @media (prefers-reduced-motion: reduce) {
+    .hero-pill,
+    .pill-state,
+    .pill-state .bars span { animation: none !important; }
+    .pill-state.idle { opacity: 1; }
+    .pill-state.music, .pill-state.drag { opacity: 0; }
+    .hero-pill { width: 220px; height: 32px; }
+  }
+</style>
 </head>
 <body>
 
-<!-- Reusable inline brand glyph, same silhouette as the macOS app icon. -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<!--
+  Wallpaper stack. Three brand-aligned Apple wallpapers (all
+  in the lavender/purple family of #C5A3FF), each fixed to the
+  viewport, opacity-crossfaded by JS as the user scrolls past
+  section boundaries. See .wallpaper-stack in <style> and the
+  scroll handler at the bottom of <body> for the smoothstep math.
+
+  Journey (top → bottom):
+    wp-1  Tahoe Dark        Hero + Features         deep midnight purple
+    wp-2  Mac Purple        Why nox + Privacy       saturated brand purple
+    wp-3  iMac Purple       FAQ + CTA               softer lavender
+-->
+<div class="wallpaper-stack" aria-hidden="true">
+  <div class="wp-layer wp-1"></div>
+  <div class="wp-layer wp-2"></div>
+  <div class="wp-layer wp-3"></div>
+</div>
+
+<!--
+  Reusable nox brand mark — full app icon (1024×1024 source).
+
+  Authoritative source: /Notetaker/Resources/nox-icon.svg, the
+  same SVG the macOS app exports as its app icon. Embedded as
+  a <symbol> here so any element on the page can render the
+  logo at any size with <svg><use href="#noxGlyph"/></svg>.
+  All gradient and filter IDs are namespaced with "nox-" so
+  they don't collide with the LiquidGlass per-card displacement
+  filters elsewhere on the page.
+
+  Layers (bottom → top):
+    1. Squircle clip (1024×1024 with 230px corner radius)
+    2. Dark radial-gradient base (#0A0612 → #040108 → #000)
+    3. Inner lavender corona glow (radial, 36% radius)
+    4. Outer halo (blurred circle, low opacity, lavender)
+    5. Sharp lavender ring (5-stop linear gradient)
+    Notch cut from top via mask (484,200 56×36)
+-->
+<svg width="0" height="0" aria-hidden="true" style="position:absolute">
   <defs>
-    <symbol id="noxGlyph" viewBox="0 0 32 32">
-      <mask id="noxNotchMask">
-        <rect width="32" height="32" fill="white"/>
-        <rect x="14.5" y="5.4" width="3" height="1.4" fill="black"/>
-      </mask>
-      <g mask="url(#noxNotchMask)">
-        <circle cx="16" cy="16" r="9.4" fill="none" stroke="#C5A3FF" stroke-width="1.6"/>
+    <clipPath id="nox-squircleClip" clipPathUnits="userSpaceOnUse">
+      <rect width="1024" height="1024" rx="230" ry="230"/>
+    </clipPath>
+    <radialGradient id="nox-bgDepth" cx="0.5" cy="0.5" r="0.75">
+      <stop offset="0%"   stop-color="#0A0612"/>
+      <stop offset="55%"  stop-color="#040108"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </radialGradient>
+    <radialGradient id="nox-innerCorona" cx="0.5" cy="0.5" r="0.36">
+      <stop offset="0%"   stop-color="#C5A3FF" stop-opacity="0.10"/>
+      <stop offset="60%"  stop-color="#C5A3FF" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#C5A3FF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="nox-ringFill" x1="0.3" y1="0.05" x2="0.75" y2="0.98">
+      <stop offset="0%"   stop-color="#EFDEFF"/>
+      <stop offset="25%"  stop-color="#D9BCFF"/>
+      <stop offset="55%"  stop-color="#C5A3FF"/>
+      <stop offset="80%"  stop-color="#A688E8"/>
+      <stop offset="100%" stop-color="#8064C8"/>
+    </linearGradient>
+    <filter id="nox-outerHalo" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="22"/>
+    </filter>
+    <mask id="nox-notchMask" maskUnits="userSpaceOnUse">
+      <rect width="1024" height="1024" fill="white"/>
+      <rect x="484" y="200" width="56" height="36" fill="black"/>
+    </mask>
+    <symbol id="noxGlyph" viewBox="0 0 1024 1024">
+      <g clip-path="url(#nox-squircleClip)">
+        <rect width="1024" height="1024" fill="url(#nox-bgDepth)"/>
+        <rect width="1024" height="1024" fill="url(#nox-innerCorona)"/>
+        <g mask="url(#nox-notchMask)">
+          <circle cx="512" cy="512" r="290" fill="none"
+                  stroke="#C5A3FF" stroke-width="46" opacity="0.42"
+                  filter="url(#nox-outerHalo)"/>
+          <circle cx="512" cy="512" r="290" fill="none"
+                  stroke="url(#nox-ringFill)" stroke-width="20"/>
+        </g>
+      </g>
+    </symbol>
+
+    <!--
+      Compact mark for inline use at small sizes (nav, footer, etc).
+      Just the lavender ring + notch — no squircle background, no
+      blurred halo, because at 20–28px those layers compress to a
+      tiny dark square and the ring detail disappears (visible in
+      the user's screenshot when we tried the full glyph in the
+      nav).
+
+      Mask defined INSIDE the symbol so it inherits the symbol's
+      viewBox coordinate system (0 0 1024 1024). Earlier the mask
+      was in the outer 0×0 wrapper SVG and its coordinates were
+      interpreted in that wrapper's user space — making the mask
+      effectively black everywhere and hiding the entire ring.
+
+      Stroke-width 60/1024 so the ring stays readable when scaled
+      down to 22-28px (effective stroke ~1.3-1.7px).
+    -->
+    <symbol id="noxMark" viewBox="0 0 1024 1024">
+      <defs>
+        <mask id="nox-mark-notch">
+          <rect width="1024" height="1024" fill="white"/>
+          <rect x="484" y="180" width="56" height="50" fill="black"/>
+        </mask>
+      </defs>
+      <g mask="url(#nox-mark-notch)">
+        <circle cx="512" cy="512" r="350" fill="none"
+                stroke="url(#nox-ringFill)" stroke-width="60"
+                stroke-linecap="round"/>
       </g>
     </symbol>
   </defs>
 </svg>
 
-<header class="site-nav">
-  <a href="#" class="brand">
-    <span class="brand-mark"><svg viewBox="0 0 32 32" width="22" height="22"><use href="#noxGlyph"/></svg></span>
+<!--
+  Floating pill nav with scroll-driven morph.
+
+  Ported from /Users/apple/Caption app/caption-app/src/components/
+  landing/AnimatedNav.tsx (Subedit's nav, which itself is a port of
+  the reapollo "Navigation Menu" pattern from 21st.dev).
+
+  Behaviour (vanilla JS, no framer-motion):
+    - scroll DOWN past 150px  → header collapses to a 44px circle,
+                                  only the brand mark stays visible
+    - scroll UP by 80px from the collapse point → re-expand
+    - click the collapsed circle → expand immediately
+    - hover the collapsed circle → subtle scale lift (CSS only)
+
+  Spring-like motion is approximated with a back-out cubic-bezier.
+-->
+<header id="navHeader">
+  <a class="brand" href="/">
+    <span class="brand-mark" aria-hidden="true">
+      <svg width="24" height="24" viewBox="0 0 1024 1024"><use href="#noxMark"/></svg>
+    </span>
     <span class="brand-name">nox</span>
-    <span class="brand-version">v1.2 beta</span>
   </a>
-  <nav>
+  <div class="nav-links">
+    <a href="#features">Features</a>
+    <a href="#why">Why nox</a>
     <a href="#privacy">Privacy</a>
-    <a href="#compare">Compare</a>
     <a href="#faq">FAQ</a>
-    <a href="#download" class="dl">Download</a>
-  </nav>
+    <a href="https://github.com/left-society/nox">GitHub</a>
+  </div>
+  <a class="btn btn-primary nav-cta" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">
+    <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.463 1.58-1.518 3.12-.945 1.34-1.94 2.71-3.43 2.71-1.517 0-1.9-.88-3.63-.88-1.698 0-2.302.91-3.67.91-1.49 0-2.534-1.32-3.43-2.64-1.911-2.81-3.39-7.94-1.41-11.4.954-1.69 2.717-2.78 4.66-2.81 1.46-.03 2.83.96 3.71.96.88 0 2.55-.96 4.31-.82.74.03 2.81.3 4.13 2.25-.11.07-2.47 1.44-2.44 4.31.04 3.43 3.01 4.57 3.04 4.59-.07.04-2.84-1.41-3.5-2.91z"/></svg>
+    <span class="cta-label">Download</span>
+  </a>
+  <!--
+    Collapsed-state mark. Sits absolute-centered, hidden when
+    expanded, fades in on collapse. This is the same pattern
+    Subedit uses (a separate <motion.div> with collapsedMark
+    Variants in AnimatedNav.tsx) so the brand area can crossfade
+    smoothly between expanded and collapsed without a position-
+    flip jump.
+  -->
+  <span class="collapsed-mark" aria-hidden="true">
+    <svg width="28" height="28" viewBox="0 0 1024 1024"><use href="#noxMark"/></svg>
+  </span>
 </header>
 
-
-<main>
-
-<!-- =====================================================================
-     CINEMA STAGE
-     The MacBook is the protagonist. It stays pinned in view across the
-     hero + pillar + music beats. Only the notch content morphs as the
-     user scrolls. ScrollTrigger drives the timeline; Lenis adds the
-     smooth-inertial feel.
-     ===================================================================== -->
-<div class="cinema-stage" id="cinema">
-
-  <!-- The pinned region. Stays in view across the cinema-stage's full
-       height. All beats live INSIDE this pin (as overlays); only one
-       is visible at a time, controlled by GSAP. -->
-  <div class="cinema-pin">
-
-  <!-- The MacBook lives inside the pin too. It's centered. -->
-  <div class="cinema-mac" id="cinemaMac">
-    <div class="mbp">
-      <div class="mbp-screen">
-        <div class="mbp-wallpaper"></div>
-
-        <!-- Menu bar — visible behind the notch wings -->
-        <div class="mbp-menubar">
-          <span class="apple"></span>
-          <span class="mb-app">nox</span>
-          <span class="mb-menu">File</span>
-          <span class="mb-menu">Edit</span>
-          <span class="mb-menu">View</span>
-          <span class="mb-menu">Window</span>
-          <span class="mb-menu">Help</span>
-          <span class="spacer"></span>
-          <svg class="mb-glyph" viewBox="0 0 18 14" width="15" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-            <path d="M2.2 5.6a10 10 0 0 1 13.6 0"/>
-            <path d="M4.5 8a6.5 6.5 0 0 1 9 0"/>
-            <path d="M6.8 10.4a3 3 0 0 1 4.4 0"/>
-            <circle cx="9" cy="12" r="0.9" fill="currentColor" stroke="none"/>
-          </svg>
-          <svg class="mb-glyph mb-glyph-battery" viewBox="0 0 24 11" width="22" height="10" fill="none">
-            <rect x="0.6" y="0.6" width="20" height="9.8" rx="2.2" stroke="currentColor" stroke-width="1.2" fill="none"/>
-            <rect x="2" y="2" width="14" height="7" rx="1" fill="currentColor"/>
-            <rect x="21.6" y="3.5" width="1.8" height="4" rx="0.8" fill="currentColor"/>
-          </svg>
-          <span class="mb-time">Sun 26 Apr&nbsp;&nbsp;12:34</span>
-        </div>
-
-        <!-- THE NOTCH. Single element. GSAP morphs its width / height /
-             radius based on scroll progress. Inside, multiple state
-             contents stacked; opacity is driven by which beat we're in. -->
-        <div class="notch" id="notch" data-state="rest">
-          <!-- Resting "music" pill — 220×20 locked -->
-          <div class="notch-state notch-rest" data-state="rest">
-            <div class="rest-art"></div>
-            <canvas class="rest-wave" width="60" height="36"></canvas>
-          </div>
-
-          <!-- Music slab — full panel content -->
-          <div class="notch-state notch-music" data-state="music">
-            <div class="panel-titlebar">
-              <span class="panel-title">nox</span>
-              <span class="panel-grow"></span>
-              <span class="panel-kbd">⌥&nbsp;Space</span>
-            </div>
-            <div class="panel-tabs">
-              <button class="is-active" aria-label="Music">
-                <svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor">
-                  <path d="M13 2.5a.5.5 0 0 0-.59-.49l-7 1.5A.5.5 0 0 0 5 4v8.05a2.5 2.5 0 1 0 1 2v-7.6l6-1.29v5.94a2.5 2.5 0 1 0 1 2z"/>
-                </svg>
-              </button>
-              <button aria-label="Notes">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
-                  <rect x="3" y="2.5" width="10" height="11" rx="1.5"/>
-                  <path d="M5.5 6h5M5.5 8.5h5M5.5 11h3"/>
-                </svg>
-              </button>
-              <button aria-label="Images">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="2" y="3" width="12" height="10" rx="1.5"/>
-                  <circle cx="6" cy="7" r="1" fill="currentColor"/>
-                  <path d="M3 12l3.5-3.5 2.5 2.5 2-2 2 2"/>
-                </svg>
-              </button>
-              <button aria-label="Videos">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
-                  <rect x="2" y="3.5" width="12" height="9" rx="1.5"/>
-                  <path d="M7 6.5v3l3-1.5z" fill="currentColor"/>
-                </svg>
-              </button>
-              <button aria-label="Files">
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
-                  <path d="M2.5 4.5a1 1 0 0 1 1-1h2.5l1.5 1.5h5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/>
-                </svg>
-              </button>
-            </div>
-            <div class="panel-music">
-              <div class="m-card">
-                <div class="m-art"></div>
-                <div class="m-meta">
-                  <div class="m-title">Espresso</div>
-                  <div class="m-artist">Sabrina Carpenter</div>
-                  <div class="m-album">Short n' Sweet</div>
-                </div>
-              </div>
-              <div class="m-prog"><div class="m-prog-fill"></div></div>
-              <div class="m-times"><span>0:38</span><span>−3:26</span></div>
-              <div class="m-transport">
-                <div class="m-flank"></div>
-                <div class="m-controls">
-                  <button class="m-prev"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 5v14M19 5v14L8 12z"/></svg></button>
-                  <button class="m-pp"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M8 5h3v14H8zM13 5h3v14h-3z"/></svg></button>
-                  <button class="m-next"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M18 5v14M5 5v14l11-7z"/></svg></button>
-                </div>
-                <div class="m-flank-r">
-                  <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor"><path d="M3 6v4h2l3 3V3L5 6H3zm8 0a2 2 0 0 1 0 4"/></svg>
-                  <div class="m-vol"><div class="m-vol-fill"></div></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- macOS Dock. Visible only in the rest beat; fades out for music slab. -->
-        <div class="mbp-dock">
-          <div class="dock-icon"><img src="assets/dock/finder.png" alt=""/></div>
-          <div class="dock-icon"><img src="assets/dock/safari.png" alt=""/></div>
-          <div class="dock-icon"><img src="assets/dock/mail.png" alt=""/></div>
-          <div class="dock-icon"><img src="assets/dock/messages.png" alt=""/></div>
-          <div class="dock-icon"><img src="assets/dock/music.png" alt=""/></div>
-          <div class="dock-icon"><img src="assets/dock/photos.png" alt=""/></div>
-          <div class="dock-icon"><img src="assets/dock/notes.png" alt=""/></div>
-          <div class="dock-icon"><img src="assets/dock/calendar.png" alt=""/></div>
-          <div class="dock-icon"><img src="assets/dock/appstore.png" alt=""/></div>
-          <div class="dock-divider"></div>
-          <div class="dock-icon active"><img src="assets/app-icon-256.png" alt=""/></div>
-        </div>
-
-      </div>
-      <div class="mbp-base"></div>
-    </div>
-  </div>
-
-  <!-- Beat text overlays. All three live inside the pin, absolutely
-       positioned, opacity-toggled by GSAP based on scroll progress. -->
-
-  <!-- BEAT 1 — Hero -->
-  <div class="beat-text beat-hero-text" data-beat="hero">
-    <h1 class="hero-title">
-      <span class="word">It's</span>
-      <span class="word">there.</span>
+<!-- ── Hero ─────────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="wrap">
+    <span class="eyebrow-chip">nox 1.9.5 is out</span>
+    <h1>
+      <span class="lead">Your MacBook notch,</span>
+      <span class="punch">actually useful.</span>
     </h1>
-    <p class="hero-sub">Music. Notes. Files. In the notch you already own.</p>
+    <p class="tagline">
+      You know that dark cutout at the top of your MacBook screen? nox makes it useful. Music, voice notes, files, your next meeting, all <strong>without opening anything</strong>.
+    </p>
     <div class="hero-cta">
-      <a href="#download" class="btn-primary">Download for Mac</a>
-      <p class="hero-foot">macOS 14 or later · No subscriptions</p>
+      <a class="btn btn-primary btn-large" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.463 1.58-1.518 3.12-.945 1.34-1.94 2.71-3.43 2.71-1.517 0-1.9-.88-3.63-.88-1.698 0-2.302.91-3.67.91-1.49 0-2.534-1.32-3.43-2.64-1.911-2.81-3.39-7.94-1.41-11.4.954-1.69 2.717-2.78 4.66-2.81 1.46-.03 2.83.96 3.71.96.88 0 2.55-.96 4.31-.82.74.03 2.81.3 4.13 2.25-.11.07-2.47 1.44-2.44 4.31.04 3.43 3.01 4.57 3.04 4.59-.07.04-2.84-1.41-3.5-2.91z"/></svg>
+        Download for macOS
+      </a>
+      <a class="btn btn-ghost btn-large" href="https://github.com/left-society/nox">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56 0-.27-.01-.99-.02-1.95-3.2.7-3.87-1.54-3.87-1.54-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.69 1.25 3.34.95.1-.74.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.18.91-.25 1.89-.38 2.86-.38.97 0 1.95.13 2.86.38 2.18-1.49 3.14-1.18 3.14-1.18.62 1.58.23 2.75.11 3.04.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.13 0 1.54-.01 2.78-.01 3.16 0 .31.21.67.8.55C20.21 21.39 23.5 17.07 23.5 12 23.5 5.65 18.35.5 12 .5z"/></svg>
+        View on GitHub
+      </a>
     </div>
-  </div>
+    <div class="hero-stats">
+      <span><strong style="color: var(--fg-soft); font-weight: 500;">Free</strong> while we're testing</span>
+      <span class="sep"></span>
+      <span>Most Macs from 2017 onwards</span>
+    </div>
 
-  <!-- BEAT 2 — The pillar line -->
-  <div class="beat-text beat-pillar-text" data-beat="pillar">
-    <h2 class="pillar-line">
-      Built for the&nbsp;notch.<br/>From the&nbsp;pixel&nbsp;up.
-    </h2>
-  </div>
-
-  <!-- BEAT 3 — Music side text -->
-  <div class="beat-text beat-music-text" data-beat="music">
-    <h2 class="beat-title">Now Playing.<br/>Always glanceable.</h2>
-    <p class="beat-sub">Album art on the left wing. Waveform on the right. The slab opens for full controls when you need them — every other moment, it gets out of the way.</p>
-  </div>
-
-  </div><!-- /cinema-pin -->
-
-</div>
-
-
-<!-- =====================================================================
-     STATIC SECTIONS — normal scroll from here on.
-     ===================================================================== -->
-
-<section id="privacy" class="static-section privacy">
-  <div class="static-inner">
-    <h2>No cloud.<br/>No accounts.<br/>No telemetry.</h2>
-    <p>Your notes, screenshots, downloads — everything nox holds — lives in <code>~/Library/Application&nbsp;Support/nox</code>. Nothing leaves the machine. Drag the <code>.app</code> to Trash. Gone.</p>
-    <p class="muted">No backend. No analytics. No "allow notifications" popup. Optional Gemini key (for chat-screenshot OCR) talks to Google directly — we never see it.</p>
-  </div>
-</section>
-
-
-<section id="compare" class="static-section compare">
-  <div class="static-inner">
-    <h2>Other notch apps do one&nbsp;thing.<br/><span class="muted">nox does the rest.</span></h2>
-    <div class="compare-table">
-      <div class="ct-row ct-head">
-        <div class="ct-feat"></div>
-        <div class="ct-col ct-self">nox</div>
-        <div class="ct-col">Alcove</div>
-        <div class="ct-col">NotchNook</div>
-        <div class="ct-col">Boring Notch</div>
+    <!-- Animated mockup. Pure CSS, no JS, no images. -->
+    <div class="hero-mockup" aria-hidden="true">
+      <div class="menu-bar">
+        <div class="left">
+          <span class="apple"></span>
+          <span class="menu-item">nox</span>
+          <span class="menu-item dim">File</span>
+          <span class="menu-item dim">Edit</span>
+          <span class="menu-item dim">View</span>
+          <span class="menu-item dim">Window</span>
+          <span class="menu-item dim">Help</span>
+        </div>
+        <div class="right">
+          <span class="battery"></span>
+          <span style="color: rgba(255,255,255,0.78); font-variant-numeric: tabular-nums;">11:42</span>
+        </div>
       </div>
-      <div class="ct-row"><div class="ct-feat">Music HUD</div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="y">●</span></div></div>
-      <div class="ct-row"><div class="ct-feat">File shelf</div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="y">●</span></div></div>
-      <div class="ct-row"><div class="ct-feat">Notes capture</div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div></div>
-      <div class="ct-row"><div class="ct-feat">Video grab (yt-dlp)</div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div></div>
-      <div class="ct-row"><div class="ct-feat">Voice → text dictation</div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div></div>
-      <div class="ct-row"><div class="ct-feat">AI chat-screenshot OCR</div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div></div>
-      <div class="ct-row"><div class="ct-feat">AirDrop reveal pill</div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div></div>
-      <div class="ct-row"><div class="ct-feat">Lock-screen card</div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="y">●</span></div><div class="ct-col"><span class="n">○</span></div><div class="ct-col"><span class="n">○</span></div></div>
+      <div class="hero-pill">
+        <div class="pill-state idle">
+          <span class="dot"></span>
+        </div>
+        <div class="pill-state music">
+          <span class="album"></span>
+          <span>Now playing</span>
+          <span class="bars"><span></span><span></span><span></span><span></span></span>
+        </div>
+        <div class="pill-state drag">
+          <span>Drop file to save</span>
+        </div>
+      </div>
     </div>
-    <p class="static-foot">Built solo. Native Swift. No Electron, no telemetry, no subscription.</p>
+    <p class="mockup-caption">This is the top of your MacBook. <span class="accent">Move your cursor</span> to the dark cutout. nox opens up.</p>
   </div>
 </section>
 
+<!-- ── Features ─────────────────────────────────────────────── -->
+<section id="features">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="section-eyebrow">What it does</span>
+      <h2>One small spot. Everything you used to need apps for.</h2>
+      <p>Move your cursor to the top, it opens. Move away, it closes. No new windows, no clutter on your desktop.</p>
+    </div>
 
-<section id="faq" class="static-section faq">
-  <div class="static-inner">
-    <h2>Questions everyone asks.</h2>
-    <div class="faq-list">
-      <details>
-        <summary>Does it work on Macs without a notch?</summary>
-        <p>Yes. On non-notched MacBooks and external displays, the halo sits at top-center fused with the menu bar. Same gestures, same behavior. The notch hardware is a nice landmark, not a requirement.</p>
-      </details>
-      <details>
-        <summary>How is this different from Alcove?</summary>
-        <p>Alcove is a music HUD. nox is the same idea, plus a notes app, plus an image inbox, plus a video downloader, plus a file shelf, plus AI summarisation, plus an AirDrop pill, plus a calendar pill. If you only want music, Alcove is great. If you want one quiet place for everything, that's us.</p>
-      </details>
-      <details>
-        <summary>Will it slow my Mac down?</summary>
-        <p>No. Pure Swift, native AppKit, tiny binary. Zero CPU when idle — no background polling above 4&nbsp;Hz, no telemetry calls, no Electron runtime.</p>
-      </details>
-      <details>
-        <summary>Where does my data go?</summary>
-        <p>Your Mac. That's it. Notes, screenshots, videos, files all live in <code>~/Library/Application&nbsp;Support/nox</code>. No cloud, no account, no analytics.</p>
-      </details>
-      <details>
-        <summary>What does it cost?</summary>
-        <p>Free during beta. One-time price at v1.0 — we'll email beta users the number first. No subscription, no in-app upgrades, no "pro" tier. Buy it once, own it forever.</p>
-      </details>
+    <div class="grid">
+      <div class="card">
+        <div class="icon-tile">♪</div>
+        <h3>Music</h3>
+        <p>See what's playing in Spotify, Apple Music, YouTube, anything. The album art changes with the song. Skip, pause, change volume right from the top.</p>
+      </div>
+      <div class="card">
+        <div class="icon-tile">⌥</div>
+        <h3>Talk instead of typing</h3>
+        <p>Hold one key and speak. Your words become text. No internet needed. Your voice never leaves your Mac. Nothing recorded, nothing sent anywhere.</p>
+      </div>
+      <div class="card">
+        <div class="icon-tile">⤓</div>
+        <h3>Drag files in</h3>
+        <p>Drag a photo, a video, or any file up to the dark cutout. nox holds it for you. Drop it anywhere later, straight from up there.</p>
+      </div>
+      <div class="card">
+        <div class="icon-tile">▶</div>
+        <h3>Save videos from the web</h3>
+        <p>Watching a video in your browser? Hit a keyboard shortcut. nox saves it to your Mac so you can watch it later, even without internet.</p>
+      </div>
+      <div class="card">
+        <div class="icon-tile">▦</div>
+        <h3>Your next meeting</h3>
+        <p>About to have a meeting? nox shows it at the top with a "Join" button. It only reads your calendar. It never adds, edits, or shares anything.</p>
+      </div>
+      <div class="card">
+        <div class="icon-tile">⚡</div>
+        <h3>Little reminders</h3>
+        <p>Plugged in your charger? Got an AirDrop? AirPods just connected? Took a screenshot? nox shows a small note up top instead of beeping at you.</p>
+      </div>
     </div>
   </div>
 </section>
 
+<!-- ── Why nox ─────────────────────────────────────────────── -->
+<!--
+  Editorial principles layout — completely different visual
+  language from the Features cards above. Big lavender display
+  numerals, no card frames, generous whitespace. Reads like a
+  manifesto page rather than a SaaS feature grid.
+  Final CTA banner pulls the section together with the download.
+-->
+<section id="why">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="section-eyebrow">Why nox</span>
+      <h2>Four small promises.</h2>
+      <p>Everything you'd want from a Mac app, nothing you wouldn't.</p>
+    </div>
 
-<section id="download" class="static-section download">
-  <div class="static-inner download-inner">
-    <span class="end-icon"><svg viewBox="0 0 32 32" width="84" height="84"><use href="#noxGlyph"/></svg></span>
-    <h2>Get nox</h2>
-    <p class="download-sub">For macOS 14 and later. Native Swift. No sign-up.</p>
-    <a href="mailto:aritra13.debnath@gmail.com?subject=nox%20beta%20access" class="btn-primary big">Download for Mac</a>
-    <p class="download-pricing">Free during beta · One-time price at v1.0 · No subscriptions, ever</p>
+    <ol class="principles">
+      <li>
+        <span class="num">01</span>
+        <div>
+          <h3>It's free.</h3>
+          <p>Drag the icon to Applications. Open it. That's the whole setup. No sign up, no email gate, no trial timer counting down.</p>
+        </div>
+      </li>
+      <li>
+        <span class="num">02</span>
+        <div>
+          <h3>It feels like the Mac.</h3>
+          <p>Pure Swift. Tiny binary. Zero CPU when nothing is happening. Not a window stuck on top of your screen, part of it.</p>
+        </div>
+      </li>
+      <li>
+        <span class="num">03</span>
+        <div>
+          <h3>Your stuff stays here.</h3>
+          <p>Your notes, your screenshots, your downloads, all on your machine. Nothing in the cloud. Nothing to leak. Nothing to ask permission for.</p>
+        </div>
+      </li>
+      <li>
+        <span class="num">04</span>
+        <div>
+          <h3>It updates itself.</h3>
+          <p>When a new version ships, nox quietly grabs it in the background. You wake up tomorrow on the latest version without doing a thing.</p>
+        </div>
+      </li>
+    </ol>
+
+    <!-- Side-by-side comparison. Same feature inventory, but each
+         row also shows whether the three other notch apps offer
+         that feature. No links to their sites; names are flat
+         text labels only. ○ glyph means "not offered" (instead
+         of ✕ which reads as a vote-against). -->
+    <div class="compare-table liquid-glass">
+      <div class="head">
+        <span class="feat">What you get</span>
+        <span class="self">nox</span>
+        <span>Alcove</span>
+        <span>NotchNook</span>
+        <span>Boring Notch</span>
+      </div>
+
+      <div class="row">
+        <div class="feat">
+          <span class="label">Music</span>
+          <span class="sub">See what's playing in Spotify, Apple Music, YouTube, anything. Skip a track without breaking your flow.</span>
+        </div>
+        <span class="self"><span class="yes">✓</span></span>
+        <span><span class="yes">✓</span></span>
+        <span><span class="yes">✓</span></span>
+        <span><span class="yes">✓</span></span>
+      </div>
+
+      <div class="row">
+        <div class="feat">
+          <span class="label">Calendar</span>
+          <span class="sub">Today's events sit next to your music. Connected to Apple Calendar. Read only, never edits.</span>
+        </div>
+        <span class="self"><span class="yes">✓</span></span>
+        <span><span class="no">○</span></span>
+        <span><span class="yes">✓</span></span>
+        <span><span class="yes">✓</span></span>
+      </div>
+
+      <div class="row">
+        <div class="feat">
+          <span class="label">Drag and drop</span>
+          <span class="sub">Drag any file up to the dark cutout. nox holds it for you. Drop it later, anywhere you need.</span>
+        </div>
+        <span class="self"><span class="yes">✓</span></span>
+        <span><span class="no">○</span></span>
+        <span><span class="yes">✓</span></span>
+        <span><span class="yes">✓</span></span>
+      </div>
+
+      <div class="row">
+        <div class="feat">
+          <span class="label">AirDrop pill</span>
+          <span class="sub">A small pill appears when a transfer starts. Watch progress without opening Finder.</span>
+        </div>
+        <span class="self"><span class="yes">✓</span></span>
+        <span><span class="no">○</span></span>
+        <span><span class="yes">✓</span></span>
+        <span><span class="no">○</span></span>
+      </div>
+
+      <div class="row">
+        <div class="feat">
+          <span class="label">Take notes while watching</span>
+          <span class="sub">Type alongside any video without leaving the page. Notes save to your timeline automatically.</span>
+        </div>
+        <span class="self"><span class="yes">✓</span></span>
+        <span><span class="no">○</span></span>
+        <span><span class="no">○</span></span>
+        <span><span class="no">○</span></span>
+      </div>
+
+      <div class="row">
+        <div class="feat">
+          <span class="label">Save videos</span>
+          <span class="sub">Paste a YouTube link. Get a clean mp4 ready for your editor in seconds.</span>
+        </div>
+        <span class="self"><span class="yes">✓</span></span>
+        <span><span class="no">○</span></span>
+        <span><span class="yes">✓</span></span>
+        <span><span class="no">○</span></span>
+      </div>
+
+      <div class="row">
+        <div class="feat">
+          <span class="label">Voice to text</span>
+          <span class="sub">Hold the hotkey, speak, your words appear in whatever app you were typing in. Runs on your Mac, no internet.</span>
+        </div>
+        <span class="self"><span class="yes">✓</span></span>
+        <span><span class="no">○</span></span>
+        <span><span class="no">○</span></span>
+        <span><span class="no">○</span></span>
+      </div>
+
+      <div class="row">
+        <div class="feat">
+          <span class="label">Auto-updates</span>
+          <span class="sub">When a new version ships, nox grabs it in the background. You always have the latest fixes.</span>
+        </div>
+        <span class="self"><span class="yes">✓</span></span>
+        <span><span class="yes">✓</span></span>
+        <span><span class="no">○</span></span>
+        <span><span class="no">○</span></span>
+      </div>
+
+      <div class="row price-row">
+        <div class="feat">
+          <span class="label">Price</span>
+          <span class="sub">What it costs to use. nox stays free during beta, with a fair one-time price planned for v1.0.</span>
+        </div>
+        <span class="self"><strong>Free</strong></span>
+        <span>$17</span>
+        <span>$25 or $3/mo</span>
+        <span>Free</span>
+      </div>
+    </div>
+
+    <p class="compare-note">Based on what each app says on its own website. nox is the only notch app with voice to text and the only one that lets you take notes while watching a video.</p>
   </div>
 </section>
 
-</main>
+<!-- ── Privacy ──────────────────────────────────────────────── -->
+<section id="privacy" class="privacy">
+  <div class="wrap">
+    <span class="eyebrow-chip">A clear promise</span>
+    <h2>Your stuff stays on your Mac.</h2>
+    <p>
+      When you talk, your voice becomes text right on your Mac. Nothing goes online. nox doesn't track what you do, doesn't ask you to make an account, and doesn't have a server we send your stuff to. The only thing nox ever sends online is a quick check for new updates. That's it.
+    </p>
 
+    <!-- "What we store" panel — itemizes EVERY piece of data
+         that nox writes to the Mac so users can see the full
+         scope at a glance. Two-column grid of "kept on your
+         Mac" vs "never collected" so the boundary reads as
+         binary and definitive, not weasel-worded. -->
+    <div class="storage-grid">
+      <div class="storage-card liquid-glass">
+        <h3>What nox keeps on your Mac</h3>
+        <ul>
+          <li><span class="lab">Notes</span><span class="loc">~/Library/Application Support/nox/notes.db</span></li>
+          <li><span class="lab">Screenshots you drop in</span><span class="loc">~/Library/Application Support/nox/Images/</span></li>
+          <li><span class="lab">Videos you saved</span><span class="loc">~/Library/Application Support/nox/Videos/</span></li>
+          <li><span class="lab">Files you parked</span><span class="loc">~/Library/Application Support/nox/Files/</span></li>
+          <li><span class="lab">Settings and hotkeys</span><span class="loc">app.trynox plist</span></li>
+          <li><span class="lab">Cached album art</span><span class="loc">in memory only, never written</span></li>
+        </ul>
+        <p class="storage-foot">Drag <code>nox.app</code> to Trash. Everything above goes with it.</p>
+      </div>
+
+      <div class="storage-card liquid-glass">
+        <h3>What nox never collects</h3>
+        <ul class="bad">
+          <li>Account info. There is no account.</li>
+          <li>Your name, email, or phone.</li>
+          <li>Telemetry, analytics, crash reports.</li>
+          <li>What you typed, said, or pasted.</li>
+          <li>Which apps you use, when, or for how long.</li>
+          <li>Anything from your other tabs or windows.</li>
+        </ul>
+        <p class="storage-foot">The only thing nox ever asks the internet for is "any updates?" once every few hours.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── FAQ ──────────────────────────────────────────────────── -->
+<!--
+  Inspired by NotchNook's card grid pattern but in our typeface
+  and case. Each Q + A is always visible (not collapsed) so
+  scanning is faster. Two-column grid at desktop, single at
+  phone widths.
+-->
+<section id="faq" class="faq">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="section-eyebrow">Common questions</span>
+      <h2>Everything you might wonder.</h2>
+      <p>Quick answers. Email us if anything is missing.</p>
+    </div>
+
+    <div class="faq-grid">
+      <div class="faq-card liquid-glass">
+        <h3>Does it work on Macs without a notch?</h3>
+        <p>Yes. On non-notched MacBooks and external displays the panel sits at the top center of the screen and behaves the same way. The notch is a nice landmark, not a requirement.</p>
+      </div>
+
+      <div class="faq-card liquid-glass">
+        <h3>How do I open the panel?</h3>
+        <p>Move your cursor to the dark cutout. The panel grows out. Move your cursor away to close it. You can also press <code>⌥&nbsp;Space</code> from anywhere.</p>
+      </div>
+
+      <div class="faq-card liquid-glass">
+        <h3>Which music apps does it work with?</h3>
+        <p>Spotify, Apple Music, YouTube in any browser, podcasts, audiobooks, anything that publishes Now Playing info to macOS. Skip and pause work for Spotify and Apple Music. For everything else you still see what's playing.</p>
+      </div>
+
+      <div class="faq-card liquid-glass">
+        <h3>Will it slow my Mac down?</h3>
+        <p>No. Tiny native binary. Zero CPU when nothing is happening. No background polling, no telemetry. Built to feel like part of the Mac, not a window stuck on top of it.</p>
+      </div>
+
+      <div class="faq-card liquid-glass">
+        <h3>Does it support multiple monitors?</h3>
+        <p>Yes. nox follows whichever screen has your focused window. Plug in a second display and it shows up on whichever notch you're working with.</p>
+      </div>
+
+      <div class="faq-card liquid-glass">
+        <h3>What permissions does it ask for?</h3>
+        <p>All optional. Calendar to show today's events. Microphone for voice to text. Accessibility so the hotkey works system wide. Deny any one and the rest still works.</p>
+      </div>
+
+      <div class="faq-card liquid-glass">
+        <h3>How do I uninstall it?</h3>
+        <p>Drag <code>nox.app</code> to Trash. Everything nox kept on your Mac (notes, screenshots, videos, settings) sits inside the app's container, so it goes with it. Nothing left behind.</p>
+      </div>
+
+      <div class="faq-card liquid-glass">
+        <h3>What does it cost?</h3>
+        <p>Free while we're testing. One time price at v1.0. We will email beta users the number first. No subscription, no in app upgrades, no "pro" tier. Buy it once, own it forever.</p>
+      </div>
+
+      <div class="faq-card liquid-glass">
+        <h3>Can I get my notes out?</h3>
+        <p>Yes. Notes export as plain Markdown. Screenshots and videos are already plain files on disk. You always own your stuff and can take it anywhere.</p>
+      </div>
+    </div>
+
+    <p class="faq-foot">Still wondering? <a href="mailto:hello@trynox.app">hello@trynox.app</a></p>
+  </div>
+</section>
+
+<!-- ── Final CTA ────────────────────────────────────────────── -->
+<section class="cta">
+  <div class="wrap">
+    <h2>Give it a try.</h2>
+    <p>Download it. Drag the icon into your Applications folder. Open it. That's the whole setup.</p>
+    <a class="btn btn-primary btn-large" href="https://github.com/left-society/nox/releases/latest/download/nox.1.9.5.dmg">
+      <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.463 1.58-1.518 3.12-.945 1.34-1.94 2.71-3.43 2.71-1.517 0-1.9-.88-3.63-.88-1.698 0-2.302.91-3.67.91-1.49 0-2.534-1.32-3.43-2.64-1.911-2.81-3.39-7.94-1.41-11.4.954-1.69 2.717-2.78 4.66-2.81 1.46-.03 2.83.96 3.71.96.88 0 2.55-.96 4.31-.82.74.03 2.81.3 4.13 2.25-.11.07-2.47 1.44-2.44 4.31.04 3.43 3.01 4.57 3.04 4.59-.07.04-2.84-1.41-3.5-2.91z"/></svg>
+      Download nox 1.9.5
+    </a>
+  </div>
+</section>
 
 <footer>
-  <div class="foot-line">
-    <span>© 2026 Aritra Debnath · nox.app</span>
-    <a href="mailto:aritra13.debnath@gmail.com">Mail</a>
+  <div class="wrap">
+    <div>© 2026 left-society. nox is a Mac app.</div>
+    <div class="links">
+      <a href="https://github.com/left-society/nox/releases">What's new</a>
+      <a href="https://github.com/left-society/nox/issues">Something broken?</a>
+      <a href="mailto:hello@trynox.app">Email us</a>
+    </div>
   </div>
 </footer>
 
-<!-- Smooth-scroll inertia (Lenis) and scroll-driven timelines (GSAP). -->
-<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
-<script src="app.js"></script>
+<script>
+/*  ----------------------------------------------------------------
+    Per-card liquid-glass displacement filter.
+
+    Direct port of the technique from
+    github.com/nikdelvin/liquid-glass (LiquidGlass.astro +
+    utils/liquidGlass.ts). The earlier attempt used global
+    feTurbulence + feDisplacementMap, which warped the backdrop
+    everywhere and produced the visible purple-blob artifacts
+    over the radial glow. That's wrong. The real technique:
+
+    1) Build a custom displacement map (NOT noise-based) with:
+         - solid mid-gray (#808080 = "no displacement")
+         - inner solid #808080 rect inset by `depth` pixels with
+           rounded corners and a `blur(depth)` filter — this is
+           what creates the soft edge falloff
+         - OUTER linear gradients in R (left→right) and G
+           (top→bottom) channels mixed via screen — these encode
+           the X and Y displacement vectors
+       Result: in the middle of the card the backdrop stays
+       sharp; only the edges bend, exactly like a physical
+       glass lens with rounded corners.
+
+    2) Run feDisplacementMap with that map as in2:
+         scale = strength controls bend amount; xChannelSelector=R
+         and yChannelSelector=G match the displacement-vector
+         encoding in the map.
+
+    3) Apply the resulting filter via
+         backdrop-filter: url('data:image/svg+xml;...#displace')
+       so the FILTER, not the source content, runs on the
+       backdrop behind the card.
+
+    Each .liquid-glass card has its own dimensions, so the
+    filter SVG is regenerated per card (and on resize) with
+    that card's actual width/height/border-radius.  ---------- */
+(function() {
+  // Detect support — Safari currently ignores url() inside
+  // backdrop-filter and silently falls back. We bail out for
+  // unsupported browsers and let the CSS frosted-blur stand.
+  const supportsBackdropFilterUrl = (() => {
+    const t = document.createElement('div');
+    t.style.cssText = "backdrop-filter: url(#x)";
+    return t.style.backdropFilter === "url(#x)" ||
+           t.style.backdropFilter === 'url("#x")';
+  })();
+  if (!supportsBackdropFilterUrl) return;
+
+  // Tunable defaults. The library's defaults are tuned for
+  // larger glass surfaces (full-page panels). For 4-up
+  // pricing cards I dial strength down so the bend reads as
+  // subtle refraction at the edges, not a fishbowl.
+  const DEPTH = 10;       // px of edge bevel
+  const STRENGTH = 60;    // displacement scale in feDisplacementMap
+
+  function displacementMapURI(width, height, radius, depth) {
+    // Edge gradient stops — clamped slightly inward of the
+    // border by 15% of the radius/dimension ratio so the
+    // displacement vectors die off cleanly into the rounded
+    // corners.
+    const ys = Math.ceil((radius / height) * 15);
+    const ye = Math.floor(100 - (radius / height) * 15);
+    const xs = Math.ceil((radius / width) * 15);
+    const xe = Math.floor(100 - (radius / width) * 15);
+    const innerW = width - 2 * depth;
+    const innerH = height - 2 * depth;
+    const svg =
+      '<svg height="' + height + '" width="' + width +
+      '" viewBox="0 0 ' + width + ' ' + height +
+      '" xmlns="http://www.w3.org/2000/svg">' +
+      '<style>.mix{mix-blend-mode:screen}</style>' +
+      '<defs>' +
+        '<linearGradient id="Y" x1="0" x2="0" y1="' + ys + '%" y2="' + ye + '%">' +
+          '<stop offset="0%" stop-color="#0F0"/>' +
+          '<stop offset="100%" stop-color="#000"/>' +
+        '</linearGradient>' +
+        '<linearGradient id="X" x1="' + xs + '%" x2="' + xe + '%" y1="0" y2="0">' +
+          '<stop offset="0%" stop-color="#F00"/>' +
+          '<stop offset="100%" stop-color="#000"/>' +
+        '</linearGradient>' +
+      '</defs>' +
+      // Neutral base — #808080 means "do not displace".
+      '<rect x="0" y="0" height="' + height + '" width="' + width + '" fill="#808080"/>' +
+      '<g filter="blur(2px)">' +
+        // Slight blue cast helps the displacement-vector field.
+        '<rect x="0" y="0" height="' + height + '" width="' + width + '" fill="#000080"/>' +
+        // Y displacement gradient (encoded in green channel).
+        '<rect x="0" y="0" height="' + height + '" width="' + width + '" fill="url(#Y)" class="mix"/>' +
+        // X displacement gradient (encoded in red channel).
+        '<rect x="0" y="0" height="' + height + '" width="' + width + '" fill="url(#X)" class="mix"/>' +
+        // Inner neutral rect blurred — this is what kills the
+        // displacement in the middle of the card.
+        '<rect x="' + depth + '" y="' + depth + '" height="' + innerH + '" width="' + innerW +
+        '" fill="#808080" rx="' + radius + '" ry="' + radius + '" filter="blur(' + depth + 'px)"/>' +
+      '</g>' +
+      '</svg>';
+    return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+  }
+
+  function filterURI(width, height, radius, depth, strength) {
+    const dispMap = displacementMapURI(width, height, radius, depth);
+    const svg =
+      '<svg height="' + height + '" width="' + width +
+      '" viewBox="0 0 ' + width + ' ' + height +
+      '" xmlns="http://www.w3.org/2000/svg">' +
+      '<defs>' +
+        '<filter id="d" color-interpolation-filters="sRGB">' +
+          '<feImage x="0" y="0" height="' + height + '" width="' + width +
+          '" href="' + dispMap + '" result="m"/>' +
+          '<feDisplacementMap in="SourceGraphic" in2="m" scale="' + strength +
+          '" xChannelSelector="R" yChannelSelector="G"/>' +
+        '</filter>' +
+      '</defs>' +
+      '</svg>';
+    return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg) + '#d';
+  }
+
+  function applyGlass(el) {
+    const r = el.getBoundingClientRect();
+    const w = Math.round(r.width);
+    const h = Math.round(r.height);
+    if (!w || !h) return;
+    const cs = getComputedStyle(el);
+    const radius = parseFloat(cs.borderTopLeftRadius) || 20;
+    const uri = filterURI(w, h, radius, DEPTH, STRENGTH);
+    // The filter URL goes BEFORE the blur so the backdrop
+    // is displaced first, then frosted slightly. saturate
+    // amplifies the colors that come through; brightness
+    // lifts the whole thing a hair.
+    el.style.backdropFilter =
+      "url('" + uri + "') blur(2px) saturate(160%) brightness(1.05)";
+  }
+
+  function init() {
+    const cards = document.querySelectorAll('.liquid-glass');
+    cards.forEach(el => {
+      applyGlass(el);
+      // Recompute on resize — different viewport widths change
+      // card dimensions which need a fresh filter.
+      if (window.ResizeObserver) {
+        const ro = new ResizeObserver(() => applyGlass(el));
+        ro.observe(el);
+      }
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+
+<script>
+/*  ----------------------------------------------------------------
+    Floating-pill nav: scroll-driven morph.
+
+    Vanilla port of /Users/apple/Caption app/caption-app/src/
+    components/landing/AnimatedNav.tsx (Subedit's nav, itself a
+    port of reapollo's "Navigation Menu" pattern from 21st.dev).
+
+    The original uses framer-motion with a spring transition:
+        { type: 'spring', damping: 22, stiffness: 260 }
+
+    To match the EXACT spring feel without bringing in
+    framer-motion's 50KB+ runtime, this script implements the
+    same damped-spring ODE that framer-motion uses internally
+    (see framer-motion/src/animation/generators/spring.ts).
+    Per-frame integration via requestAnimationFrame, with the
+    same critical-damping ratio math, gives visually identical
+    motion to the React version at a fraction of the size.
+    ----------------------------------------------------------------  */
+(() => {
+  const header = document.getElementById("navHeader");
+  if (!header) return;
+
+  const brand         = header.querySelector(".brand");
+  const brandName     = header.querySelector(".brand-name");
+  const navLinks      = header.querySelector(".nav-links");
+  const navCta        = header.querySelector(".nav-cta");
+  const collapsedMark = header.querySelector(".collapsed-mark");
+
+  const COLLAPSE_AT = 150;
+  const EXPAND_SCROLL_THRESHOLD = 80;
+
+  /*  Spring physics matched to framer-motion's defaults for
+      the AnimatedNav layout transition. Damping ratio
+      ζ = damping / (2 * sqrt(stiffness * mass)) = 22 / (2*16.12) ≈ 0.68
+      → underdamped, visible bounce, settles in ~600ms. */
+  const SPRING_STIFFNESS = 260;
+  const SPRING_DAMPING   = 22;
+  const SPRING_MASS      = 1;
+
+  /*  Per-element animator. Each element has its own current
+      value + velocity for the property being animated. RAF tick
+      reads dt, computes spring force + damping force, integrates
+      Verlet-style. Settles when both position error and velocity
+      drop below their thresholds. */
+  const activeAnimators = new WeakMap();
+
+  function springAnimate(el, property, target, options = {}) {
+    const {
+      stiffness = SPRING_STIFFNESS,
+      damping   = SPRING_DAMPING,
+      mass      = SPRING_MASS,
+      delay     = 0,
+      onUpdate,
+    } = options;
+
+    /*  Cancel any in-flight animator on this element/property
+        so a fast scroll-flicker doesn't stack two springs. */
+    const key = el.__springKey = (el.__springKey || {});
+    if (key[property]) key[property].cancelled = true;
+
+    /*  Read current value as the starting point. For width we
+        read offsetWidth; for opacity / x / scale we track in
+        the element's __springState so we don't have to parse
+        computed styles every tick. */
+    const state = (el.__springState = el.__springState || {});
+    let current = state[property];
+    if (current === undefined) {
+      if (property === "width") current = el.offsetWidth;
+      else if (property === "opacity") current = parseFloat(getComputedStyle(el).opacity) || 1;
+      else current = 0;
+    }
+
+    let velocity = 0;
+    let lastTime = null;
+    let elapsed = 0;
+    const handle = { cancelled: false };
+    key[property] = handle;
+
+    const apply = (v) => {
+      state[property] = v;
+      if (onUpdate) {
+        onUpdate(v);
+        return;
+      }
+      if (property === "width") {
+        el.style.width = v + "px";
+      } else if (property === "opacity") {
+        el.style.opacity = v;
+      } else if (property === "x") {
+        const sc = state.scale ?? 1;
+        el.style.transform = `translateX(${v}px) scale(${sc})`;
+      } else if (property === "scale") {
+        const x = state.x ?? 0;
+        el.style.transform = `translateX(${x}px) scale(${v})`;
+      }
+    };
+
+    const tick = (now) => {
+      if (handle.cancelled) return;
+      if (lastTime === null) {
+        lastTime = now;
+        requestAnimationFrame(tick);
+        return;
+      }
+      const rawDt = (now - lastTime) / 1000;
+      lastTime = now;
+      elapsed += rawDt;
+
+      if (elapsed < delay) {
+        requestAnimationFrame(tick);
+        return;
+      }
+
+      // Clamp dt so a tab-switch doesn't blow up the integrator.
+      const dt = Math.min(rawDt, 1 / 30);
+
+      const force      = -stiffness * (current - target);
+      const dampForce  = -damping * velocity;
+      const accel      = (force + dampForce) / mass;
+      velocity        += accel * dt;
+      current         += velocity * dt;
+
+      apply(current);
+
+      const positionError = Math.abs(current - target);
+      const velocityMag   = Math.abs(velocity);
+      // Per-property settle thresholds — width is in pixels so
+      // 0.5 is fine; opacity is 0–1 so we need a finer threshold.
+      const posThresh = property === "opacity" || property === "scale" ? 0.001 : 0.5;
+      const velThresh = property === "opacity" || property === "scale" ? 0.01  : 1.0;
+
+      if (positionError < posThresh && velocityMag < velThresh) {
+        current = target;
+        apply(current);
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  let isCollapsed = false;
+  let collapseY = 0;
+  let lastY = window.scrollY;
+  let cachedExpandedWidth = 0;
+
+  function collapse() {
+    if (isCollapsed) return;
+    isCollapsed = true;
+    collapseY = window.scrollY;
+    cachedExpandedWidth = header.offsetWidth;
+
+    header.classList.add("collapsed");
+
+    // Header morphs to 44px with the spring. Lock the start
+    // frame as inline style first so the spring has a known
+    // starting numeric value.
+    header.style.width = cachedExpandedWidth + "px";
+    void header.offsetHeight;
+    springAnimate(header, "width", 44);
+
+    /*  Stagger child fade-outs (matches framer-motion variants
+        in the original AnimatedNav). Order: nav-cta (0ms),
+        nav-links (50ms), brand badge (100ms). */
+    springAnimate(navCta,   "opacity", 0, { delay: 0    });
+    springAnimate(navCta,   "x",     -12, { delay: 0    });
+    springAnimate(navCta,   "scale", 0.96, { delay: 0   });
+    springAnimate(navLinks, "opacity", 0, { delay: 0.05 });
+    springAnimate(navLinks, "x",     -12, { delay: 0.05 });
+    springAnimate(navLinks, "scale", 0.96, { delay: 0.05 });
+    springAnimate(brand,    "opacity", 0, { delay: 0.10 });
+    springAnimate(brand,    "x",     -20, { delay: 0.10 });
+
+    /*  Crossfade in the collapsed-mark. Slight delay so it
+        appears AFTER the brand badge starts fading out.
+        Subedit uses delay: 0.18 here (collapsedMarkVariants). */
+    springAnimate(collapsedMark, "opacity", 1, { delay: 0.18 });
+    springAnimate(collapsedMark, "scale",   1, { delay: 0.18 });
+  }
+
+  function expand() {
+    if (!isCollapsed) return;
+    isCollapsed = false;
+
+    header.classList.remove("collapsed");
+
+    /*  Spring back to the cached expanded width. After the
+        spring settles, clear the inline width so the pill
+        goes back to auto-sizing on content. */
+    springAnimate(header, "width", cachedExpandedWidth, {
+      onUpdate: (v) => {
+        header.style.width = v + "px";
+        if (Math.abs(v - cachedExpandedWidth) < 0.5) {
+          // Settled — drop the inline width on the next tick.
+          requestAnimationFrame(() => {
+            header.style.width = "";
+          });
+        }
+      },
+    });
+
+    /*  Crossfade out the collapsed-mark first so the brand
+        badge has somewhere to materialize back in. */
+    springAnimate(collapsedMark, "opacity", 0);
+    springAnimate(collapsedMark, "scale",   0.85);
+
+    /*  Reverse stagger on expand. Order: brand badge first
+        (180ms), nav-links (240ms), nav-cta (300ms). */
+    springAnimate(brand,    "opacity", 1, { delay: 0.18 });
+    springAnimate(brand,    "x",       0, { delay: 0.18 });
+    springAnimate(navLinks, "opacity", 1, { delay: 0.24 });
+    springAnimate(navLinks, "x",       0, { delay: 0.24 });
+    springAnimate(navLinks, "scale",   1, { delay: 0.24 });
+    springAnimate(navCta,   "opacity", 1, { delay: 0.30 });
+    springAnimate(navCta,   "x",       0, { delay: 0.30 });
+    springAnimate(navCta,   "scale",   1, { delay: 0.30 });
+  }
+
+  const setCollapsed = (next) => (next ? collapse() : expand());
+
+  const onScroll = () => {
+    const y = window.scrollY;
+    const goingDown = y > lastY;
+    const goingUp = y < lastY;
+
+    if (!isCollapsed && goingDown && y > COLLAPSE_AT) {
+      setCollapsed(true);
+    } else if (
+      isCollapsed &&
+      goingUp &&
+      collapseY - y > EXPAND_SCROLL_THRESHOLD
+    ) {
+      setCollapsed(false);
+    }
+    /*  Always-expand at the very top of the page so the user
+        lands on a clean expanded pill regardless of where they
+        scrolled before. */
+    if (y < 24) setCollapsed(false);
+
+    lastY = y;
+  };
+
+  /*  Click the collapsed circle to expand instantly. The brand
+      and nav-cta links inside intercept clicks (e.stopPropagation
+      via :not handler) so navigating still works at the expanded
+      state. */
+  header.addEventListener("click", (e) => {
+    if (!isCollapsed) return;
+    /*  In collapsed mode, the inner elements have pointer-events:
+        none, so any click on the header is intent to expand. */
+    e.preventDefault();
+    setCollapsed(false);
+  });
+
+  /*  rAF-throttled scroll listener so we don't fight a 120Hz
+      ProMotion scroll. */
+  let rafPending = false;
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (rafPending) return;
+      rafPending = true;
+      requestAnimationFrame(() => {
+        onScroll();
+        rafPending = false;
+      });
+    },
+    { passive: true }
+  );
+})();
+</script>
+
+<script>
+/*  ----------------------------------------------------------------
+    Wallpaper crossfade — scroll-driven smoothstep opacity.
+
+    Three fixed-position wallpapers. As the user scrolls, each
+    layer's opacity is computed continuously from window.scrollY
+    so adjacent wallpapers crossfade across a "fade band" while
+    one section transitions to the next.
+
+    Mapping (scroll progress 0–1):
+      wp-1   1   0   0   0
+              ↘
+      wp-2   0   1   1   0
+                    ↘
+      wp-3   0   0   1   1
+
+    Anchors: 0%, 33%, 66%, 100%
+    Fade bands: 25–42%, 60–78% (configurable below)
+
+    Smoothstep ease so the crossfade has a soft S-curve rather
+    than linear ramps — feels more organic, matches Apple-style
+    motion.
+    ----------------------------------------------------------------  */
+(() => {
+  const wp1 = document.querySelector(".wp-1");
+  const wp2 = document.querySelector(".wp-2");
+  const wp3 = document.querySelector(".wp-3");
+  if (!wp1 || !wp2 || !wp3) return;
+
+  /*  Fade-band edges as fractions of total scroll. The first
+      number is where the previous wallpaper starts fading out
+      (and the next starts fading in); the second is where the
+      crossfade is complete. */
+  const FADE1_START = 0.25;
+  const FADE1_END   = 0.42;
+  const FADE2_START = 0.60;
+  const FADE2_END   = 0.78;
+
+  /*  Hermite smoothstep — 3t² − 2t³ — gives a soft S-curve
+      between 0 and 1 instead of a linear ramp. */
+  const smoothstep = (a, b, x) => {
+    if (x <= a) return 0;
+    if (x >= b) return 1;
+    const t = (x - a) / (b - a);
+    return t * t * (3 - 2 * t);
+  };
+
+  let pending = false;
+  const update = () => {
+    pending = false;
+    const max = Math.max(1, document.body.scrollHeight - window.innerHeight);
+    const p = window.scrollY / max;
+
+    /*  Each layer gets:
+          op1 = 1 − smoothstep(FADE1)               (full → 0 in band 1)
+          op2 = smoothstep(FADE1) − smoothstep(FADE2) (peaks in middle)
+          op3 = smoothstep(FADE2)                   (0 → full in band 2)
+        Subtracting the second smoothstep from op2 makes wp2
+        fade BACK to 0 across the second band, just as wp3 is
+        fading in. */
+    const f1 = smoothstep(FADE1_START, FADE1_END, p);
+    const f2 = smoothstep(FADE2_START, FADE2_END, p);
+
+    wp1.style.opacity = 1 - f1;
+    wp2.style.opacity = f1 - f2;
+    wp3.style.opacity = f2;
+  };
+
+  /*  rAF-throttled scroll listener so we don't fight 120Hz
+      ProMotion scroll. Run once on load to set initial state. */
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(update);
+    },
+    { passive: true }
+  );
+  /*  Re-run on resize too, since scrollHeight changes. */
+  window.addEventListener("resize", () => requestAnimationFrame(update));
+  update();
+})();
+</script>
+
 </body>
 </html>
