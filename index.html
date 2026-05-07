@@ -90,39 +90,38 @@
   body {
     background: var(--bg);
   }
-  /*  Wallpaper layer.
-      Apple ships TahoeDark.heic but no Tahoe Dark VIDEO variant
-      (only Tahoe Day has a .mov, and it stays bright through
-      the whole 120s timeline). Using TahoeDark as a still image
-      is the closest we can get to "Tahoe dark video" without
-      synthesizing motion that wasn't in the source. To give the
-      backdrop some life without the bandwidth cost of a real
-      background video (a typical web background mp4 is 5–15MB),
-      a very slow Ken-Burns scale + drift is animated in CSS:
-      scales 1.00 → 1.06 over 60s, drifts a few pixels, ease-in-
-      out, infinite alternate. Reads as "the wallpaper is
-      breathing" instead of "this is a still picture." */
+  /*  Live wallpaper layer.
+      Apple ships TahoeDark.heic (still) but no Tahoe Dark
+      .mov, and the only Tahoe video (Tahoe Day) stays bright
+      throughout. Used the next best system asset: Sonoma
+      Graphic Dark Landscape.mov, re-encoded for web at 1280×720
+      (WebM 3.8MB / MP4 6MB) + a still poster for instant paint.
+
+      The <video> element sits at z-index: -3, full-bleed,
+      object-fit: cover. Auto-plays, loops, muted, playsinline
+      so iOS Safari treats it as inline media not a fullscreen
+      modal. The poster image (a frame from the same video)
+      shows during load and on devices that block autoplay
+      so users always see SOMETHING on the backdrop. */
   .wallpaper {
     position: fixed;
-    inset: -3%;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
     z-index: -3;
     pointer-events: none;
-    background:
-      url("/assets/wallpaper-tahoe-dark.jpg") center/cover no-repeat;
-    /*  Slight bleed past viewport so the scale animation
-        doesn't reveal an edge. */
-    transform-origin: 50% 50%;
-    will-change: transform;
-    animation: wallpaperBreathe 60s ease-in-out infinite alternate;
+    object-fit: cover;
+    object-position: center;
   }
-  @keyframes wallpaperBreathe {
-    from { transform: scale(1.0) translate(0, 0); }
-    to   { transform: scale(1.06) translate(-1.2%, 0.6%); }
-  }
-  /*  Reduced-motion: lock to the mid-state so users with
-      vestibular sensitivity don't get drift. */
+  /*  Reduced-motion users get the still poster — pause the
+      video and let the poster image carry the backdrop. */
   @media (prefers-reduced-motion: reduce) {
-    .wallpaper { animation: none; transform: scale(1.03); }
+    .wallpaper { display: none; }
+    body {
+      background:
+        url("/assets/wallpaper-sonoma-dark.jpg") center/cover fixed no-repeat,
+        var(--bg);
+    }
   }
   body::before {
     content: "";
@@ -1593,10 +1592,15 @@
 </head>
 <body>
 
-<!-- Animated wallpaper layer (Tahoe Dark + slow breathing
-     scale). Sits at z-index: -3 behind the body's vignette
-     veil and grain. See .wallpaper rule in <style>. -->
-<div class="wallpaper" aria-hidden="true"></div>
+<!-- Live wallpaper. WebM first (smaller, Chrome/Firefox/Edge),
+     MP4 fallback (Safari, iOS). Poster shows during load and
+     when autoplay is blocked. Sits behind everything at
+     z-index: -3 (see .wallpaper rule in <style>). -->
+<video class="wallpaper" autoplay loop muted playsinline preload="metadata"
+       poster="/assets/wallpaper-sonoma-dark.jpg" aria-hidden="true">
+  <source src="/assets/wallpaper-live.webm" type="video/webm" />
+  <source src="/assets/wallpaper-live.mp4"  type="video/mp4" />
+</video>
 
 <header>
   <div class="wrap">
