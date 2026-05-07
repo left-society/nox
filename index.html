@@ -95,106 +95,120 @@
     position: relative;
   }
 
-  /*  Wallpaper STACK — three macOS wallpapers layered down the
-      page, each owning a vertical band of the scroll. They use
-      `position: absolute` (not fixed) so they SCROLL WITH the
-      page content rather than feeling stuck on the viewport.
-      Author: "[the wallpaper] should scroll with it too, so it
-      doesn't look like it's just a background. It's part of
-      the website."
+  /*  ATMOSPHERE — cinematic gradient backdrop with glowing orbs.
+      Replaces the three-photo-wallpaper stack which the author
+      called "too bad to even look at, I want something like GTA."
 
-      Three layers:
-        wp-1: Tahoe Dark    — top of page, purple/dark Apple
-        wp-2: Sonoma Dark   — middle, abstract dark swooshes
-        wp-3: Sonoma Horizon — bottom, midnight blue horizon
+      No photo wallpapers. Pure CSS atmospheric design:
+        1. Vertical color grade — deep purple → midnight → blue
+           runs the full document height, so as you scroll the
+           color slowly shifts (like a sky cycling through hours)
+        2. Five blurred color orbs at different scroll positions
+           (magenta, lavender, cyan, deep purple, soft pink) at
+           80px Gaussian blur with screen blend mode → ambient
+           color washes that bleed through the gradient
+        3. Subtle starfield as a tiled noise pattern, low opacity
+        4. Slow drift animation on the orbs so the scene feels
+           "alive" rather than a static gradient
 
-      Each layer is sized to span ~200vh and they OVERLAP by
-      50vh so consecutive layers crossfade. Top and bottom
-      gradient mask on every layer makes the fade smooth — no
-      visible seam between sections.
-
-      All wallpapers are real Apple system assets, so there's
-      a coherent design language across the journey: dark
-      wallpaper → dark wallpaper → dark wallpaper, just with
-      different palettes. */
-  .wallpaper-stack {
+      Everything is position:absolute on body so it scrolls WITH
+      the page like it's part of the document. The body's veil
+      and grain stay fixed on top for consistent legibility.   */
+  .atmosphere {
     position: absolute;
     inset: 0;
     z-index: -3;
     pointer-events: none;
     overflow: hidden;
   }
-  .wp-layer {
+
+  /*  1. Vertical color grade. Stops chosen so the dominant hue
+      shifts as you scroll: deep aubergine at the top (rich,
+      cinematic), through magenta and royal blue, into a
+      midnight teal-black at the bottom. */
+  .atm-gradient {
     position: absolute;
-    left: 0;
-    right: 0;
-    background-size: cover;
-    background-position: center;
-    /*  Top + bottom gradient mask: fade in over the first 12%
-        of the layer's height, fully opaque in the middle, fade
-        out over the last 12%. With 200vh layer heights and 50vh
-        overlap, the fade-out region of one layer overlaps the
-        fade-in region of the next, producing a smooth crossfade
-        as the user scrolls past the boundary. */
-    -webkit-mask-image: linear-gradient(180deg,
-      transparent 0%,
-      black 12%,
-      black 88%,
-      transparent 100%);
-            mask-image: linear-gradient(180deg,
-      transparent 0%,
-      black 12%,
-      black 88%,
-      transparent 100%);
+    inset: 0;
+    background: linear-gradient(180deg,
+      #1c0a2e  0%,
+      #2a0d3f 12%,
+      #34104a 22%,
+      #1d1444 38%,
+      #1a1a4f 52%,
+      #0e1a3c 68%,
+      #060e26 84%,
+      #03061a 100%);
   }
-  /*  Layers sized as PERCENTAGES of the wallpaper-stack height
-      (which equals the full document height because .wallpaper-
-      stack has inset:0). vh units would only cover a few
-      viewports — the page is ~5 viewports tall, so we need
-      relative-to-document sizing.
 
-      Layout:
-        wp-1   0%  →  42%   (fades out  82%–100% of self)
-        wp-2  28%  →  72%   (fades in 0–18%, fades out 82–100%)
-        wp-3  58%  → 100%   (fades in 0–18%)
+  /*  2. Glowing orbs. Positioned absolutely relative to the
+      .atmosphere container, so their TOP value is a percentage
+      of the FULL document height. Each is a heavily-blurred
+      radial gradient acting as a soft volumetric color wash.
+      Screen blend so they amplify the underlying gradient
+      rather than darkening it. */
+  .atm-orbs { position: absolute; inset: 0; }
+  .orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(90px);
+    opacity: 0.55;
+    mix-blend-mode: screen;
+    animation: orbDrift 18s ease-in-out infinite alternate;
+  }
+  @keyframes orbDrift {
+    from { transform: translate(0, 0)        scale(1.00); }
+    to   { transform: translate(40px, -30px) scale(1.08); }
+  }
+  .orb.o-1 {
+    top: 6%; left: -8%;
+    width: 720px; height: 720px;
+    background: radial-gradient(circle, #c64bff 0%, transparent 65%);
+    animation-duration: 22s;
+  }
+  .orb.o-2 {
+    top: 22%; right: -10%;
+    width: 640px; height: 640px;
+    background: radial-gradient(circle, #ff4ba8 0%, transparent 65%);
+    animation-duration: 26s; animation-direction: alternate-reverse;
+  }
+  .orb.o-3 {
+    top: 44%; left: 20%;
+    width: 820px; height: 820px;
+    background: radial-gradient(circle, #6c5cff 0%, transparent 65%);
+    animation-duration: 28s;
+  }
+  .orb.o-4 {
+    top: 64%; right: -5%;
+    width: 700px; height: 700px;
+    background: radial-gradient(circle, #4bd6ff 0%, transparent 65%);
+    animation-duration: 24s; animation-direction: alternate-reverse;
+  }
+  .orb.o-5 {
+    top: 86%; left: 5%;
+    width: 760px; height: 760px;
+    background: radial-gradient(circle, #c5a3ff 0%, transparent 65%);
+    animation-duration: 30s;
+  }
 
-      Overlap zones: 28-42% (wp-1 fading out, wp-2 fading in)
-                     58-72% (wp-2 fading out, wp-3 fading in)
-      Each layer's background-image is sized cover, repeated
-      vertically — repeating-cover gives a continuous backdrop
-      throughout the layer's range without horizontal seams. */
-  .wp-1 {
-    top: 0;
-    height: 42%;
-    background-image: url("/assets/wallpaper-tahoe-dark.jpg");
-    background-attachment: scroll;
-    background-size: 100vw auto;
-    background-repeat: repeat-y;
-    /*  First layer: no top fade (page starts full), bottom
-        fade-out for crossfade with wp-2. */
-    -webkit-mask-image: linear-gradient(180deg,
-      black 0%, black 80%, transparent 100%);
-            mask-image: linear-gradient(180deg,
-      black 0%, black 80%, transparent 100%);
+  /*  3. Subtle starfield — twinkly white dots scattered across
+      the document. Tile a small SVG pattern so it repeats
+      naturally as the page is scrolled. Low opacity so it reads
+      as ambient sparkle, not a grid of pixels. */
+  .atm-stars {
+    position: absolute;
+    inset: 0;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='420' height='420' viewBox='0 0 420 420'><circle cx='30' cy='40' r='0.8' fill='white' opacity='0.55'/><circle cx='180' cy='90' r='0.5' fill='white' opacity='0.40'/><circle cx='300' cy='120' r='0.9' fill='white' opacity='0.65'/><circle cx='90' cy='200' r='0.6' fill='white' opacity='0.45'/><circle cx='240' cy='240' r='0.4' fill='white' opacity='0.35'/><circle cx='370' cy='260' r='0.7' fill='white' opacity='0.50'/><circle cx='50' cy='330' r='0.5' fill='white' opacity='0.40'/><circle cx='200' cy='370' r='0.8' fill='white' opacity='0.55'/><circle cx='340' cy='390' r='0.4' fill='white' opacity='0.30'/></svg>");
+    background-size: 420px 420px;
+    background-repeat: repeat;
+    opacity: 0.55;
   }
-  .wp-2 {
-    top: 28%;
-    height: 44%;
-    background-image: url("/assets/wallpaper-sonoma-dark.jpg");
-    background-size: 100vw auto;
-    background-repeat: repeat-y;
-  }
-  .wp-3 {
-    top: 58%;
-    height: 42%;
-    background-image: url("/assets/wallpaper-sonoma-horizon.jpg");
-    background-size: 100vw auto;
-    background-repeat: repeat-y;
-    /*  Last layer: fades in at top, no fade at bottom. */
-    -webkit-mask-image: linear-gradient(180deg,
-      transparent 0%, black 18%, black 100%);
-            mask-image: linear-gradient(180deg,
-      transparent 0%, black 18%, black 100%);
+
+  /*  Reduced motion: still show the atmosphere, just stop the
+      orbs drifting. Page is fundamentally static for users with
+      vestibular sensitivity; the gradient and orbs still
+      provide visual interest. */
+  @media (prefers-reduced-motion: reduce) {
+    .orb { animation: none; }
   }
   body::before {
     content: "";
@@ -1829,28 +1843,34 @@
 <body>
 
 <!--
-  Three-layer scrolling wallpaper stack. Each layer is a real
-  macOS dark wallpaper, positioned absolute (NOT fixed) so it
-  scrolls with the page like part of the document. Adjacent
-  layers overlap by ~50vh and use gradient masks at top/bottom
-  so they crossfade smoothly as the user scrolls.
+  Cinematic atmosphere backdrop. Replaces the photo-wallpaper
+  approach (author called that "too bad to even look at, want
+  something like GTA"). Pure CSS — no images:
 
-  Author: "the wallpaper that we have should scroll with it too,
-  so it doesn't look like it's just a background. It's part of
-  the website."
+    1. Vertical color grade running the full document height
+       (deep purple → magenta → midnight → blue → near-black)
+    2. Five glowing color orbs (magenta, rose, indigo, cyan,
+       lavender) heavily blurred at different scroll positions,
+       slowly drifting via CSS animation
+    3. Tiled SVG starfield at low opacity for ambient sparkle
 
-  Layer ranges:
-    wp-1 (Tahoe Dark)         0vh →  200vh   purple anchor
-    wp-2 (Sonoma Dark)        150vh →  350vh   crossfade middle
-    wp-3 (Sonoma Horizon)     300vh →  620vh   blue tail
+  Everything is position:absolute on body so the whole scene
+  scrolls WITH the page like it's part of the document. The
+  body's vignette veil and film grain stay fixed on top for
+  consistent legibility regardless of scroll position.
 
-  See .wallpaper-stack rule in <style> for the gradient masks
-  and crossfade math.
+  See .atmosphere rule in <style> for the full layout.
 -->
-<div class="wallpaper-stack" aria-hidden="true">
-  <div class="wp-layer wp-1"></div>
-  <div class="wp-layer wp-2"></div>
-  <div class="wp-layer wp-3"></div>
+<div class="atmosphere" aria-hidden="true">
+  <div class="atm-gradient"></div>
+  <div class="atm-orbs">
+    <span class="orb o-1"></span>
+    <span class="orb o-2"></span>
+    <span class="orb o-3"></span>
+    <span class="orb o-4"></span>
+    <span class="orb o-5"></span>
+  </div>
+  <div class="atm-stars"></div>
 </div>
 
 <!--
