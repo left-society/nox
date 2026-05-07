@@ -728,6 +728,33 @@
       0 0 0 1px rgba(168, 130, 232, 0.04);
     overflow: hidden;
   }
+  /*  Hero video frame. Same chrome as .hero-mockup so the page
+      rhythm doesn't change when the placeholder swaps to the
+      real recording. 16:9 aspect to match standard YouTube
+      output; the iframe is absolute-positioned to fill the
+      frame regardless of viewport width. */
+  .hero-video-frame {
+    margin: 64px auto 0;
+    max-width: 1040px;
+    aspect-ratio: 16 / 9;
+    position: relative;
+    border-radius: 20px;
+    background: #0d0c14;
+    border: 1px solid var(--line);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.04) inset,
+      0 40px 100px -40px rgba(0, 0, 0, 0.65),
+      0 0 0 1px rgba(168, 130, 232, 0.04);
+    overflow: hidden;
+  }
+  .hero-video-frame iframe {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+  }
   /*  The macOS menu bar strip across the top. Semi-translucent
       so the wallpaper bleeds through, like the real OS. */
   .menu-bar {
@@ -2074,7 +2101,7 @@
 <!-- ── Hero ─────────────────────────────────────────────────── -->
 <section class="hero">
   <div class="wrap">
-    <span class="eyebrow-chip">nox 1.9.6 is out</span>
+    <span class="eyebrow-chip">nox 1.9.7 is out</span>
     <h1>
       <span class="lead">Your MacBook notch,</span>
       <span class="punch">actually useful.</span>
@@ -2098,38 +2125,26 @@
       <span>Most Macs from 2017 onwards</span>
     </div>
 
-    <!-- Animated mockup. Pure CSS, no JS, no images. -->
-    <div class="hero-mockup" aria-hidden="true">
-      <div class="menu-bar">
-        <div class="left">
-          <span class="apple"></span>
-          <span class="menu-item">nox</span>
-          <span class="menu-item dim">File</span>
-          <span class="menu-item dim">Edit</span>
-          <span class="menu-item dim">View</span>
-          <span class="menu-item dim">Window</span>
-          <span class="menu-item dim">Help</span>
-        </div>
-        <div class="right">
-          <span class="battery"></span>
-          <span style="color: rgba(255,255,255,0.78); font-variant-numeric: tabular-nums;">11:42</span>
-        </div>
-      </div>
-      <div class="hero-pill">
-        <div class="pill-state idle">
-          <span class="dot"></span>
-        </div>
-        <div class="pill-state music">
-          <span class="album"></span>
-          <span>Now playing</span>
-          <span class="bars"><span></span><span></span><span></span><span></span></span>
-        </div>
-        <div class="pill-state drag">
-          <span>Drop file to save</span>
-        </div>
-      </div>
+    <!--
+      Hero demo video. Replaces the previous CSS pill mockup —
+      a real recording is more convincing than an illustrative
+      animation. youtube-nocookie.com is the privacy-enhanced
+      embed domain (no cookies set until playback). rel=0 hides
+      related videos at the end, modestbranding=1 trims the
+      YouTube logo. The frame matches the styling tokens of the
+      old .hero-mockup (border, lavender shadow, rounded corners)
+      so the visual rhythm of the page is preserved.
+    -->
+    <div class="hero-video-frame">
+      <iframe
+        src="https://www.youtube-nocookie.com/embed/mp9dOv3Fnq8?rel=0&amp;modestbranding=1"
+        title="nox — your MacBook notch, actually useful"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowfullscreen
+        loading="lazy"
+        referrerpolicy="strict-origin-when-cross-origin"></iframe>
     </div>
-    <p class="mockup-caption">This is the top of your MacBook. <span class="accent">Move your cursor</span> to the dark cutout. nox opens up.</p>
+    <p class="mockup-caption">A real recording, no edits. <span class="accent">Press play.</span></p>
   </div>
 </section>
 
