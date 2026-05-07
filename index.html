@@ -151,76 +151,179 @@
     margin: 0 auto;
     padding: 0 28px;
   }
-  section { padding: 120px 0; }
+  section { padding: 120px 0; position: relative; }
   @media (max-width: 720px) { section { padding: 80px 0; } }
 
+  /*  Add the floating-header clearance to the first section.
+      Header is fixed and ~70px tall + 18px top margin = ~88px;
+      give the hero an extra ~80px of top padding so its
+      eyebrow chip sits visually clear of the pill. */
+  .hero { padding-top: 200px !important; }
+  @media (max-width: 720px) { .hero { padding-top: 140px !important; } }
+
   /*  ----------------------------------------------------------------
-      Header — minimal, no border, glass on scroll
+      Section dividers — give each section a clean top hairline
+      and a subtle vertical-fade gradient so adjacent sections
+      don't bleed into each other. Without this, the wallpaper
+      makes everything feel like one continuous wash.
+      ----------------------------------------------------------------  */
+  section + section::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 480px;
+    height: 1px;
+    background: linear-gradient(90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.10) 50%,
+      transparent 100%);
+  }
+  /*  Sections also get a subtle vertical fade to anchor their
+      content against the wallpaper. Lavender at the top edge
+      of each section, fading to transparent at the bottom —
+      acts as a soft scroll cue that "a new section started." */
+  section::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 220px;
+    background: linear-gradient(180deg,
+      rgba(168, 130, 232, 0.025) 0%,
+      transparent 100%);
+    pointer-events: none;
+    z-index: -1;
+  }
+  /*  Hero already has the header clearance + radial glow,
+      doesn't need the extra fade. */
+  .hero::after { display: none; }
+
+  /*  ----------------------------------------------------------------
+      Header — floating pill nav (Subedit-inspired).
+
+      Centered, fixed-position black pill that hovers above the
+      content. Strong border + drop shadow so it reads as a
+      physical object floating on the wallpaper. Logo with
+      lavender notch glyph on the left, nav links in the
+      middle, lavender Download CTA on the right.
       ----------------------------------------------------------------  */
   header {
-    position: sticky;
-    top: 0;
+    position: fixed;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%);
     z-index: 50;
-    padding: 18px 0;
-    backdrop-filter: blur(18px) saturate(160%);
-    -webkit-backdrop-filter: blur(18px) saturate(160%);
-    background: rgba(7, 7, 10, 0.62);
-    border-bottom: 1px solid var(--line-soft);
+    width: max-content;
+    max-width: calc(100vw - 32px);
+    padding: 0;
+    background: transparent;
+    border-bottom: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
   header .wrap {
+    /*  Override the default .wrap max-width:1120px so the
+        nav pill sits at content width, not full-page. */
+    max-width: none;
+    padding: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 24px;
+    gap: 32px;
+    background: rgba(10, 10, 14, 0.78);
+    backdrop-filter: blur(20px) saturate(170%);
+    -webkit-backdrop-filter: blur(20px) saturate(170%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    padding: 8px 8px 8px 22px;
+    box-shadow:
+      0 12px 32px rgba(0, 0, 0, 0.45),
+      0 1px 0 rgba(255, 255, 255, 0.05) inset;
   }
+  /*  When the page scrolls, header background gets a
+      subtler border so the pill doesn't shout. CSS-only
+      via :has() / scroll-driven, but for browser breadth
+      we just keep the same look at all scroll positions. */
   .logo {
-    font-size: 19px;
+    font-size: 17px;
     font-weight: 600;
-    letter-spacing: -0.025em;
+    letter-spacing: -0.02em;
     text-decoration: none;
     color: var(--fg);
     display: inline-flex;
     align-items: center;
-    gap: 9px;
+    gap: 10px;
+    flex-shrink: 0;
   }
-  /*  Pill-cap glyph in the logo — a tiny notch silhouette
-      that nods to the product without being a literal mini-
-      rendering. */
+  /*  Lavender notch silhouette glyph in the logo. Tiny rect
+      with rounded bottom corners that reads as the macOS
+      hardware notch. */
   .logo::before {
     content: "";
-    width: 16px;
-    height: 5px;
-    border-radius: 0 0 5px 5px;
-    background: var(--fg);
+    width: 18px;
+    height: 6px;
+    border-radius: 0 0 6px 6px;
+    background: var(--accent);
     display: inline-block;
     transform: translateY(-1px);
+    box-shadow: 0 0 12px rgba(200, 181, 255, 0.55);
   }
   .nav {
     display: flex;
-    gap: 28px;
+    gap: 6px;
     align-items: center;
   }
   .nav-links {
     display: flex;
-    gap: 28px;
+    gap: 4px;
     align-items: center;
+    margin-right: 6px;
   }
-  /*  Scope link styling to the inner nav-links group, NOT the
-      whole .nav. Earlier `.nav a` was a more specific match than
-      `.btn-primary` (1 class + 1 tag beats 1 class), which made
-      the header download button inherit color: var(--muted) —
-      light gray text on a white pill = invisible. Restricting
-      to .nav-links keeps the muted styling for actual nav links
-      while leaving the button alone. */
+  /*  Each link is a comfortable hit target with its own
+      hover treatment (subtle pill highlight). 14px text,
+      muted by default. */
   .nav-links a {
     text-decoration: none;
     color: var(--muted);
-    font-size: 14px;
-    transition: color 0.18s ease;
+    font-size: 13.5px;
+    font-weight: 500;
+    transition: color 0.18s ease, background 0.18s ease;
+    padding: 8px 12px;
+    border-radius: 999px;
   }
-  .nav-links a:hover { color: var(--fg); }
+  .nav-links a:hover {
+    color: var(--fg);
+    background: rgba(255, 255, 255, 0.05);
+  }
+  /*  Download CTA inside the pill — lavender on dark for
+      brand recall. Replaces the white-on-black look from
+      before so the pill has a single accent color. */
+  header .btn-primary {
+    background: var(--accent);
+    color: #1a0e2a;
+    padding: 9px 18px;
+    font-size: 13.5px;
+    font-weight: 600;
+    border-radius: 999px;
+    box-shadow: 0 0 16px rgba(200, 181, 255, 0.30);
+  }
+  header .btn-primary:hover {
+    background: var(--accent-strong);
+    color: #fff;
+    transform: translateY(-1px);
+    opacity: 1;
+  }
+  header .btn-primary svg { fill: currentColor; }
+
   @media (max-width: 720px) {
     .nav-links { display: none; }
+    header .wrap { padding: 6px 6px 6px 18px; gap: 16px; }
+    .logo { font-size: 15px; }
+    header .btn-primary { padding: 7px 14px; font-size: 12.5px; }
   }
 
   /*  ----------------------------------------------------------------
