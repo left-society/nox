@@ -1867,10 +1867,47 @@
   button.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
 <!-- Tally embed — opens modal forms via data-tally-open attribute.
-     The form (xX9Apd) is configured server-side to redirect to the
-     DMG download URL on completion, so the Tally submission IS the
-     download trigger. -->
+     The form (xX9Apd) collects the visitor's email. Post-submission
+     download is handled client-side here rather than via Tally's
+     redirect setting: when Tally posts back the FormSubmitted event,
+     we trigger the DMG download programmatically. UX win — the popup
+     closes and the download starts in one motion, instead of a
+     full-page redirect to a GitHub raw URL. -->
 <script async src="https://tally.so/widgets/embed.js"></script>
+<script>
+  (function () {
+    var DMG_URL = 'https://github.com/left-society/nox/releases/download/v1.9.7/nox.1.9.7.dmg';
+    var FORM_ID = 'xX9Apd';
+
+    // Tally posts events as window messages. Shape:
+    //   { event: 'Tally.FormSubmitted', payload: { formId: '...' } }
+    // (Plus Tally.PopupClosed when the modal dismisses.)
+    window.addEventListener('message', function (e) {
+      // Tally sends string messages, JSON-encoded. Some other
+      // origins post non-JSON strings — ignore those.
+      var data = e.data;
+      if (typeof data === 'string') {
+        try { data = JSON.parse(data); } catch (_) { return; }
+      }
+      if (!data || typeof data !== 'object') return;
+      if (data.event !== 'Tally.FormSubmitted') return;
+      // The payload's formId may be the public id or the form's
+      // internal id. We accept either match (or any submission of
+      // ANY Tally form on this page — there's only one).
+      var pid = data.payload && data.payload.formId;
+      if (pid && pid !== FORM_ID) return;
+      // Trigger the download. Using a hidden anchor + click rather
+      // than location.href so the page itself doesn't navigate
+      // (download happens in a new request, current page stays put).
+      var a = document.createElement('a');
+      a.href = DMG_URL;
+      a.download = '';                  // hint browser to download
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    });
+  })();
+</script>
 </head>
 <body>
 
