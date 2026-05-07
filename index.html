@@ -70,8 +70,12 @@
     --muted:       rgba(255, 255, 255, 0.55);
     --dim:         rgba(255, 255, 255, 0.36);
 
-    --accent:        #c8b5ff;       /* lavender, primary */
-    --accent-strong: #a882e8;
+    /*  Brand lavender — pulled from /Notetaker/Resources/nox-icon.svg.
+        These two stops are the 55% and 80% stops of the icon's
+        gradient ring, the same colors the macOS app uses for
+        its accent. Was #c8b5ff / #a882e8 (close but not exact). */
+    --accent:        #C5A3FF;
+    --accent-strong: #A688E8;
     --success:       #7cee9f;
   }
 
@@ -171,15 +175,24 @@
         crossfade behind the scroll position. */
     will-change: opacity;
   }
+  /*  Wallpaper journey, brand-aligned (lavender #C5A3FF).
+      Sampled dominant colors of each candidate wallpaper —
+      kept only those in the purple/lavender family:
+        wp-1  Tahoe Dark      dominant #16206F  deep midnight purple
+        wp-2  Mac Purple      dominant #7D64DE  saturated brand purple
+        wp-3  iMac Purple     dominant #998BDF  softer lavender
+      Old wp-2 (Sonoma Graphic Dark, dominant #366C63 teal) and
+      wp-3 (Sonoma Horizon, dominant #2D2A14 brown) clashed with
+      the brand and were dropped. */
   .wp-1 {
     background-image: url("/assets/wallpaper-tahoe-dark.jpg");
     opacity: 1;
   }
   .wp-2 {
-    background-image: url("/assets/wallpaper-sonoma-dark.jpg");
+    background-image: url("/assets/wallpaper-mac-purple.jpg");
   }
   .wp-3 {
-    background-image: url("/assets/wallpaper-sonoma-horizon.jpg");
+    background-image: url("/assets/wallpaper-imac-purple.jpg");
   }
   body::before {
     content: "";
@@ -1814,16 +1827,16 @@
 <body>
 
 <!--
-  Wallpaper stack. Three real Apple macOS dark wallpapers,
-  each fixed to the viewport, opacity-crossfaded by JS as the
-  user scrolls past section boundaries. See .wallpaper-stack
-  in <style> and the scroll handler at the bottom of <body>
-  for the smoothstep math.
+  Wallpaper stack. Three brand-aligned Apple wallpapers (all
+  in the lavender/purple family of #C5A3FF), each fixed to the
+  viewport, opacity-crossfaded by JS as the user scrolls past
+  section boundaries. See .wallpaper-stack in <style> and the
+  scroll handler at the bottom of <body> for the smoothstep math.
 
-  Wallpaper journey (top → bottom):
-    wp-1  Tahoe Dark        Hero + Features
-    wp-2  Sonoma Dark       Why nox + Privacy
-    wp-3  Sonoma Horizon    FAQ + CTA
+  Journey (top → bottom):
+    wp-1  Tahoe Dark        Hero + Features         deep midnight purple
+    wp-2  Mac Purple        Why nox + Privacy       saturated brand purple
+    wp-3  iMac Purple       FAQ + CTA               softer lavender
 -->
 <div class="wallpaper-stack" aria-hidden="true">
   <div class="wp-layer wp-1"></div>
