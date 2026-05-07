@@ -175,24 +175,30 @@
         crossfade behind the scroll position. */
     will-change: opacity;
   }
-  /*  Wallpaper journey, brand-aligned (lavender #C5A3FF).
-      Sampled dominant colors of each candidate wallpaper —
-      kept only those in the purple/lavender family:
-        wp-1  Tahoe Dark      dominant #16206F  deep midnight purple
-        wp-2  Mac Purple      dominant #7D64DE  saturated brand purple
-        wp-3  iMac Purple     dominant #998BDF  softer lavender
-      Old wp-2 (Sonoma Graphic Dark, dominant #366C63 teal) and
-      wp-3 (Sonoma Horizon, dominant #2D2A14 brown) clashed with
-      the brand and were dropped. */
+  /*  Wallpaper journey, brand-aligned AND dark.
+      Mac Purple and iMac Purple come from Apple as bright
+      daytime wallpapers (avg brightness 174/255 and 184/255 —
+      too washed out for a dark site, body text didn't read
+      against them). Pre-processed both via ffmpeg at extract
+      time:
+          eq=brightness=-0.30:saturation=0.85:contrast=1.05
+      which pulls them down to ~95/255 brightness, in the same
+      dark range as Tahoe Dark (61/255), while preserving the
+      lavender hue.
+
+      Final journey (all in the brand purple family, all dark):
+        wp-1  Tahoe Dark             avg #1C2676  deep midnight
+        wp-2  Mac Purple (darkened)  avg #4D4688  mid purple
+        wp-3  iMac Purple (darkened) avg #504686  soft purple   */
   .wp-1 {
     background-image: url("/assets/wallpaper-tahoe-dark.jpg");
     opacity: 1;
   }
   .wp-2 {
-    background-image: url("/assets/wallpaper-mac-purple.jpg");
+    background-image: url("/assets/wallpaper-mac-purple-dark.jpg");
   }
   .wp-3 {
-    background-image: url("/assets/wallpaper-imac-purple.jpg");
+    background-image: url("/assets/wallpaper-imac-purple-dark.jpg");
   }
   body::before {
     content: "";
