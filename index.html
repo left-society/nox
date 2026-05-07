@@ -257,17 +257,21 @@
     flex-shrink: 0;
     transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
+  /*  Brand mark — wraps the inline #noxGlyph SVG (a lavender
+      ring with the notch cut from its top). Drop shadow on the
+      wrapper gives the ring a soft lavender glow that matches
+      the app icon's outer corona. */
   .brand-mark {
-    width: 18px;
-    height: 6px;
-    border-radius: 0 0 6px 6px;
-    background: var(--accent);
-    display: inline-block;
-    transform: translateY(-1px);
-    box-shadow: 0 0 12px rgba(200, 181, 255, 0.55);
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     flex-shrink: 0;
+    filter: drop-shadow(0 0 6px rgba(200, 181, 255, 0.45));
     transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
+  .brand-mark svg { display: block; }
   .brand-name {
     transition:
       opacity 0.25s ease,
@@ -1727,6 +1731,37 @@
 <div class="wallpaper" aria-hidden="true"></div>
 
 <!--
+  Reusable nox brand mark.
+  Authoritative source: /Notetaker/Resources/nox-icon.svg.
+  Stripped of the squircle background and outer halo for inline
+  use; kept the lavender ring with linear-gradient stroke and the
+  notch cut from the top via mask. Gradient and mask IDs are
+  globally unique to avoid collisions with other inline SVGs.
+-->
+<svg width="0" height="0" aria-hidden="true" style="position:absolute">
+  <defs>
+    <linearGradient id="noxRingFill" x1="0.3" y1="0.05" x2="0.75" y2="0.98">
+      <stop offset="0%"   stop-color="#EFDEFF"/>
+      <stop offset="25%"  stop-color="#D9BCFF"/>
+      <stop offset="55%"  stop-color="#C5A3FF"/>
+      <stop offset="80%"  stop-color="#A688E8"/>
+      <stop offset="100%" stop-color="#8064C8"/>
+    </linearGradient>
+    <mask id="noxMaskTop" maskUnits="userSpaceOnUse">
+      <rect width="32" height="32" fill="white"/>
+      <rect x="14.5" y="5.4" width="3" height="1.4" fill="black"/>
+    </mask>
+    <symbol id="noxGlyph" viewBox="0 0 32 32">
+      <g mask="url(#noxMaskTop)">
+        <circle cx="16" cy="16" r="9.4" fill="none"
+                stroke="url(#noxRingFill)" stroke-width="1.8"
+                stroke-linecap="round"/>
+      </g>
+    </symbol>
+  </defs>
+</svg>
+
+<!--
   Floating pill nav with scroll-driven morph.
 
   Ported from /Users/apple/Caption app/caption-app/src/components/
@@ -1744,7 +1779,9 @@
 -->
 <header id="navHeader">
   <a class="brand" href="/">
-    <span class="brand-mark" aria-hidden="true"></span>
+    <span class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 32 32" width="22" height="22"><use href="#noxGlyph"/></svg>
+    </span>
     <span class="brand-name">nox</span>
   </a>
   <div class="nav-links">
