@@ -175,30 +175,35 @@
         crossfade behind the scroll position. */
     will-change: opacity;
   }
-  /*  Wallpaper journey, brand-aligned AND dark.
-      Mac Purple and iMac Purple come from Apple as bright
-      daytime wallpapers (avg brightness 174/255 and 184/255 —
-      too washed out for a dark site, body text didn't read
-      against them). Pre-processed both via ffmpeg at extract
-      time:
-          eq=brightness=-0.30:saturation=0.85:contrast=1.05
-      which pulls them down to ~95/255 brightness, in the same
-      dark range as Tahoe Dark (61/255), while preserving the
-      lavender hue.
+  /*  Wallpaper journey — atmospheric Apple wallpapers, all dark.
 
-      Final journey (all in the brand purple family, all dark):
-        wp-1  Tahoe Dark             avg #1C2676  deep midnight
-        wp-2  Mac Purple (darkened)  avg #4D4688  mid purple
-        wp-3  iMac Purple (darkened) avg #504686  soft purple   */
+      Earlier passes used Mac Purple / iMac Purple (the brand-
+      colored Apple wallpapers) for "brand alignment", but those
+      images carry prominent photo features — Mac Purple's bright
+      blue swirl and iMac Purple's giant vertical pill stripes —
+      that compete with the page content. Even after darkening
+      them via ffmpeg the shapes were still legible behind text
+      and made every section feel like one continuous wallpaper
+      reel rather than distinct sections.
+
+      Reverted to the original quieter trio. Each one is dark
+      and largely featureless — pure ambient color:
+        wp-1  Tahoe Dark        deep midnight blue + faint horizon
+        wp-2  Sonoma Dark       muted dawn — calm fade
+        wp-3  Sonoma Horizon    midnight blue with soft light hint
+
+      A heavy darkening + blur veil (body::before) sits on top of
+      this stack so the wallpapers read as ambient hue, not as
+      photographs. */
   .wp-1 {
     background-image: url("/assets/wallpaper-tahoe-dark.jpg");
     opacity: 1;
   }
   .wp-2 {
-    background-image: url("/assets/wallpaper-mac-purple-dark.jpg");
+    background-image: url("/assets/wallpaper-sonoma-dark.jpg");
   }
   .wp-3 {
-    background-image: url("/assets/wallpaper-imac-purple-dark.jpg");
+    background-image: url("/assets/wallpaper-sonoma-horizon.jpg");
   }
   body::before {
     content: "";
@@ -206,23 +211,33 @@
     inset: 0;
     z-index: -2;
     pointer-events: none;
-    /*  Lighter veil now that the wallpaper itself is dark
-        (Sonoma Horizon is midnight blue). The veil is just for
-        contrast under content cards, not to mask wallpaper hue.
-        Center 18% black, edges 55% so the dark blue wallpaper
-        is clearly visible across the whole page while text
-        cards still have enough contrast.
-        Lavender top/bottom hairlines keep brand color present. */
+    /*  Heavy darkening + a soft backdrop blur on the wallpaper
+        layer behind. Earlier the veil sat at ~18% center / 62%
+        edges and the wallpapers' photographic features (Mac
+        Purple's swirls, iMac Purple's vertical pill stripes,
+        Tahoe Dark's bright sky stripe) showed through clearly
+        enough to compete with content. Now:
+
+          – darker veil (52% center → 88% edges) so wallpapers
+            read as ambient color, not photographs
+          – backdrop-filter blur(14px) so any remaining photo
+            shapes (light bands, soft swirls) become diffused
+            color, not recognizable forms
+
+        The lavender top/bottom tints stay (1-2%) just to keep
+        brand presence at the page extremes. */
     background:
       radial-gradient(ellipse at 50% 30%,
-        rgba(7, 7, 10, 0.18),
-        rgba(7, 7, 10, 0.42) 55%,
-        rgba(7, 7, 10, 0.62) 100%),
+        rgba(7, 7, 10, 0.52),
+        rgba(7, 7, 10, 0.78) 55%,
+        rgba(7, 7, 10, 0.88) 100%),
       linear-gradient(180deg,
-        rgba(168, 130, 232, 0.05) 0%,
+        rgba(168, 130, 232, 0.06) 0%,
         rgba(7, 7, 10, 0.0) 30%,
         rgba(7, 7, 10, 0.0) 70%,
-        rgba(168, 130, 232, 0.04) 100%);
+        rgba(168, 130, 232, 0.05) 100%);
+    backdrop-filter: blur(14px) saturate(115%);
+    -webkit-backdrop-filter: blur(14px) saturate(115%);
   }
   /*  Subtle film grain to break up the gradient banding and
       give the page a film-stock feel against the warm wallpaper. */
@@ -257,38 +272,54 @@
   @media (max-width: 720px) { .hero { padding-top: 140px !important; } }
 
   /*  ----------------------------------------------------------------
-      Section dividers — give each section a clean top hairline
-      and a subtle vertical-fade gradient so adjacent sections
-      don't bleed into each other. Without this, the wallpaper
-      makes everything feel like one continuous wash.
+      Section dividers — give each section a clearly visible top
+      hairline and a darkening band so adjacent sections feel
+      distinct. Earlier the divider was 1px @ 10% white over a
+      480px width which read as zero against the bright wallpaper
+      — sections bled into one another. Now:
+
+        section + section::before  → wide, brighter hairline with
+                                     a faint lavender hint at the
+                                     center (matches brand)
+        section::after             → ~140px dark gradient at the
+                                     top of every new section so
+                                     the eye sees a clear "section
+                                     started here" band
+
+      Together they create a clean break between sections without
+      requiring a hard horizontal rule.
       ----------------------------------------------------------------  */
   section + section::before {
     content: "";
     position: absolute;
     top: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 100%;
-    max-width: 480px;
+    left: 0;
+    right: 0;
     height: 1px;
     background: linear-gradient(90deg,
       transparent 0%,
-      rgba(255, 255, 255, 0.10) 50%,
+      rgba(255, 255, 255, 0.06) 18%,
+      rgba(200, 181, 255, 0.32) 50%,
+      rgba(255, 255, 255, 0.06) 82%,
       transparent 100%);
+    z-index: 1;
+    pointer-events: none;
   }
-  /*  Sections also get a subtle vertical fade to anchor their
-      content against the wallpaper. Lavender at the top edge
-      of each section, fading to transparent at the bottom —
-      acts as a soft scroll cue that "a new section started." */
+  /*  Top-of-section darkening band. Fades from a strong dark
+      band at the very top of each section (right under the
+      hairline) to transparent ~140px down. The eye reads this
+      as "this section starts here, the previous section is
+      done" — a stronger signal than the wallpaper alone gives. */
   section::after {
     content: "";
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
-    height: 220px;
+    height: 140px;
     background: linear-gradient(180deg,
-      rgba(168, 130, 232, 0.025) 0%,
+      rgba(7, 7, 10, 0.55) 0%,
+      rgba(7, 7, 10, 0.18) 60%,
       transparent 100%);
     pointer-events: none;
     z-index: -1;
