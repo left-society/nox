@@ -1736,31 +1736,64 @@
 <div class="wallpaper" aria-hidden="true"></div>
 
 <!--
-  Reusable nox brand mark.
-  Authoritative source: /Notetaker/Resources/nox-icon.svg.
-  Stripped of the squircle background and outer halo for inline
-  use; kept the lavender ring with linear-gradient stroke and the
-  notch cut from the top via mask. Gradient and mask IDs are
-  globally unique to avoid collisions with other inline SVGs.
+  Reusable nox brand mark — full app icon (1024×1024 source).
+
+  Authoritative source: /Notetaker/Resources/nox-icon.svg, the
+  same SVG the macOS app exports as its app icon. Embedded as
+  a <symbol> here so any element on the page can render the
+  logo at any size with <svg><use href="#noxGlyph"/></svg>.
+  All gradient and filter IDs are namespaced with "nox-" so
+  they don't collide with the LiquidGlass per-card displacement
+  filters elsewhere on the page.
+
+  Layers (bottom → top):
+    1. Squircle clip (1024×1024 with 230px corner radius)
+    2. Dark radial-gradient base (#0A0612 → #040108 → #000)
+    3. Inner lavender corona glow (radial, 36% radius)
+    4. Outer halo (blurred circle, low opacity, lavender)
+    5. Sharp lavender ring (5-stop linear gradient)
+    Notch cut from top via mask (484,200 56×36)
 -->
 <svg width="0" height="0" aria-hidden="true" style="position:absolute">
   <defs>
-    <linearGradient id="noxRingFill" x1="0.3" y1="0.05" x2="0.75" y2="0.98">
+    <clipPath id="nox-squircleClip" clipPathUnits="userSpaceOnUse">
+      <rect width="1024" height="1024" rx="230" ry="230"/>
+    </clipPath>
+    <radialGradient id="nox-bgDepth" cx="0.5" cy="0.5" r="0.75">
+      <stop offset="0%"   stop-color="#0A0612"/>
+      <stop offset="55%"  stop-color="#040108"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </radialGradient>
+    <radialGradient id="nox-innerCorona" cx="0.5" cy="0.5" r="0.36">
+      <stop offset="0%"   stop-color="#C5A3FF" stop-opacity="0.10"/>
+      <stop offset="60%"  stop-color="#C5A3FF" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#C5A3FF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="nox-ringFill" x1="0.3" y1="0.05" x2="0.75" y2="0.98">
       <stop offset="0%"   stop-color="#EFDEFF"/>
       <stop offset="25%"  stop-color="#D9BCFF"/>
       <stop offset="55%"  stop-color="#C5A3FF"/>
       <stop offset="80%"  stop-color="#A688E8"/>
       <stop offset="100%" stop-color="#8064C8"/>
     </linearGradient>
-    <mask id="noxMaskTop" maskUnits="userSpaceOnUse">
-      <rect width="32" height="32" fill="white"/>
-      <rect x="14.5" y="5.4" width="3" height="1.4" fill="black"/>
+    <filter id="nox-outerHalo" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="22"/>
+    </filter>
+    <mask id="nox-notchMask" maskUnits="userSpaceOnUse">
+      <rect width="1024" height="1024" fill="white"/>
+      <rect x="484" y="200" width="56" height="36" fill="black"/>
     </mask>
-    <symbol id="noxGlyph" viewBox="0 0 32 32">
-      <g mask="url(#noxMaskTop)">
-        <circle cx="16" cy="16" r="9.4" fill="none"
-                stroke="url(#noxRingFill)" stroke-width="1.8"
-                stroke-linecap="round"/>
+    <symbol id="noxGlyph" viewBox="0 0 1024 1024">
+      <g clip-path="url(#nox-squircleClip)">
+        <rect width="1024" height="1024" fill="url(#nox-bgDepth)"/>
+        <rect width="1024" height="1024" fill="url(#nox-innerCorona)"/>
+        <g mask="url(#nox-notchMask)">
+          <circle cx="512" cy="512" r="290" fill="none"
+                  stroke="#C5A3FF" stroke-width="46" opacity="0.42"
+                  filter="url(#nox-outerHalo)"/>
+          <circle cx="512" cy="512" r="290" fill="none"
+                  stroke="url(#nox-ringFill)" stroke-width="20"/>
+        </g>
       </g>
     </symbol>
   </defs>
@@ -1785,7 +1818,7 @@
 <header id="navHeader">
   <a class="brand" href="/">
     <span class="brand-mark" aria-hidden="true">
-      <svg viewBox="0 0 32 32" width="22" height="22"><use href="#noxGlyph"/></svg>
+      <svg width="22" height="22" viewBox="0 0 1024 1024"><use href="#noxGlyph"/></svg>
     </span>
     <span class="brand-name">nox</span>
   </a>
@@ -1809,7 +1842,7 @@
     flip jump.
   -->
   <span class="collapsed-mark" aria-hidden="true">
-    <svg viewBox="0 0 32 32" width="26" height="26"><use href="#noxGlyph"/></svg>
+    <svg width="26" height="26" viewBox="0 0 1024 1024"><use href="#noxGlyph"/></svg>
   </span>
 </header>
 
