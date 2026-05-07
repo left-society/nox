@@ -90,29 +90,31 @@
   body {
     background: var(--bg);
   }
-  /*  Live wallpaper layer (Tahoe Dark).
-      Apple ships TahoeDark.heic but no native Tahoe Dark
-      .mov. Synthesized a real video file by taking the
-      TahoeDark still and baking subtle Ken Burns motion into
-      it via ffmpeg's zoompan filter (sine-wave breathing
-      scale 1.0→1.06, gentle horizontal+vertical drift, 30s
-      perfect loop). The motion lives INSIDE the encoded
-      video, so it's an actual <video> element at the page
-      level — qualifies as a "live wallpaper" the same way
-      any animated background does, just authored from the
-      Tahoe Dark source instead of from a Sonoma source.
+  /*  Live wallpaper layer (Tahoe, darkened to "dark mode").
+      Apple ships Tahoe Day.mov as the only Tahoe video and
+      no Tahoe Dark .mov, so we take Tahoe Day and bake the
+      darkening into the encoded video via ffmpeg color
+      filters at encode time (no per-frame CSS filter cost):
 
-      Final files: WebM 215KB (VP9), MP4 662KB (H.264). The
-      tiny size comes from the slow motion + low scene
-      complexity — both codecs compress the static-ish frames
-      down to almost nothing.
+        eq=brightness=-0.18:saturation=0.75:contrast=1.05
+        colorbalance=rs=-0.10:gs=-0.08:bs=0.10
+                    :rm=-0.05:gm=-0.03:bm=0.08
+
+      Brightness pulled down so it reads as a darkened scene,
+      saturation tucked back so it doesn't look like a faded
+      print, contrast nudged up so detail survives, color
+      balance shifted toward blue/cyan so it feels like
+      twilight Tahoe rather than just "Tahoe Day with the
+      lights off." The cinematic motion (water surface, light
+      shifts) is unchanged — that's real Apple footage, not
+      Ken Burns on a still.
 
       The <video> sits at z-index: -3, full-bleed, object-fit:
       cover. Auto-plays, loops, muted, playsinline so iOS
       Safari treats it as inline media not a fullscreen modal.
-      Poster = wallpaper-tahoe-dark.jpg (same source still),
-      so users see Tahoe Dark instantly even before the
-      video frames decode. */
+      Poster = wallpaper-tahoe-dark.jpg so users see the
+      Tahoe Dark still instantly while the video frames
+      decode. */
   .wallpaper {
     position: fixed;
     inset: 0;
@@ -1602,14 +1604,16 @@
 </head>
 <body>
 
-<!-- Live wallpaper. WebM first (smaller, Chrome/Firefox/Edge),
-     MP4 fallback (Safari, iOS). Poster shows during load and
-     when autoplay is blocked. Sits behind everything at
-     z-index: -3 (see .wallpaper rule in <style>). -->
+<!-- Live wallpaper. Single MP4 source (universal H.264/AAC
+     codec, plays in every browser). Skipped WebM/VP9 because
+     real Apple footage with water and light motion didn't
+     compress smaller than the MP4 (VP9 ended up at 12MB vs
+     MP4 at 2.5MB for identical perceived quality). Poster
+     shows during load and when autoplay is blocked. Sits
+     behind everything at z-index: -3 (see .wallpaper rule). -->
 <video class="wallpaper" autoplay loop muted playsinline preload="metadata"
        poster="/assets/wallpaper-tahoe-dark.jpg" aria-hidden="true">
-  <source src="/assets/wallpaper-live.webm" type="video/webm" />
-  <source src="/assets/wallpaper-live.mp4"  type="video/mp4" />
+  <source src="/assets/wallpaper-live.mp4" type="video/mp4" />
 </video>
 
 <header>
