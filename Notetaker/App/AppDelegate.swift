@@ -79,6 +79,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Always-on by default — there's no auth prompt because
     /// Spotlight metadata is already indexed for the user.
     var airDropWatcher: AirDropWatcher?
+    /// CoreAudio output-volume / mute listener. Fires on volume
+    /// keys, menu-bar slider drags, and AppleScript adjustments.
+    /// We push a `.volumeChanged` SystemEvent and call
+    /// `panel.showVolumeBanner()` so the notch expands into the
+    /// volume HUD banner. Per-event timeout (1.5s) auto-dismisses
+    /// after the user stops adjusting; held-key tick spam re-pushes
+    /// each tick which extends the visible window.
+    var systemVolumeWatcher: SystemVolumeWatcher?
+    /// Pending dismiss work-item for the volume banner. Held so a
+    /// fresh volume change can cancel an in-flight dismiss and
+    /// extend the visible window. Without this, if the user adjusts
+    /// volume right at the 1.5s deadline we'd race the dismiss
+    /// (panel collapsing as the next keypress fires).
+    private var volumeDismissWorkItem: DispatchWorkItem?
     /// Combine subscription that bridges the Focus service's
     /// `isFocused` into the panel presenter. Held here so its
     /// lifetime ties to the AppDelegate.
@@ -112,6 +126,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// expand. Pattern from Alcove (`transientMediaDurationThreshold`
     /// in their binary).
     private var lastTransientTrackKey: String = ""
+
+    /// Last (title|artist) we fired a `.trackChanged` announcement
+    /// pill for. Separate from `lastTransientTrackKey` (which is
+    /// about filtering ad jingles) — this one's about not re-firing
+    /// the announcement when MR re-emits the same track on every
+    /// position update or when the user pauses and resumes.
+    private var lastAnnouncedTrackKey: String = ""
     private var lastTransientFirstSeenAt: Date = .distantPast
 
     /// Pending pill-retract work when audio stops flowing. Cancelled
@@ -119,6 +140,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// doesn't flicker out and back during brief gaps (YouTube
     /// scrub, Spotify track-change pause, ad-break).
     private var audioFlowingRetractWork: DispatchWorkItem?
+
+    /// Wall-clock timestamp of the moment audio started flowing
+    /// while there was NO MediaRemote info available (np=nil).
+    /// Used to suppress the pill for short system sounds — popup
+    /// chimes, app-launch beeps, notification dings — which all
+    /// trigger CoreAudio's `isAudioFlowing=true` for <1s without
+    /// any MR data. The pill only shows when this no-MR audio
+    /// has been flowing for at least `noMRSustainThreshold`
+    /// seconds. User feedback 2026-05-07: "sometimes it's
+    /// turning on some system audio like popups, new app
+    /// opening and stuff like that which we don't need".
+    /// Reset to `.distantPast` whenever audio stops or MR data
+    /// becomes available.
+    private var noMRAudioStartedAt: Date = .distantPast
+    /// Minimum sustained no-MR audio duration before the pill is
+    /// allowed to bloom. 2.5s is long enough to filter every
+    /// macOS/system sound effect (all under 1s) plus most short
+    /// notification chimes, while still being short enough that
+    /// real long-form non-MR audio (YouTube without MR, Discord
+    /// voice, etc.) shows up promptly.
+    private static let noMRSustainThreshold: TimeInterval = 2.5
+
+    /// Pending bloom-after-sustain work scheduled when no-MR audio
+    /// starts. Fires `updatePillVisibility` after the threshold so
+    /// genuinely-sustained audio still gets a pill. Cancelled if
+    /// audio stops before the threshold (system-sound case).
+    private var noMRSustainWork: DispatchWorkItem?
 
     /// Reusable Settings window. We manage this ourselves rather than
     /// relying on the SwiftUI `Settings { }` scene because that scene's
@@ -517,6 +565,88 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             airDrop.start()
             airDropWatcher = airDrop
+
+            // System volume HUD. CoreAudio property listener on the
+            // default output device fires on every volume / mute
+            // change (volume keys, menu-bar slider, AppleScript).
+            // We push a `.volumeChanged` SystemEvent and grow the
+            // panel into the volume banner geometry so the notch
+            // expands into a Sound HUD that mirrors Alcove's. The
+            // watcher itself suppresses the spurious initial-attach
+            // fire so we don't pop on app launch.
+            //
+            // Gating mirrors the trackChanged path
+            // (panel.presenter.isResting && !panel.presenter.isShown):
+            // volume HUD only fires when the panel is in resting
+            // pill mode and not currently in slab. If the panel is
+            // at notch-hidden mode (no music, empty state), call
+            // enterRestingMode FIRST and let its grow-spring settle
+            // BEFORE kicking off showVolumeBanner — back-to-back
+            // calls were cancelling each other's springs and
+            // leaving the panel in an indeterminate state ("now it's
+            // not showing anything" feedback).
+            let volume = SystemVolumeWatcher()
+            volume.onVolumeChange = { [weak self] level, muted in
+                guard let self, let panel = self.panelController else {
+                    SystemVolumeWatcher.log("AppDelegate.onVolumeChange — no self or panel")
+                    return
+                }
+                SystemVolumeWatcher.log("AppDelegate.onVolumeChange — level=\(level) muted=\(muted) isResting=\(panel.presenter.isResting) isShown=\(panel.presenter.isShown)")
+                // Don't fight the slab — if the user is actively
+                // using the full panel, skip the HUD entirely
+                // (matches Alcove + macOS behaviour: their HUD
+                // doesn't draw over an active app surface).
+                if panel.presenter.isShown {
+                    SystemVolumeWatcher.log("AppDelegate.onVolumeChange — ABORT slab is shown")
+                    return
+                }
+
+                // Push the SystemEvent now; the content overlay
+                // will swap in regardless of whether the silhouette
+                // morph happens this tick or after enterRestingMode.
+                panel.presenter.setPendingSystemEvent(
+                    .volumeChanged(level: level, muted: muted)
+                )
+
+                // If we're already resting, fire the banner morph
+                // right now. If we're at notch-hidden (no music),
+                // bring the panel into resting mode first and only
+                // call showVolumeBanner once that grow has actually
+                // started — back-to-back enterRestingMode + show
+                // VolumeBanner cancelled each other's springs.
+                if panel.presenter.isResting {
+                    SystemVolumeWatcher.log("AppDelegate.onVolumeChange — already resting, calling showVolumeBanner")
+                    panel.showVolumeBanner()
+                } else {
+                    SystemVolumeWatcher.log("AppDelegate.onVolumeChange — not resting, enterRestingMode then showVolumeBanner+50ms")
+                    panel.enterRestingMode()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        [weak panel] in
+                        SystemVolumeWatcher.log("AppDelegate.onVolumeChange — calling delayed showVolumeBanner")
+                        panel?.showVolumeBanner()
+                    }
+                }
+
+                // Schedule dismiss. Cancel any in-flight dismiss
+                // first so a fresh volume change extends the visible
+                // window cleanly (no race with an about-to-fire
+                // dismiss collapsing the banner mid-keypress).
+                self.volumeDismissWorkItem?.cancel()
+                let work = DispatchWorkItem { [weak panel] in
+                    guard let panel else { return }
+                    panel.dismissVolumeBanner {
+                        if case .volumeChanged = panel.presenter.pendingSystemEvent {
+                            panel.presenter.pendingSystemEvent = nil
+                        }
+                    }
+                }
+                self.volumeDismissWorkItem = work
+                DispatchQueue.main.asyncAfter(
+                    deadline: .now() + 1.55,
+                    execute: work
+                )
+            }
+            systemVolumeWatcher = volume
         } catch {
             // Per BUG-030 fix: previously the user saw the app
             // open and immediately quit with no explanation —
@@ -963,6 +1093,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .recording(let level):
                 if presenter.dictationPhase != .recording {
                     presenter.dictationPhase = .recording
+                    // Clear any stale pendingSystemEvent (most likely
+                    // a recent .volumeChanged HUD) so the dictation
+                    // pill takes over the pill content cleanly. The
+                    // pillContentOverlay branches check
+                    // pendingSystemEvent BEFORE dictationPhase, so
+                    // without this clear, a HUD that's still in its
+                    // 1.5s timeout window would block the dictation
+                    // pill from rendering.
+                    if case .volumeChanged = presenter.pendingSystemEvent {
+                        self?.volumeDismissWorkItem?.cancel()
+                        presenter.pendingSystemEvent = nil
+                    }
                     panel.enterRestingMode()
                     DictationOrchestrator.dlog("UI ⇒ recording — called enterRestingMode (isResting=\(presenter.isResting) isShown=\(presenter.isShown))")
                 }
@@ -1356,7 +1498,113 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Transient stuff (ad jingles, error chimes < 5s) doesn't
             // pollute the sticky cache and doesn't trigger pill bloom.
             if !isTransientMedia(info) {
+                // Predict whether this update will fire a track-change
+                // banner BEFORE we update presenter.nowPlaying. If yes,
+                // set the flag so PanelRootView's .onChange Branch 4
+                // skips the music-pill swap animation — otherwise the
+                // 250ms pre-show window flickers as the music pill
+                // animates underneath the (not-yet-visible) banner.
+                let predictedTrackKey = "\(info.title)|\(info.artist)"
+                let willFireBanner = !info.title.isEmpty
+                    && predictedTrackKey != lastAnnouncedTrackKey
+                    && info.isPlaying
+                    && panel.presenter.isResting
+                    && !panel.presenter.isShown
+                if willFireBanner {
+                    panel.presenter.trackChangedFiring = true
+                    // Capture the OLD artwork BEFORE updating nowPlaying.
+                    // The banner's front face will display this; the
+                    // flip animation reveals the new artwork on the
+                    // back face. User direction: "we need to tilt the
+                    // artwork when it's changing the music and the
+                    // thing expanding".
+                    panel.presenter.bannerFromArtwork = panel.presenter.nowPlaying?.artworkData
+                }
+
                 panel.presenter.nowPlaying = info
+
+                // 2026-05-07 — Alcove-style track-change announcement.
+                // When MR reports a NEW (title|artist) and the track
+                // is actively playing:
+                //   1. Stash the artwork on the presenter so the
+                //      banner body can render it (presenter is the
+                //      sole shared surface between AppDelegate and
+                //      the SwiftUI tree).
+                //   2. Tell the panel to grow into banner geometry
+                //      (PanelWindowController.showTrackBanner) so
+                //      the silhouette drops a visible apron BELOW
+                //      the notch hardware where text is readable.
+                //   3. Fire the .trackChanged SystemEvent so
+                //      PanelRootView swaps in the announcement
+                //      content and the presenter's 3.5s timeout
+                //      auto-clears it.
+                //   4. Schedule dismissTrackBanner() at the same
+                //      timeout so the panel returns to closedPillFrame.
+                //
+                // Gated on `isPlaying` so paused-track-info updates
+                // (e.g. art finishing decode after a pause) don't
+                // re-fire the banner. Gated on resting+!isShown so
+                // the banner doesn't fight an open slab or a tease
+                // in flight.
+                let trackKey = "\(info.title)|\(info.artist)"
+                if !info.title.isEmpty,
+                   trackKey != lastAnnouncedTrackKey,
+                   info.isPlaying,
+                   panel.presenter.isResting,
+                   !panel.presenter.isShown {
+                    lastAnnouncedTrackKey = trackKey
+                    panel.presenter.lastAnnouncedTrackArtwork = info.artworkData
+                    // Alcove timing (measured from supplied recording):
+                    //   • Track changes → ~100ms beat → banner appears
+                    //   • Banner sustains ~1500ms
+                    //   • Banner dismisses ~250ms
+                    //   • Total visible: ~1850ms
+                    // User feedback: "alcove one is coming late going
+                    // sooner than ours". Prior 3.5s sustain was 2x
+                    // too long.
+                    //
+                    // 250ms pre-show delay — Alcove user feedback
+                    // 2026-05-07: "it should be expending few mili
+                    // seconds late please just like alcove". Earlier
+                    // 100ms wasn't enough of a beat; 250ms gives the
+                    // user a clear pause to register the track change
+                    // before the banner appears.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak panel] in
+                        guard let panel = panel,
+                              panel.presenter.isResting,
+                              !panel.presenter.isShown else { return }
+                        panel.showTrackBanner()
+                        panel.presenter.setPendingSystemEvent(
+                            .trackChanged(title: info.title, artist: info.artist)
+                        )
+                    }
+                    // Dismiss after total ~2000ms from track-change
+                    // emission (250ms delay + 1500ms sustain + 250ms
+                    // dismiss spring). PanelPresenter's auto-clear at
+                    // 3.0s is the safety net; this dispatched closure
+                    // is the source of truth in the normal case.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak panel] in
+                        guard let panel = panel else { return }
+                        panel.presenter.trackChangedFiring = false
+                        panel.dismissTrackBanner {
+                            panel.presenter.clearPendingSystemEvent()
+                        }
+                    }
+                } else if trackKey == lastAnnouncedTrackKey,
+                          let bytes = info.artworkData,
+                          panel.presenter.lastAnnouncedTrackArtwork != info.artworkData {
+                    // Spotify two-stage emission: stage 1 has metadata
+                    // only (artworkData=nil), stage 2 lands ~50ms later
+                    // with the JPEG bytes. The banner captured nil at
+                    // trigger time and is showing the placeholder
+                    // music.note glyph; update its artwork now so the
+                    // banner cuts over to the actual album art mid-
+                    // display. Only fires when bytes are non-nil and
+                    // actually different — no-op for repeated same-
+                    // bytes emissions.
+                    _ = bytes
+                    panel.presenter.lastAnnouncedTrackArtwork = info.artworkData
+                }
             }
         }
         // Nil emission path: leave `presenter.nowPlaying` sticky.
@@ -1411,14 +1659,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         //   2. MR says isPlaying=false           → hide (user paused)
         //   3. No MR data (np==nil) AND audioOn  → show (synthetic case)
         //   4. Otherwise                         → hide
+        // Sustained-audio threshold for the no-MR path.
+        // CoreAudio reports `isAudioFlowing=true` for any output —
+        // including system sounds, popup chimes, app-launch beeps,
+        // notification dings — all of which are <1s. Without a
+        // sustain check, every system sound briefly blooms the pill.
+        //
+        //   • If MR has track info → trust MR (skip threshold).
+        //   • If no MR but audio just started → start the timer,
+        //     don't show pill yet, schedule a re-check after threshold.
+        //   • If no MR and audio has been flowing past threshold →
+        //     allow the pill (genuinely sustained non-MR audio).
+        //   • If audio stops → reset timer.
+        let now = Date()
+        var noMRGated = false
+        if np != nil {
+            // MR present — reset no-MR tracking.
+            noMRAudioStartedAt = .distantPast
+            noMRSustainWork?.cancel()
+            noMRSustainWork = nil
+        } else if audioOn {
+            // No MR, audio flowing — gate behind sustain threshold.
+            if noMRAudioStartedAt == .distantPast {
+                noMRAudioStartedAt = now
+            }
+            let sustained = now.timeIntervalSince(noMRAudioStartedAt)
+            if sustained < Self.noMRSustainThreshold {
+                noMRGated = true
+                // Schedule a re-evaluation right when the threshold
+                // would be crossed, so genuinely-sustained no-MR audio
+                // still gets a pill (we don't depend on a CoreAudio
+                // re-emission to land at exactly that moment).
+                if noMRSustainWork == nil {
+                    let work = DispatchWorkItem { [weak self] in
+                        self?.noMRSustainWork = nil
+                        if let panel = self?.panelController {
+                            self?.updatePillVisibility(panel: panel)
+                        }
+                    }
+                    noMRSustainWork = work
+                    let remaining = Self.noMRSustainThreshold - sustained
+                    DispatchQueue.main.asyncAfter(deadline: .now() + remaining + 0.05, execute: work)
+                }
+            }
+        } else {
+            // Audio off — reset.
+            noMRAudioStartedAt = .distantPast
+            noMRSustainWork?.cancel()
+            noMRSustainWork = nil
+        }
+
         let effectivelyPlaying: Bool = {
             if let np = np {
                 return np.isPlaying
             }
-            return audioOn
+            return audioOn && !noMRGated
         }()
 
-        MediaRemoteAdapterService.fileLog("updatePillVisibility: audioOn=\(audioOn) np.title=\"\(np?.title ?? "nil")\" mrSaysPlaying=\(mrSaysPlaying) effectivelyPlaying=\(effectivelyPlaying) currentlyResting=\(panel.presenter.isResting)")
+        MediaRemoteAdapterService.fileLog("updatePillVisibility: audioOn=\(audioOn) np.title=\"\(np?.title ?? "nil")\" mrSaysPlaying=\(mrSaysPlaying) effectivelyPlaying=\(effectivelyPlaying) noMRGated=\(noMRGated) currentlyResting=\(panel.presenter.isResting)")
 
         audioFlowingRetractWork?.cancel()
         audioFlowingRetractWork = nil

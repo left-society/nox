@@ -319,14 +319,35 @@ struct PanelRootView: View {
         if presenter.isShown {
             return PanelWindowController.innerCornerRadius
         }
-        // Music-playing resting state keeps its locked character
-        // (8pt bottom rounded corners). User 2026-05-05: "don't
-        // touch the music pill or the bigger pill — the size was
-        // perfect." Previous unified-character attempt expanded
-        // the music pill's apparent width (no inverse-bow + bigger
-        // bottom), which user perceived as "expanded."
+        // Track-change OR volume HUD banner: softer/more rounded
+        // bottom corners (14pt) — measured against Alcove frames
+        // 800/850 where the banner has a noticeably more
+        // pronounced bottom curve than the resting music pill's
+        // 8pt. Goes back to 8pt when the banner retracts (event
+        // clears → falls through to the music-pill case below).
+        // Volume HUD shares this character so both "live activity"
+        // banners read as one family.
+        if case .volumeChanged = presenter.pendingSystemEvent {
+            return 14
+        }
+        // Music-playing state: 14pt bottom radius UNCONDITIONALLY.
+        //
+        // At rest the silhouette has `closedPillBump = 0` (no visible
+        // portion below the menu bar), so the bottom corners are
+        // entirely behind/at the menu-bar boundary — INVISIBLE.
+        // Changing 8 → 14pt has no perceptible effect on the resting
+        // pill (locked dimensions per user 2026-05-05).
+        //
+        // During the trackChanged announcement, the apron drops 30pt
+        // below the menu bar, exposing the bottom corners — and this
+        // is exactly when the user wants to see "more narrow" / more
+        // pronounced bottom curve (Alcove parity, user feedback
+        // 2026-05-07: "corners in down side is more narrow"). Because
+        // the radius value is the same in both states, SwiftUI never
+        // animates it — only the panel.frame morphs, no clip-shape
+        // transition that could "cut" the previous pill's edges.
         if presenter.nowPlaying != nil {
-            return PanelWindowController.pillCornerRadius
+            return 14
         }
         // No music: notch hardware character (6pt rounded bottom).
         return 6
@@ -363,6 +384,18 @@ struct PanelRootView: View {
         // its signature "tucks under the menu bar" look.
         if presenter.isShown {
             return 22
+        }
+        // Track-change banner: KEEP the resting music pill's top
+        // radius unchanged (6pt). Same reasoning as panelBottomRadius
+        // — animating the radius from 6 → 12 on a separate SwiftUI
+        // clock while the panel.frame Core-Animation spring runs
+        // produced a visible "edge cut" at the resting pill's top
+        // corners. Falling through to the music-pill case keeps the
+        // shoulder character consistent throughout the expansion.
+        // Volume HUD keeps its own 12pt because its banner geometry
+        // is still being tuned separately.
+        if case .volumeChanged = presenter.pendingSystemEvent {
+            return 12
         }
         // Music-playing resting state: 6pt subtle chamfer (locked
         // music pill character, do not tweak).
@@ -512,7 +545,40 @@ struct PanelRootView: View {
                 }
                 .transaction { txn in txn.animation = nil }
             }
-            .overlay(alignment: .top) { contentOverlay }
+            .overlay(alignment: .top) {
+                /*  Inner content blur during the close gesture.
+                    Lives INSIDE the overlay (so it only blurs the UI
+                    inside the silhouette, not the silhouette outline
+                    itself) but the .scaleEffect on the panel root
+                    below scales the silhouette + content + border
+                    together as a unit.
+
+                    Why blur is here, not on the panel root:
+                    A blur applied to the WHOLE composition convolves
+                    the silhouette's top edge with surrounding
+                    transparent pixels, creating a soft halo that
+                    bleeds AROUND the notch hardware (the hardware
+                    masks crisp edges but not blurred halos). User
+                    reported it as "the thing is detaching from the
+                    top." Existing comment at the silhouette layer
+                    documents the same pattern: "it's only the
+                    CONTENT inside that blurs, not the silhouette
+                    outline."
+
+                    .interactiveSpring tracks live target value, no
+                    one-shot; same params as the root scaleEffect so
+                    blur and scale move on the same beat. */
+                contentOverlay
+                    .blur(radius: presenter.swipeProgress * 18)
+                    .animation(
+                        .interactiveSpring(
+                            response: 0.32,
+                            dampingFraction: 0.74,
+                            blendDuration: 0.18
+                        ),
+                        value: presenter.swipeProgress
+                    )
+            }
             // Two-zone drop picker overlay — visible only while a
             // drag is hovering the panel. Splits the slab into Save
             // (left) and AirDrop (right) zones; the AppKit drop
@@ -584,16 +650,107 @@ struct PanelRootView: View {
             // screenshot count tick doesn't re-puff per shot.
             .modifier(PillSilhouetteReact(
                 caseKey: pillEventCaseKey,
-                glowColor: pillReactColor
+                glowColor: pillReactColor,
+                // Suppress puff/glow for trackChanged AND
+                // volumeChanged — the panel's grow-into-banner
+                // geometry change IS the visual announcement; a
+                // tinted glow on top would read as a notification
+                // firing rather than the activity expanding. Volume
+                // also re-fires on every key-press tick; a per-tick
+                // puff would strobe.
+                suppressReact: {
+                    if case .trackChanged = presenter.pendingSystemEvent { return true }
+                    if case .volumeChanged = presenter.pendingSystemEvent { return true }
+                    return false
+                }()
             ))
-            // 2026-05-04 (rev 8): the silhouette stays SHARP during
-            // morph. I added a 3pt blur on the whole panel layer
-            // earlier thinking the reference had soft edges — but
-            // the user pointed out it's only the CONTENT inside that
-            // blurs, not the silhouette outline. Removed; the
-            // silhouette is rendered hard-edged at every step of the
-            // morph. The content overlay's `.blur` still handles
-            // the inside fog effect (see contentOverlay).
+            // ── Two-finger trackpad close-swipe feedback (Alcove parity)
+            //
+            // SCALE applied to the WHOLE panel composition
+            // (panelBackground + every overlay + borderStroke +
+            // dropRingOverlay + the silhouette puff modifier above)
+            // so the silhouette + border + content all retract
+            // together as one unit. anchor: .top welds the top edge
+            // to the notch hardware — bottom rises while top stays
+            // fixed → reads as the pill retracting INTO the notch.
+            //
+            // BLUR is NOT applied here — it lives inside the
+            // `.overlay { contentOverlay … }` block above so it only
+            // blurs inner UI, not the silhouette outline. A blur on
+            // the whole composition convolves the silhouette's top
+            // edge with surrounding transparent pixels, producing a
+            // soft halo that bleeds AROUND the notch hardware (the
+            // hardware masks crisp edges but not blurred halos).
+            // User reported that exact symptom: "the thing is
+            // detaching from the top." The codebase already
+            // documented this at the silhouette comment line:
+            // "it's only the CONTENT inside that blurs, not the
+            // silhouette outline."
+            //
+            // NO .offset(y:) on the panel composition either. An
+            // earlier rev applied `.offset(y: -swipeOffsetY)` to the
+            // root, which physically translated the silhouette
+            // upward, lifting the top edge AWAY from the notch.
+            // Alcove keeps the top welded — only the bottom recedes
+            // upward, achieved through scale-from-top alone.
+            //
+            // Alcove's binary exposes `SlideBlurScaleModifier` and
+            // `VerticalOffsetModifier` as separate ViewModifiers —
+            // VerticalOffsetModifier is for things that DO translate
+            // (spawn-from-notch, cycle-activity slide-out, etc.); the
+            // close gesture uses the SlideBlurScaleModifier whose
+            // "slide" component is the scale-from-top motion (top
+            // edge fixed, height contracts upward → bottom slides
+            // up). It is NOT a translation of the whole panel.
+            //
+            // ELASTIC FEEDBACK lives in the scale magnitude. Two
+            // contributions sum:
+            //   • swipeProgress × 0.04 — at-threshold pinch (4%)
+            //   • clamped(swipeOffsetY / 100) × 0.05 — elastic pull
+            //     factor; the more the user keeps pulling past the
+            //     threshold, the more the silhouette pinches in.
+            // Combined max ≈ 9% shrink at the rubber-band cap.
+            //
+            // .interactiveSpring tracks the live target value
+            // continuously (not a one-shot animation) — when the
+            // gesture handler updates the value tick-by-tick, the
+            // spring re-targets without restarting, giving the
+            // elastic finger-tracking feel. When the gesture ends and
+            // the values reset to 0, the same spring carries them
+            // home with natural ease-out smoothing in the decay tail.
+            //
+            //   response 0.32  ≈ 320ms settle (reactive but reads as
+            //                    elastic, not snappy)
+            //   damping  0.74  slight bounce, adds liveliness
+            //   blendDur 0.18  smooths over discrete tick-to-tick
+            //                    finger samples
+            //
+            // Placed BEFORE `.padding(.horizontal/.bottom, haloPadding)`
+            // and `.ignoresSafeArea` so the panel window's halo region
+            // stays fixed in place — only the visible silhouette
+            // pinches inward toward the notch.
+            .scaleEffect(
+                1.0
+                    - presenter.swipeProgress * 0.04
+                    - min(presenter.swipeOffsetY / 100, 1.0) * 0.05,
+                anchor: .top
+            )
+            .animation(
+                .interactiveSpring(
+                    response: 0.32,
+                    dampingFraction: 0.74,
+                    blendDuration: 0.18
+                ),
+                value: presenter.swipeProgress
+            )
+            .animation(
+                .interactiveSpring(
+                    response: 0.32,
+                    dampingFraction: 0.74,
+                    blendDuration: 0.18
+                ),
+                value: presenter.swipeOffsetY
+            )
             .padding(.horizontal, PanelWindowController.haloPadding)
             .padding(.bottom, PanelWindowController.haloPadding)
             .ignoresSafeArea(.all, edges: .top)
@@ -918,10 +1075,20 @@ struct PanelRootView: View {
         // unidentifiable, and 200ms easeOut tracks the panel's
         // 230-270ms frame morph so the blur clears as the panel
         // settles instead of trailing behind it.
-        // 2026-05-04: parent overlay blur RESTORED (4pt → 0). The
-        // per-element diagnostic confirmed blur wasn't the lag
-        // cause; with shadow on GPU we have budget for this back.
-        .blur(radius: presenter.isShown ? 0 : 4)
+        // 2026-05-07: Gated this blur on `isMorphing` so it only
+        // runs during the actual panel-frame morph instead of the
+        // entire pill-state lifetime. Previously the 4pt blur was
+        // active across every pill state (charging, screenshot,
+        // VOLUME HUD) — running a Metal gaussian over invisible
+        // (opacity-0) content for the full duration of the HUD.
+        // For volume HUD that's 1.5s × ~120 frames = 180+ wasted
+        // blur passes. User feedback "blur is making thing bad"
+        // — this was the most likely culprit.
+        //
+        // Now: blur only fires DURING the morph (~250ms), then
+        // settles to 0. Same visual character (focus-pull during
+        // open/close) but zero cost in steady state.
+        .blur(radius: (presenter.isShown || !presenter.isMorphing) ? 0 : 4)
         // Direction-aware spring matching the panel's close timing
         // so content doesn't trail behind the panel.
         .animation(presenter.isShown
@@ -1249,6 +1416,46 @@ struct PanelRootView: View {
                 airDropFailedPillContent()
                     .transition(.pillPop)
                     .id("airdrop-failed")
+            } else if case .trackChanged(let title, let artist) = presenter.pendingSystemEvent {
+                // Track-change announcement — the panel widens to
+                // banner geometry (PanelWindowController.trackBannerFrame)
+                // and the body renders title/artist BELOW the notch
+                // hardware in the visible apron. See TrackChangedPillBody.
+                trackChangedPillContent(
+                    title: title,
+                    artist: artist,
+                    artworkData: presenter.lastAnnouncedTrackArtwork
+                )
+                    .transition(.opacity)
+                    .id("trackChanged-\(title)|\(artist)")
+            } else if case .volumeChanged(let level, let muted) = presenter.pendingSystemEvent {
+                // Volume HUD — panel widens to banner geometry
+                // (PanelWindowController.volumeBannerFrame) and the
+                // body renders speaker glyph + horizontal level bar
+                // BELOW the notch hardware in the visible apron.
+                // Stable id ("volume") so held-key tick spam updates
+                // level/muted IN PLACE inside the same view instance
+                // — no re-mount, no re-running entrance bounce per
+                // tick. The bar's animation tracks the level value
+                // continuously as the user holds the key.
+                volumePillContent(level: level, muted: muted)
+                    // Content GROWS OUT OF THE NOTCH with the
+                    // silhouette — scale anchored at .top so the
+                    // content's top edge stays welded to the menu
+                    // bar baseline while it scales up + fades in.
+                    // Core Animation handles this off-thread, so
+                    // it doesn't compete with the panel-frame
+                    // SpringFrameAnimator on the main thread —
+                    // unlike the @State+withAnimation approach
+                    // earlier (round 13) that caused jitter.
+                    .transition(
+                        .asymmetric(
+                            insertion: .scale(scale: 0.7, anchor: .top)
+                                .combined(with: .opacity),
+                            removal: .opacity
+                        )
+                    )
+                    .id("volume")
             } else if let videoURL = presenter.pendingVideoCandidate {
                 videoPreviewPillContent(for: videoURL)
                     .transition(.pillPop)
@@ -1369,6 +1576,13 @@ struct PanelRootView: View {
             case .airDropReceived(let filename): return "airdrop-\(filename)"
             case .airDropSent(let count): return "airdropSent-\(count)"
             case .airDropFailed: return "airdropFailed"
+            case .trackChanged(let title, let artist): return "trackChanged-\(title)|\(artist)"
+            // Stable case-key for ALL volume changes regardless of
+            // level — held-key spam shouldn't re-puff the silhouette
+            // per tick (PillSilhouetteReact only fires on case-key
+            // CHANGE). Same pattern as `screenshot` / `timerRunning`
+            // where associated values update in place.
+            case .volumeChanged: return "volume"
             }
         }
         if presenter.pendingVideoCandidate != nil { return "video" }
@@ -1394,6 +1608,8 @@ struct PanelRootView: View {
             case .airDropReceived: return Color(red: 0.30, green: 0.78, blue: 0.99)
             case .airDropSent: return Color(red: 0.30, green: 0.78, blue: 0.99)
             case .airDropFailed: return Color(red: 0.65, green: 0.65, blue: 0.70)
+            case .trackChanged: return Color(red: 0.78, green: 0.62, blue: 0.98)
+            case .volumeChanged: return Color.white
             }
         }
         return Color.white
@@ -1588,6 +1804,42 @@ struct PanelRootView: View {
         if minutes <= 0 { return "now" }
         if minutes == 1 { return "in 1 min" }
         return "in \(minutes) min"
+    }
+
+    /// Track-change announcement pill — modeled on Alcove's brief
+    /// "now playing" expansion. Album art on the left, a tiny music
+    /// glyph + "Title · Artist" running text in the center, and four
+    /// pulsing equalizer bars on the right. Auto-dismisses via the
+    /// SystemEvent timeout (3.5s).
+    @ViewBuilder
+    private func trackChangedPillContent(title: String, artist: String, artworkData: Data?) -> some View {
+        TrackChangedPillBody(
+            title: title,
+            artist: artist,
+            fromArtworkData: presenter.bannerFromArtwork,
+            toArtworkData: artworkData,
+            notchOverlap: notchOverlap,
+            visible: presenter.isResting && !presenter.isShown
+        )
+    }
+
+    /// System volume HUD pill — auto-switching speaker glyph on the
+    /// left, "Sound" / device-name label, then a horizontal level
+    /// bar that fills to `level` (0–1). Mutes flip the icon to
+    /// `speaker.slash.fill` and dim the bar regardless of level.
+    ///
+    /// Layout matches Alcove's volume HUD: banner-shaped expansion
+    /// out of the notch, single horizontal row in the visible apron
+    /// below the hardware notch. Speaker glyph hugs the LEFT curve,
+    /// volume bar takes the rest of the row to the RIGHT curve.
+    @ViewBuilder
+    private func volumePillContent(level: Float, muted: Bool) -> some View {
+        VolumePillBody(
+            level: level,
+            muted: muted,
+            notchOverlap: notchOverlap,
+            visible: presenter.isResting && !presenter.isShown
+        )
     }
 
     /// AirDrop arrival pill — UTI-tinted tile + filename, with a
@@ -2064,6 +2316,32 @@ struct PanelRootView: View {
         // `trackSwapPhase` non-zero, and on close the pill would
         // briefly flash the artwork at an offset/blur position
         // before snapping to settled.
+        // Sync the music-pill state to the latest track WHEN the
+        // trackChangedFiring flag goes false (banner just finished
+        // dismissing). During the banner's lifetime we DELIBERATELY
+        // hold the music pill at the OLD track's artwork so the
+        // resting pill (visible during the 250ms pre-show window
+        // AND immediately after the banner retracts) doesn't change
+        // before the banner's flip animation. AppDelegate clears
+        // the flag in dismissTrackBanner's completion handler;
+        // that's our cue to update the pill to the new state.
+        // Use .onReceive on the @Published publisher directly,
+        // not .onChange. SwiftUI's `.onChange(of:)` was dropping the
+        // true→false transition (verified via fileLog tracing —
+        // .onChange fired for true but never for false). .onReceive
+        // attaches to the Combine publisher and fires on every emission.
+        .onReceive(presenter.$trackChangedFiring) { firing in
+            if !firing, let cur = presenter.nowPlaying {
+                var snap = Transaction()
+                snap.disablesAnimations = true
+                withTransaction(snap) {
+                    displayedNowPlaying = cur
+                    displayedTrackKey = "\(cur.title)|\(cur.artist)"
+                    trackSwapPhase = 0
+                }
+                refreshPillArtworkImage()
+            }
+        }
         .onChange(of: presenter.isShown) { _ in
             var snap = Transaction()
             snap.disablesAnimations = true
@@ -2193,21 +2471,59 @@ struct PanelRootView: View {
             // the animation when hidden — silent state update
             // instead. User: "the small pills thumbnails sometime
             // gliching in background while opening the main pill."
+            //
+            // Same fix applies when a `.trackChanged` ANNOUNCEMENT
+            // banner is up: the music pill is replaced by the
+            // banner content overlay, so the user can't see the
+            // music pill at all. Animating its artwork swap behind
+            // the banner is invisible work; worse, with two-stage
+            // Spotify emissions (metadata first, artwork ~50ms
+            // later), `triggerSongChange`'s 180ms swap point can
+            // land BEFORE the artwork bytes arrive — committing
+            // `displayedNowPlaying` with `artworkData=nil`. When
+            // the banner dismisses, the pill renders the new
+            // track's title/artist with a placeholder glyph
+            // because `pillArtworkImage` was set to nil. User
+            // 2026-05-07: "even though music change the small
+            // pill thumbnail is unchanged."
+            // Snap directly to current state and refresh —
+            // identical handling to the slab-open path.
+            let trackChangedAnnouncing: Bool = {
+                if case .trackChanged = presenter.pendingSystemEvent { return true }
+                return false
+            }()
+            // Slab open: snap directly (the music pill is hidden
+            // behind the slab, no visible animation needed).
             if presenter.isShown {
                 displayedNowPlaying = newInfo
                 displayedTrackKey = newKey
                 trackSwapPhase = 0
-                // 2026-05-01: explicit defensive refresh of the
-                // small-pill artwork. When the user changes track
-                // from inside the slab (transport buttons or skip
-                // gesture), `.onChange(of: displayedNowPlaying)`
-                // doesn't always re-fire reliably from inside this
-                // reentrant `.onChange(of: presenter.nowPlaying)`
-                // handler. Without this, the pill that was hidden
-                // behind the open slab keeps showing the previous
-                // track's thumbnail; when the user closes the slab
-                // they see stale artwork.
+                hasEverDisplayedTrack = true
                 refreshPillArtworkImage()
+                return
+            }
+            // Track-change banner about to fire OR currently showing:
+            // HOLD the music pill state at OLD values. The banner does
+            // the visible card-flip from old artwork → new artwork; the
+            // music pill (visible during pre-show, hidden during banner,
+            // visible again after dismiss) should keep showing the OLD
+            // artwork until the banner finishes — otherwise the user
+            // sees the music pill artwork change BEFORE the banner's
+            // flip animation begins (user feedback 2026-05-07: "before
+            // that it's showing the artwork change for some reason. Maybe
+            // some old code left the artwork in the small build still
+            // showing").
+            //
+            // The pill state gets synced to the new track in
+            // `.onChange(of: presenter.trackChangedFiring)` below, which
+            // fires when AppDelegate clears the flag in the
+            // dismissTrackBanner completion handler.
+            if trackChangedAnnouncing || presenter.trackChangedFiring {
+                // Don't touch displayedNowPlaying / displayedTrackKey /
+                // trackSwapPhase / pillArtworkImage. The OLD state
+                // remains, so the music pill keeps showing the previous
+                // track's artwork during the pre-show delay AND through
+                // the banner sustain.
                 return
             }
             if displayedNowPlaying == nil {
@@ -3438,7 +3754,19 @@ private struct PillSwapBlur: ViewModifier {
         content
             .blur(radius: blur)
             .onChange(of: caseKey) { newKey in
-                if newKey != previousKey && !previousKey.isEmpty {
+                // Suppress the blur swap-mask for trackChanged
+                // transitions. Alcove's track-change is a clean
+                // pill-grow with no blur — user 2026-05-07: "why
+                // there is a blur now fix the animation do it
+                // exactly like the alcove". The blur was useful
+                // for ambient pill swaps (music → charging →
+                // music) where two rectangles crossfade and the
+                // seam is visible; for trackChanged the pill is
+                // just morphing geometry and the same content
+                // family stays on screen, so no seam to mask.
+                let isTrackChanged = newKey.hasPrefix("trackChanged") ||
+                                     previousKey.hasPrefix("trackChanged")
+                if newKey != previousKey && !previousKey.isEmpty && !isTrackChanged {
                     triggerBlur()
                 }
                 previousKey = newKey
@@ -3481,6 +3809,11 @@ private struct PillSwapBlur: ViewModifier {
 private struct PillSilhouetteReact: ViewModifier {
     let caseKey: String
     let glowColor: Color
+    /// When true, skip the scale puff + tinted glow on case change.
+    /// Used for `.trackChanged` (the panel widens to banner geometry,
+    /// the silhouette flex IS the announcement — a glow on top would
+    /// read as a notification firing rather than music transitioning).
+    let suppressReact: Bool
     @State private var previousKey: String = ""
     @State private var react: Double = 0
 
@@ -3514,7 +3847,24 @@ private struct PillSilhouetteReact: ViewModifier {
             .shadow(color: glowColor.opacity(react * 0.45),
                     radius: react * 22)
             .onChange(of: caseKey) { newKey in
-                if newKey != previousKey && !previousKey.isEmpty {
+                // Derive suppression from the new key directly so it's
+                // robust regardless of when SwiftUI updates the struct's
+                // captured `suppressReact` property relative to firing
+                // this closure. trackChanged + volume both use geometry
+                // as the announcement; a glow on top reads as a
+                // notification firing rather than the activity
+                // expanding. ALSO suppress when leaving those states
+                // back to neutral — the dismiss morph IS the cue, the
+                // glow on top would feel like a second event firing.
+                // User feedback: "don't make that glow behind I think
+                // that's too much."
+                let isBannerEvent: (String) -> Bool = { key in
+                    key.hasPrefix("trackChanged") || key == "volume"
+                }
+                let suppressed = suppressReact
+                    || isBannerEvent(newKey)
+                    || isBannerEvent(previousKey)
+                if newKey != previousKey && !previousKey.isEmpty && !suppressed {
                     triggerPuff()
                 }
                 previousKey = newKey
@@ -4552,6 +4902,491 @@ private struct CalendarUpcomingPillBody: View {
         let t = date.timeIntervalSinceReferenceDate
         let omega = 2.0 * Double.pi / 0.66   // 1.5Hz
         return (sin(t * omega) + 1.0) / 2.0
+    }
+}
+
+// MARK: - Track-changed pill body (album art + title/artist + equalizer)
+
+/// Standalone pill content for `.trackChanged`. Modeled on Alcove's
+/// brief "now playing" expansion that announces a new track for ~3.5s.
+/// Layout follows the calendar/AirDrop pill convention:
+/// `[ left tile ] [ Spacer crossing notch ] [ right wing ]`. Left tile
+/// is the album art (or a fallback music glyph if MR didn't supply
+/// artwork yet); right wing is the "Title · Artist" stack plus a
+/// pulsing equalizer.
+///
+/// Why a separate body view instead of inlining: the equalizer's
+/// TimelineView and the artwork's entrance scale want their own
+/// `@State`. If this lived inline in PanelRootView, every
+/// pendingSystemEvent transition would yank the state's identity and
+/// the equalizer would skip frames. Owning the state here keeps it
+/// stable for the full 3.5s announcement.
+private struct TrackChangedPillBody: View {
+    let title: String
+    let artist: String
+    /// Artwork the pill was displaying BEFORE this announcement
+    /// fired. Rendered on the FRONT face of the two-faced flip.
+    let fromArtworkData: Data?
+    /// Artwork the pill should display AFTER this announcement
+    /// completes. Rendered on the BACK face (pre-rotated 180°).
+    let toArtworkData: Data?
+    let notchOverlap: CGFloat
+    let visible: Bool
+
+    // Alcove-parity entry, RE-CALIBRATED against the supplied frames
+    // 749–770:
+    //   • Frame 749  — resting pill (just an "lll" equalizer)
+    //   • Frame 750–755 — pill RETRACTED to invisible
+    //   • Frame 756  — panel begins growing from notch-hidden
+    //   • Frame 757  — small shape forming (panel mid-grow)
+    //   • Frame 758  — panel at full banner size; ARTWORK FACE-ON
+    //                  (NOT rotating — earlier rev had it rotating
+    //                  which the user explicitly called out as wrong)
+    //   • Frame 762–770 — text emerges in the apron
+    //   • Frame 780+ — settled
+    // The artwork doesn't flip. It fades in (with a tiny pop scale)
+    // coordinated with the panel grow. ~33ms grow + ~150ms text emerge.
+    // Animation state — minimal and SINGLE-VECTOR per element so
+    // they don't fight the panel.frame spring underneath. Each
+    // element has at most ONE motion + opacity:
+    //   • Artwork: opacity + tiny scale-pop (0.92 → 1.0). The
+    //     micro-scale is the "Alcove special touch" — the tile
+    //     lands with a delicate settle, not flat on entry.
+    //   • Text:    opacity + tiny upward slide (3pt → 0). Subtle
+    //     emergence so the text looks like it's "rising into
+    //     place" rather than just appearing.
+    // Earlier revs had artwork rotation + scale + tilt + text
+    // slide all firing concurrently, which read as "super stiff"
+    // because too many vectors competed in 22pt of pill area.
+    // Two-faced card flip for the artwork — same pattern as the
+    // slab's `MusicPanelView.artworkFlipAngle` (lines 1100-1175).
+    // User feedback 2026-05-07: "we need to tilt the artwork when
+    // it's changing the music and the thing expanding".
+    //
+    // Starts at 0° showing the FRONT face (fromArtworkData = OLD
+    // artwork). Animates to 180° during the banner expansion,
+    // revealing the BACK face (toArtworkData = NEW artwork) which
+    // is pre-rotated 180° so it appears upright when the parent
+    // rotation reaches 180°.
+    //
+    // The user visibly sees the artwork CHANGING — old card flips
+    // away, new card flips in.
+    @State private var artworkFlipAngle: Double = 0
+    @State private var textYOffset: Double = 3
+    @State private var textOpacity: Double = 0.0
+
+    /// Sign of cos(artworkFlipAngle) — drives which face is visible.
+    /// >0 means front face is forward (cos > 0 in 0–90° and 270–360°),
+    /// <0 means back face is forward (90–270°). Same trick the slab
+    /// uses to swap front/back visibility mid-rotation.
+    private var artworkFlipCosineSign: CGFloat {
+        cos(artworkFlipAngle * .pi / 180) >= 0 ? 1 : -1
+    }
+
+    /// Lavender accent — kept only for the equalizer bars + the
+    /// fallback music-glyph tile when MR hasn't supplied artwork.
+    /// Not used as a halo color; that glow was removed for trackChanged.
+    private var accent: Color { Color(red: 0.78, green: 0.62, blue: 0.98) }
+
+    /// Single artwork face. Renders the JPEG bytes if available,
+    /// otherwise the lavender placeholder tile with a music note.
+    /// Used for both the front (old) and back (new) faces of the
+    /// two-faced card flip.
+    @ViewBuilder
+    private func artworkFace(data: Data?) -> some View {
+        if let data = data,
+           let nsImage = NSImage(data: data) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+        } else {
+            ZStack {
+                accent.opacity(0.18)
+                Image(systemName: "music.note")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(accent)
+            }
+        }
+    }
+
+    var body: some View {
+        // CORRECT LAYOUT (re-derived from frames 770/780/850):
+        // Two rows, one BEHIND the notch hardware in the wings,
+        // one BELOW the notch hardware in the visible apron.
+        //
+        //   Row 1 — at notch-hardware height (notchOverlap tall):
+        //     [ artwork ]         (notch hardware blocks middle)         [ eq ]
+        //     The artwork sits in the LEFT WING of the panel
+        //     (auxiliary menu-bar area beside the notch). The
+        //     equalizer sits in the RIGHT WING. Both wings are
+        //     visible; the centre is hidden by the notch.
+        //
+        //   Row 2 — below the notch (visible apron):
+        //                       Title · Artist
+        //     Centred text, single line, NO leading music note glyph
+        //     (Alcove screenshots confirm there's no ♪ prefix). The
+        //     earlier rev placed everything in one row in the apron
+        //     and added a music-note prefix — both wrong.
+        // VStack of two rows — same layout pattern as `musicPillContent`
+        // (which works correctly inside the panel silhouette). The
+        // earlier ZStack approach with `.frame(maxWidth: .infinity)`
+        // on each row produced a layout where the HStack's intrinsic
+        // size + Spacer + frame.infinity interaction left content
+        // hugging the panel-frame edge instead of the silhouette
+        // edge — the artwork "touched the left side" and the bottom
+        // text wasn't visible at all.
+        VStack(spacing: 0) {
+            // ROW 1 — wings at notch level. Artwork on the left,
+            // equalizer on the right. Spacer takes the middle so
+            // each wing item sticks to its edge of the silhouette.
+            // Same `.padding(.horizontal, 10) .frame(height: notchOverlap)`
+            // pattern as the music pill.
+            HStack(spacing: 0) {
+                // TWO-FACED CARD FLIP — same pattern as the slab's
+                // `MusicPanelView.artworkFlipAngle` track-change
+                // flip. Front face shows the OLD artwork
+                // (`fromArtworkData`); back face shows the NEW
+                // artwork (`toArtworkData`) pre-rotated 180° so it
+                // appears upright when the parent rotation reaches
+                // 180°. As `artworkFlipAngle` animates 0 → 180°,
+                // the user visibly sees the artwork CHANGE.
+                ZStack {
+                    // FRONT face — OLD artwork (the one that was
+                    // displayed in the resting pill before the
+                    // track-change announcement fired).
+                    artworkFace(data: fromArtworkData)
+                        .opacity(artworkFlipCosineSign > 0 ? 1 : 0)
+
+                    // BACK face — NEW artwork. Pre-rotated 180°
+                    // around Y so when the outer rotation passes
+                    // through 180° the back face content is right-
+                    // side up (not mirrored).
+                    artworkFace(data: toArtworkData)
+                        .rotation3DEffect(
+                            .degrees(180),
+                            axis: (x: 0, y: 1, z: 0)
+                        )
+                        .opacity(artworkFlipCosineSign < 0 ? 1 : 0)
+                }
+                .frame(width: 22, height: 22)
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                // compositingGroup BEFORE the outer rotation so both
+                // faces are flattened into one layer that the 3D
+                // transform applies to. Without this, SwiftUI re-
+                // rasterizes each face per frame during rotation
+                // (visible jitter).
+                .compositingGroup()
+                .rotation3DEffect(
+                    .degrees(artworkFlipAngle),
+                    axis: (x: 0, y: 1, z: 0),
+                    anchor: .center,
+                    anchorZ: 0,
+                    perspective: 0.5
+                )
+                // EXPLICIT value-bound animation so SwiftUI animates
+                // every change to `artworkFlipAngle` with this exact
+                // curve, regardless of whether the change happened
+                // inside a `withAnimation` block or got wrapped in
+                // some inherited animation context. Earlier
+                // `withAnimation(.easeInOut(0.7))` in onAppear was
+                // apparently being clobbered by the parent's
+                // `.animation(.easeOut(0.27), value: pendingSystemEvent)`
+                // — declaratively binding the curve here is more
+                // robust than relying on transaction inheritance.
+                .animation(.easeInOut(duration: 0.7).delay(0.05),
+                           value: artworkFlipAngle)
+
+                Spacer(minLength: 0)
+
+                TrackChangedEqualizer(accent: accent)
+                    .frame(width: 20, height: 16)
+                    .opacity(textOpacity)
+            }
+            // Symmetric .padding(.horizontal, 10) — exactly matches
+            // the resting music pill (PanelRootView:
+            // `musicPillContent → .padding(.horizontal, 10)`).
+            // User direction: artwork and equalizer stay in the
+            // SAME positions during the announcement; only the
+            // apron drops below.
+            .padding(.horizontal, 10)
+            .frame(height: notchOverlap)
+
+            // ROW 2 — text in the apron strip.
+            // Height = trackBannerBump (36pt). Alcove frame 850
+            // measurement: text top is 5pt below the apron top, NOT
+            // apron-centred. So use alignment: .top + 5pt padding
+            // instead of alignment: .center.
+            HStack(spacing: 5) {
+                // Leading music-note glyph — Alcove parity (user
+                // screenshot 2026-05-07 confirms it: "re:birth ·
+                // 50landing" reads with the ♪ prefix). Earlier rev
+                // removed this based on a different screenshot read
+                // but Alcove definitely shows it.
+                Image(systemName: "music.note")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.65))
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if !artist.isEmpty {
+                    Text("·")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.85))
+                    Text(artist)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 5)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(height: PanelWindowController.trackBannerBump, alignment: .top)
+            // Alcove parity: text fades out at the left and right
+            // edges so it doesn't read as solid white slammed against
+            // the apron boundary. User feedback 2026-05-07: "the
+            // text you gave is too white sides are faded into the
+            // alcove". Horizontal mask gradient — opaque in the
+            // centre, fading to clear over the outer 10% on each
+            // side. When the text is shorter than the apron, the
+            // gradient sits outside the rendered glyphs and has no
+            // visible effect.
+            // Stronger fade per user feedback 2026-05-07: "still texts
+            // side are not faded enough". Stops moved 0.10 → 0.18 and
+            // 0.90 → 0.82 so the fade region is now the outer 18% of
+            // each side instead of just 10% — visibly softer, more
+            // pronounced taper into the apron edge.
+            .mask(
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0.00),
+                        .init(color: .white, location: 0.18),
+                        .init(color: .white, location: 0.82),
+                        .init(color: .clear, location: 1.00),
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .offset(y: textYOffset)
+            .opacity(textOpacity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .opacity(visible ? 1 : 0)
+        .onAppear {
+            // CRITICAL: dispatch the artworkFlipAngle change to the
+            // NEXT runloop tick. If we set it synchronously inside
+            // onAppear, SwiftUI batches the @State change with the
+            // initial mount's render — the .animation(value:) modifier
+            // sees the value as already 180° at first body call and
+            // skips the animation. The async dispatch forces a fresh
+            // value transition (0° initial render → 180° next tick)
+            // that SwiftUI's animation system actually animates.
+            DispatchQueue.main.async {
+                artworkFlipAngle = 180
+            }
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.85).delay(0.28)) {
+                textYOffset = 0
+                textOpacity = 1.0
+            }
+        }
+    }
+}
+
+/// Four-bar equalizer that animates via TimelineView so each frame's
+/// height is computed from a wall-clock phase. Wall-clock-driven
+/// (not state-driven) so the bars stay smooth even if the parent
+/// re-renders mid-animation. Frequencies are deliberately offset
+/// per-bar so the bars don't pulse in sync.
+private struct TrackChangedEqualizer: View {
+    let accent: Color
+    // Alcove screenshots (user-supplied) show 4 noticeably thicker
+    // lavender bars with tighter spacing than my earlier 1.8/1.6.
+    // Bumped to 2.5/1.4 — bars now read as solid energy lines, not
+    // hairlines.
+    private let barCount = 4
+    private let barWidth: CGFloat = 2.5
+    private let barSpacing: CGFloat = 1.4
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            HStack(alignment: .center, spacing: barSpacing) {
+                ForEach(0..<barCount, id: \.self) { i in
+                    let phase = sin(t * 5.5 + Double(i) * 0.95) +
+                                sin(t * 3.2 + Double(i) * 1.7) * 0.5
+                    let normalized = (phase + 1.5) / 3.0   // → 0…1
+                    let height = 4 + max(0, normalized) * 10
+                    Capsule()
+                        .fill(accent.opacity(0.92))
+                        .frame(width: barWidth, height: height)
+                }
+            }
+            .frame(maxHeight: .infinity, alignment: .center)
+        }
+    }
+}
+
+// MARK: - Volume HUD pill body (notch-anchored speaker glyph + level bar)
+
+/// Standalone pill content for `.volumeChanged`. Renders below the
+/// hardware notch in the visible apron of the volume banner frame
+/// (PanelWindowController.volumeBannerFrame: notchOverlap +
+/// volumeBannerBump tall, volumeBannerWidth wide).
+///
+/// LAYOUT (single row in the apron, mirrors Alcove's volume HUD):
+///   • Auto-switching speaker glyph on the LEFT
+///     (mute → speaker.slash.fill, low → speaker.wave.1.fill,
+///      mid → speaker.wave.2.fill, high → speaker.wave.3.fill)
+///   • Horizontal level bar on the RIGHT — track + fill, fill
+///     animates to `level` with a tracking spring so held-key
+///     keystrokes flow continuously
+///
+/// Held-key behavior: every keypress re-pushes pendingSystemEvent
+/// with a new (level, muted) tuple. SwiftUI's id-stable view
+/// instance (id "volume" in pillContentOverlay) re-renders in
+/// place — fill width tracks the new level via the .animation
+/// modifier, no entrance bounce per tick.
+private struct VolumePillBody: View {
+    let level: Float
+    let muted: Bool
+    let notchOverlap: CGFloat
+    let visible: Bool
+
+    /// Speaker glyph based on level + mute. Per user spec:
+    /// "if it's below 50 one curve and if it's more then 50 2
+    /// curve line."
+    ///   • mute or 0  → speaker.slash.fill
+    ///   • 0–49%      → speaker.wave.1.fill (one curve)
+    ///   • 50–100%    → speaker.wave.2.fill (two curves)
+    private var speakerSymbol: String {
+        if muted || level <= 0.001 { return "speaker.slash.fill" }
+        if level < 0.5 { return "speaker.wave.1.fill" }
+        return "speaker.wave.2.fill"
+    }
+
+    /// Speaker glyph view with smooth symbol-morph transition on
+    /// macOS 14+, plain Image on older systems. Wrapped here so
+    /// the body can stay clean of @available branching.
+    @ViewBuilder
+    private var speakerImage: some View {
+        if #available(macOS 14.0, *) {
+            Image(systemName: speakerSymbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(muted ? 0.45 : 0.95))
+                .contentTransition(.symbolEffect(.replace.downUp))
+        } else {
+            Image(systemName: speakerSymbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(muted ? 0.45 : 0.95))
+        }
+    }
+
+    /// Entrance animation state. The pill silhouette has its own
+    /// frame-morph spring (in PanelWindowController.showVolumeBanner,
+    /// 1100/62 stiffness/damping ≈ 130ms tactile landing). Content
+    /// rides ON TOP of that morph with its own opacity + scale spring
+    /// so the elements feel like they land into the pill rather than
+    /// pop in. Two elements get staggered:
+    ///   • icon + label (left wing): scale-up from 0.85, fade in
+    ///   • bar (right wing):          scale-up from 0.85 anchored at
+    ///                                trailing so it slides from the
+    ///                                right edge inward
+    /// 50ms delay so content arrives just as the panel-frame spring
+    /// reaches its tactile-landing zone.
+    var body: some View {
+        // ROUND 14 — REMOVED competing @State + onAppear springs.
+        // They were running CONCURRENTLY with the panel-frame
+        // SpringFrameAnimator (CADisplayLink driven). Two springs
+        // fighting for main-thread time produced the lag/jitter
+        // the user reported during expand/close.
+        //
+        // Now: only the parent's `.transition(.opacity)` handles
+        // entrance — Core Animation does the alpha fade off-thread,
+        // no main-thread cost. Icon morph still uses
+        // .contentTransition(.symbolEffect.replace) on macOS 14+
+        // (also Core Animation, off-thread).
+        HStack(spacing: 0) {
+            HStack(spacing: 5) {
+                speakerImage
+                    .frame(width: 14, alignment: .center)
+                    .animation(.smooth(duration: 0.28), value: speakerSymbol)
+
+                Text("Sound")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.95))
+                    .fixedSize()
+            }
+
+            Spacer(minLength: 0)
+
+            VolumeLevelBar(level: level, muted: muted)
+                .frame(width: 60, height: 3)
+        }
+        .frame(maxWidth: .infinity)
+        // Asymmetric padding — left 18pt for the icon+text wing,
+        // right 22pt so the bar sits proportionally inside the
+        // right wing without crowding the silhouette's right
+        // curve. Bar narrowed 80 → 60pt per user feedback "the
+        // bar should be more small by matching the side properly."
+        .padding(.leading, 18)
+        .padding(.trailing, 22)
+        .frame(height: notchOverlap)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .opacity(visible ? 1 : 0)
+    }
+}
+
+/// Horizontal level meter — track behind, fill on top. Fill width
+/// is `geometry.width × level`, animated with a tracking spring so
+/// rapid level changes (held volume key) read as one continuous
+/// motion rather than tick-by-tick steps. Mute dims the fill so
+/// the user can tell at a glance whether mute toggled with the
+/// same level still set.
+///
+/// Bar HEIGHT 4pt — matches Alcove's reference silhouette inside
+/// the slim 18pt apron. Earlier tried 6pt when the apron was
+/// taller (44pt) — at the slim 18pt apron, 6pt would feel
+/// proportionally too thick.
+private struct VolumeLevelBar: View {
+    let level: Float
+    let muted: Bool
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                // Track — subtle white tint at low alpha. Reads as
+                // "available range" without competing with the fill.
+                Capsule()
+                    .fill(Color.white.opacity(0.22))
+
+                // Fill — solid white, dimmed when muted. Width is
+                // proportional to level, clamped to track width so
+                // we don't overshoot if a buggy CoreAudio reading
+                // returns >1.
+                Capsule()
+                    .fill(Color.white.opacity(muted ? 0.32 : 0.95))
+                    .frame(width: max(0, min(CGFloat(level), 1)) * geo.size.width)
+                    // Tracking spring — re-targets continuously as
+                    // level updates per tick. Response 0.22 reads
+                    // as "snappy but smooth," damping 0.85 keeps
+                    // it overdamped (no bounce on each step which
+                    // would jitter the fill).
+                    .animation(
+                        .interactiveSpring(
+                            response: 0.22,
+                            dampingFraction: 0.85,
+                            blendDuration: 0.12
+                        ),
+                        value: level
+                    )
+            }
+            .frame(height: 4)
+            .frame(maxHeight: .infinity, alignment: .center)
+        }
     }
 }
 

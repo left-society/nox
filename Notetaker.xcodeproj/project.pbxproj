@@ -23,6 +23,7 @@
 		LNI0AB1B2C3D4E5F60123456A /* LockNotchIndicatorWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = LNI0AB1B2C3D4E5F60123456B /* LockNotchIndicatorWindow.swift */; };
 		29BFEF9F7B7F1D05891A1FCF /* WallpaperBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E34CFE45F822563424B45CA /* WallpaperBackdrop.swift */; };
 		2A3E5F59B43C598866A4D112 /* SystemAudioWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = B84F72E6A964E7C5AAB939D5 /* SystemAudioWatcher.swift */; };
+		AA00CAFE0001SVW000000001 /* SystemVolumeWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00CAFE0002SVW000000002 /* SystemVolumeWatcher.swift */; };
 		2A4069BD9939F9C50685EC10 /* ChargingPillView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11E8C7CA7D68E76823EDE14B /* ChargingPillView.swift */; };
 		2B531DBFBCF834B5DB23439C /* AirDropWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0F3E921997B51884CEAE8A2 /* AirDropWatcher.swift */; };
 		2D18EAD4998253D3AF5370D2 /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63B76AECA95EFB795B29131D /* MenuBarController.swift */; };
@@ -204,6 +205,7 @@
 		B23D80943D6C86B286870F3D /* GeminiOCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiOCRService.swift; sourceTree = "<group>"; };
 		B567B38180CCF6671C937237 /* DictationServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DictationServiceTests.swift; sourceTree = "<group>"; };
 		B84F72E6A964E7C5AAB939D5 /* SystemAudioWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAudioWatcher.swift; sourceTree = "<group>"; };
+		AA00CAFE0002SVW000000002 /* SystemVolumeWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemVolumeWatcher.swift; sourceTree = "<group>"; };
 		BA42DCD5596F06AAACD4CDE5 /* DictationService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DictationService.swift; sourceTree = "<group>"; };
 		BA4DFB7481EC57847B2A244A /* HoverActivator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HoverActivator.swift; sourceTree = "<group>"; };
 		BACKDROP02A1B2C3D4E5F0002 /* BackdropController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackdropController.swift; sourceTree = "<group>"; };
@@ -438,6 +440,7 @@
 				D5E0BED164D7AFFA6B737096 /* NowPlayingPillView.swift */,
 				5D24E1670632A6E0A9B6AE18 /* PowerSourceWatcher.swift */,
 				B84F72E6A964E7C5AAB939D5 /* SystemAudioWatcher.swift */,
+				AA00CAFE0002SVW000000002 /* SystemVolumeWatcher.swift */,
 				A026A82923F1EFA5603DB245 /* WaveformPattern.swift */,
 				1777434BD7BE29A5FB27D0BD /* WaveformView.swift */,
 				FDD1644F617ACB89D33B0AFC /* NotchSpaceManager.swift */,
@@ -686,6 +689,7 @@
 				35B4A484A4E1D7230530A7D0 /* RetentionService.swift in Sources */,
 				A9761E0D07D7B9244A40A158 /* SettingsWindow.swift in Sources */,
 				2A3E5F59B43C598866A4D112 /* SystemAudioWatcher.swift in Sources */,
+				AA00CAFE0001SVW000000001 /* SystemVolumeWatcher.swift in Sources */,
 				31028C6DBDCCD15C6178C005 /* ThumbnailCache.swift in Sources */,
 				D61D1228591E36D78457CCB3 /* Typography.swift in Sources */,
 				37378A6ABF6FF0A64E924EB5 /* URLExtractor.swift in Sources */,

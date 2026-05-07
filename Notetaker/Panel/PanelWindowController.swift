@@ -48,6 +48,27 @@ private final class KeyablePanel: NSPanel {
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         return frameRect
     }
+
+    /// Trackpad two-finger swipe handler. Hooked up by
+    /// PanelWindowController so the resting music pill responds to
+    /// Alcove-style swipes:
+    ///
+    ///   • horizontal swipe (left)  → next track
+    ///   • horizontal swipe (right) → previous track
+    ///   • vertical swipe (up)      → expand the panel into the slab
+    ///   • vertical swipe (down)    → close, with rubber-band feedback
+    ///                                 (visible drag, springs back if
+    ///                                 not committed past threshold)
+    ///
+    /// AppKit forwards trackpad scrolls to the focused window; this
+    /// override hands the event to the controller's gesture state
+    /// machine and consumes it (no super call) so the panel doesn't
+    /// also try to scroll its content.
+    var onScrollWheel: ((NSEvent) -> Bool)?
+    override func scrollWheel(with event: NSEvent) {
+        if onScrollWheel?(event) == true { return }
+        super.scrollWheel(with: event)
+    }
 }
 
 @MainActor
@@ -233,6 +254,63 @@ final class PanelWindowController {
     ///   • teasePillBump = 8 → modest visible drop below menu bar
     static let teasePillWidth: CGFloat = 213
     static let teasePillBump: CGFloat = 8
+    /// Track-change announcement banner — Alcove parity, measured
+    /// from the user-supplied frame-by-frame screen recording in
+    /// `~/Downloads/alcove/Alcove 2/` (frames 750–870). When a new
+    /// track starts, the resting pill silhouette grows DOWN (and a
+    /// touch wider) into a banner that drops a visible apron below
+    /// the notch hardware. The apron carries the artwork tile +
+    /// "♪ Title · Artist" single-line label + a tiny equalizer.
+    /// Auto-dismisses after the SystemEvent timeout (3.5s);
+    /// geometry returns to closedPillFrame.
+    ///
+    /// Width 285 → barely wider than the resting pill (closedPillWidth
+    /// 278). Alcove's banner sits very close to the notch silhouette
+    /// horizontally; the announcement reads as the pill flexing DOWN
+    /// rather than EXPANDING SIDEWAYS. Earlier 360 was too wide and
+    /// looked like a separate notification card.
+    /// Bump 32 → enough vertical room below notchOverlap (~32-37pt)
+    /// to host one 22pt-tall row of content with a few pt of breathing
+    /// room top and bottom.
+    // The track-change banner is the SAME WIDTH as the resting
+    // music pill (closedPillWidth = 278) — Alcove's pill EXPANDS,
+    // it doesn't become a separate wider banner. Earlier 290pt
+    // was 12pt wider than resting; the pill visibly grew sideways
+    // during the announcement, breaking the "same pill, just
+    // dropped a bit" feel the user described. Matching
+    // closedPillWidth keeps the artwork and equalizer locked at
+    // their resting positions throughout the announcement; the
+    // only change is the apron dropping below the menu bar.
+    // Slight expansion past closedPillWidth (278) — user feedback
+    // 2026-05-07: "it should be expanding the whole thing a bit".
+    // 285 = ~7pt wider than the resting pill, enough to read as a
+    // visible expansion without becoming a separate-looking banner.
+    // Matches Alcove's measured width in frame 850.
+    static let trackBannerWidth: CGFloat = 285
+    static let trackBannerBump: CGFloat = 32
+
+    /// Volume HUD banner geometry — Alcove parity (round 7).
+    ///
+    /// Direct side-by-side comparison with the user's Alcove
+    /// reference shows Alcove's pill is much NARROWER (≈280pt
+    /// visible silhouette) than my prior 380pt, and content sits
+    /// in a slim, fully-visible strip below the menu bar.
+    ///
+    /// Round 7:
+    ///   • width: 380 → 300 (matches Alcove's compact silhouette)
+    ///   • bump:  14  → 16 (tiny extra to host the "Sound" text +
+    ///                       speaker glyph + bar without line-
+    ///                       height clipping)
+    /// MEASURED FROM ALCOVE SCREENSHOT (round 9, 2026-05-07):
+    /// Cropped the user's screenshot, scanned pixels in Swift,
+    /// converted to logical points (÷2 retina). Pill width is
+    /// ~398-413pt across the silhouette body; height is ~32pt
+    /// (essentially flush with menu bar, no apron). Content is
+    /// just SPEAKER + BAR — no "Sound" text label (I hallucinated
+    /// that earlier, the user explicitly pointed it out wasn't
+    /// there).
+    static let volumeBannerWidth: CGFloat = 400
+    static let volumeBannerBump:  CGFloat = 0
     private static let edgeGap: CGFloat = 10
     private static let topGap: CGFloat = 40
     /// True Alcove-style placement: the NSPanel's TOP edge sits AT the
@@ -321,6 +399,17 @@ final class PanelWindowController {
     private var quickPasteMonitor: Any?
     private var hoverGlobalMonitor: Any?
     private var hoverLocalMonitor: Any?
+
+    /// Local event monitor for trackpad scroll-wheel events. Without
+    /// this, scrollWheel events delivered to a SwiftUI hosting view
+    /// can be eaten by deeper hit-testing (Buttons, Sliders, GestureRecognizers)
+    /// before they bubble up to KeyablePanel.scrollWheel — so swipes
+    /// over the EDGES of the music card or near transport buttons
+    /// would silently fail. The local monitor sees every event
+    /// dispatched to the app BEFORE it goes through the responder
+    /// chain, so we can pre-empt and route to handleTrackpadSwipe
+    /// regardless of cursor position within the panel.
+    private var swipeMonitor: Any?
     private var hoverHasEnteredPanel = false
     private var hoverLeaveWorkItem: DispatchWorkItem?
     /// Bumped every time `animateOpen` / `animateClose` start a new
@@ -337,6 +426,12 @@ final class PanelWindowController {
     /// follow-up open/close can cancel it cleanly instead of letting
     /// two springs race each other on the same window frame.
     private var currentSpring: SpringFrameAnimator?
+    /// Frame the in-flight spring is animating TOWARD. Used by
+    /// rapid-fire callers (held volume key fires showVolumeBanner
+    /// 30×/sec) to skip the cancel+restart loop when we're already
+    /// heading to that frame. Without this, the spring never
+    /// settles and the morph reads as jittery/laggy.
+    private var currentSpringTarget: NSRect?
     /// Full-screen scrim that dims + blurs the desktop behind the
     /// slab when expanded. Lazy because the BackdropController
     /// constructor builds an NSWindow + NSVisualEffectView, which
@@ -347,6 +442,39 @@ final class PanelWindowController {
     /// clipboard. Updated on every hide() so we only re-route when
     /// the user has actually copied something new in between.
     private var lastSeenChangeCount: Int = -1
+
+    /// Trackpad two-finger swipe gesture state (Alcove-style).
+    /// Tracks accumulated horizontal/vertical deltas during a single
+    /// continuous trackpad swipe (begin → changed* → ended). On
+    /// `.ended`, the controller decides which action to commit
+    /// based on the dominant axis and total magnitude.
+    ///
+    ///   • horizontal commit (|x| > 60pt)         → next/prev track
+    ///   • vertical-up commit  (y < -50pt)        → expand to slab
+    ///   • vertical-down commit (y > 70pt)        → close
+    ///
+    /// During a partial vertical-down swipe (rubber-band feedback),
+    /// the panel translates downward by `swipeDeltaY × 0.4` so the
+    /// user sees the pill react in real time. If they release before
+    /// the threshold, the panel springs back; past it, the close
+    /// fires.
+    private var swipeAccumX: CGFloat = 0
+    private var swipeAccumY: CGFloat = 0
+    private var swipeActive: Bool = false
+    private var swipeBaseFrame: NSRect = .zero
+    /// Set true once the user crosses an axis-commit threshold, so
+    /// fingers continuing past the threshold don't re-trigger the
+    /// same command (single-shot per gesture). Also prevents accidental
+    /// dual-axis fires from sloppy diagonal swipes.
+    private var swipeCommittedAxis: SwipeAxis? = nil
+    private enum SwipeAxis { case horizontal, vertical }
+    /// Mirrors Alcove's `_hasTriggeredVerticalSwipeAction`. Set true
+    /// once an in-gesture vertical swipe blows past the auto-close
+    /// threshold and fires the close — keeps a continuing finger
+    /// motion from re-triggering the same close, and gates resets so
+    /// .ended doesn't double-commit. Cleared on .began / .ended /
+    /// .cancelled.
+    private var swipeAutoCommitted: Bool = false
     /// Subscription that listens for `presenter.activeTab` changes and
     /// resizes the panel to that tab's preferred slab height. Lives for
     /// the controller's lifetime — the panel itself is created once and
@@ -592,6 +720,48 @@ final class PanelWindowController {
 
         panel.contentView = container
 
+        // Trackpad two-finger swipe — TWO routes into the handler:
+        //
+        //   1) KeyablePanel.scrollWheel → fires when the panel is
+        //      keyboard-active (rare for a non-activating panel)
+        //      and AppKit naturally bubbles the scrollWheel event
+        //      up the responder chain to the panel.
+        //
+        //   2) NSEvent.addLocalMonitorForEvents → catches the event
+        //      BEFORE it goes to the responder chain, so SwiftUI
+        //      buttons / hosting views can't eat it. Required for
+        //      gestures over the edges and over interactive controls
+        //      (transport buttons, etc.) — without this, swiping
+        //      over a button silently failed because Button's hit
+        //      testing consumed the event.
+        //
+        // Both routes funnel into handleTrackpadSwipe, which is
+        // idempotent — only one will actually dispatch each event
+        // because the local monitor runs first and consumes (returns
+        // nil) when it dispatches.
+        if let keyable = panel as? KeyablePanel {
+            keyable.onScrollWheel = { [weak self] event in
+                guard let self else { return false }
+                return self.handleTrackpadSwipe(event)
+            }
+        }
+        swipeMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.scrollWheel]
+        ) { [weak self] event in
+            guard let self else { return event }
+            // Only intercept events targeted at OUR panel. Other
+            // app windows (Settings, popout note window, etc.)
+            // should keep their normal scroll behavior.
+            guard event.window === self.panel else { return event }
+            // Route to gesture handler; if it consumed (returned
+            // true), swallow the event by returning nil. Otherwise
+            // pass through so SwiftUI ScrollViews etc. work normally.
+            if self.handleTrackpadSwipe(event) {
+                return nil
+            }
+            return event
+        }
+
         // 2026-05-04 GPU-accelerated shadow via CALayer.shadowPath.
         // Replaces the SwiftUI .shadow() modifiers in PanelRootView,
         // which were doing CPU-side gaussian convolution every frame
@@ -836,6 +1006,343 @@ final class PanelWindowController {
         if !isVisible { show() }
     }
 
+    // MARK: - Trackpad swipe gestures (Alcove parity research applied)
+    //
+    // RESEARCH (extracted from /Applications/Alcove.app/Contents/
+    // MacOS/Alcove via strings + class-dump):
+    //
+    //   Alcove's gesture state machine has these flags:
+    //     _gestureHorizontalProgress / _gestureVerticalProgress
+    //     _hasPassedHorizontalSwipeThreshold
+    //     _hasTriggeredVerticalSwipeAction
+    //     _isCollapsingSwipe
+    //     _startedHorizontalSwipe
+    //     _shouldResetSwipes
+    //     _cycleSwipeReadyOnRelease
+    //
+    //   Their settings expose 4 separate gesture modes:
+    //     swipeToSkip      — horizontal → next/previous track
+    //     swipeToDismiss   — vertical up → close
+    //     swipeToToggle    — vertical down → play/pause toggle
+    //     swipeToCycleActivity — horizontal-on-pill → swap widgets
+    //
+    //   Visual feedback during the gesture:
+    //     • Progressive blur tied to gesture progress
+    //       (`Alcove.ProgressiveBlurView`, `_progressiveBlur`)
+    //     • Accent color tint (`useAccentColorOnGestures`)
+    //     • Spring-physics return (`alignmentSpringDamping/Mass/
+    //       Stiffness`)
+    //     • Haptic at commit (`alignment` pattern, same we use)
+    //
+    //   Threshold pattern: separate SUCCESS and RESET thresholds.
+    //   Once gesture progress exceeds SUCCESS, action commits on
+    //   release. If gesture falls back below RESET, the gesture
+    //   "untriggers" — prevents jitter when user wobbles around the
+    //   threshold.
+    //
+    // PORTED TO NOX:
+    //
+    //   On the RESTING music pill:
+    //     swipe LEFT  → next track       (.skip)
+    //     swipe RIGHT → previous track
+    //     swipe DOWN  → expand into slab
+    //     swipe UP    → close (with progressive blur + rubber-band)
+    //
+    //   On the EXPANDED slab when activeTab == .music:
+    //     swipe LEFT/RIGHT → next/previous
+    //     swipe UP         → close (progressive blur + rubber-band)
+    //     (other tabs: gestures pass through to allow content scroll)
+    //
+    //   During the up-swipe gesture, presenter.swipeProgress (0–1)
+    //   tracks progress from at-rest to commit threshold. SwiftUI
+    //   reads this and applies:
+    //     • blur radius:   progress * 18px
+    //     • scale:         1 − progress * 0.04 (anchor: top — looks
+    //                      like the panel is tucking up into the
+    //                      notch, not just shrinking from the center)
+    //     • The panel.frame translates by progress * cap (rubber-band
+    //       at AppKit level)
+    //
+    //   Sign convention: gesture-phase events report fingers-up as
+    //   POSITIVE deltaY consistently regardless of natural scrolling
+    //   (gesture events use physical-finger semantics).
+    private func handleTrackpadSwipe(_ event: NSEvent) -> Bool {
+        let onRestingPill = presenter.isResting && !presenter.isShown
+        let onMusicSlab   = presenter.isShown && presenter.activeTab == .music
+        guard onRestingPill || onMusicSlab else { return false }
+
+        guard event.hasPreciseScrollingDeltas,
+              event.phase != []
+        else { return false }
+
+        // Alcove-style thresholds. Vertical "success" (commit) and
+        // "reset" (un-trigger) at separate distances. Horizontal
+        // single-shot at one threshold (track changes feel snappier
+        // as instant fires than progressive).
+        let H_THRESHOLD: CGFloat = 55                        // horizontal commit
+        let V_SUCCESS:   CGFloat = onMusicSlab ? 130 : 80    // up-swipe commit (release-fires)
+        let V_AUTO:      CGFloat = V_SUCCESS * 1.55          // up-swipe AUTO-fires mid-gesture
+        let V_RESET:     CGFloat = onMusicSlab ? 30  : 18    // un-trigger (currently visual only)
+        let V_DOWN:      CGFloat = 60                        // pill expand commit
+        let V_CAP:       CGFloat = onMusicSlab ? 70  : 26    // rubber-band travel cap
+
+        switch event.phase {
+        case .began:
+            swipeAccumX = 0
+            swipeAccumY = 0
+            swipeActive = true
+            swipeBaseFrame = panel.frame
+            swipeCommittedAxis = nil
+            swipeAutoCommitted = false
+            presenter.swipeProgress = 0
+
+        case .changed:
+            guard swipeActive else { return false }
+            swipeAccumX += event.scrollingDeltaX
+            swipeAccumY += event.scrollingDeltaY
+
+            // HORIZONTAL — track progress for live button feedback,
+            // commit at threshold (single-shot per gesture).
+            if swipeCommittedAxis == nil {
+                let isHorizontalDominant =
+                    abs(swipeAccumX) > abs(swipeAccumY) * 1.5
+                if isHorizontalDominant {
+                    // Update signed horizontal progress (-1 to +1).
+                    // -1 = full left swipe (next), +1 = full right
+                    // swipe (previous). MusicPanelView's transport
+                    // buttons read this and scale/glow accordingly.
+                    let signedProgress = max(-1.0, min(1.0,
+                        Double(swipeAccumX / H_THRESHOLD)))
+                    presenter.swipeHorizontalProgress = signedProgress
+
+                    if abs(swipeAccumX) > H_THRESHOLD {
+                        swipeCommittedAxis = .horizontal
+                        presenter.onMediaCommand?(
+                            swipeAccumX < 0 ? .next : .previous
+                        )
+                        HapticFeedback.alignment()
+                        // Bug fix: when the gesture started slightly
+                        // diagonal, the vertical block in earlier
+                        // ticks may have written a non-zero
+                        // swipeProgress before the horizontal lock
+                        // engaged. Without this reset, the blur from
+                        // those ticks STICKS — once horizontal
+                        // commits, the vertical block is skipped, the
+                        // .ended branch then skips the reset (because
+                        // swipeCommittedAxis != nil), and the panel
+                        // is left blurred. Reset all gesture signals
+                        // here. swipeOffsetY too — its
+                        // .interactiveSpring will gracefully spring
+                        // back to 0 visually.
+                        presenter.swipeProgress = 0
+                        presenter.swipeOffsetY = 0
+                        // Frame snap back so the panel doesn't carry
+                        // any rubber-band offset into the next state.
+                        panel.setFrame(swipeBaseFrame, display: false)
+                        // Brief settle — let the button's animation
+                        // finish, then reset so a follow-up gesture
+                        // doesn't see stale progress.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
+                            [weak presenter] in
+                            presenter?.swipeHorizontalProgress = 0
+                        }
+                    }
+                } else if presenter.swipeHorizontalProgress != 0 {
+                    // Vertical gesture started after a brief
+                    // horizontal nudge — clear stale h-progress.
+                    presenter.swipeHorizontalProgress = 0
+                }
+            }
+
+            // VERTICAL — progressive close gesture (Alcove's
+            // progressiveBlur + alignmentSpring model). Two
+            // presenter signals carry the gesture state:
+            //
+            //   swipeProgress  0 → 1 — drives blur + scale-down
+            //                          on the content
+            //   swipeOffsetY   0 → V_CAP pt — drives a SwiftUI
+            //                          .offset(y:) on the content,
+            //                          smoothed with .interactiveSpring
+            //                          for proper elastic feel
+            //
+            // The panel's NSWindow frame DOES NOT move during the
+            // gesture anymore (was doing a linear setFrame translate
+            // before — that's what felt non-springy). All gesture
+            // motion is SwiftUI-driven so SwiftUI's spring physics
+            // handle the elastic response, the release-spring, and
+            // the ease-out tail in one continuous integration.
+            //
+            // On commit, the panel's frame is shifted UP by the
+            // current offset (transferring the visual position into
+            // the actual frame), then swipeOffsetY is reset and
+            // hide() animates panel.frame the rest of the way to
+            // closed — so the tucking motion flows smoothly into
+            // the close animation with no snap.
+            if swipeCommittedAxis != .horizontal && !swipeAutoCommitted {
+                let upDist = max(0, swipeAccumY)
+                let progress = min(1.0, Double(upDist / V_SUCCESS))
+                presenter.swipeProgress = progress
+
+                if upDist > 0 {
+                    // Damped offset (0.45× input, capped). SwiftUI's
+                    // .interactiveSpring on swipeOffsetY adds the
+                    // elastic spring lag automatically — what we
+                    // write here is the TARGET, the spring tracks it.
+                    let offset = min(upDist * 0.45, V_CAP)
+                    presenter.swipeOffsetY = offset
+                } else {
+                    presenter.swipeOffsetY = 0
+                }
+
+                // ── Mid-gesture AUTO-CLOSE (Alcove's
+                // `_hasTriggeredVerticalSwipeAction` pattern).
+                // If the user keeps swiping past V_SUCCESS without
+                // releasing, fire the close as soon as accumulated
+                // distance crosses V_AUTO. They don't need to lift
+                // fingers — the panel closes the moment they
+                // "swipe a little too much," matching Alcove's UX.
+                //
+                // swipeAutoCommitted gates this so a continuing
+                // finger motion can't re-trigger after fire (and so
+                // .ended below won't double-commit).
+                if upDist > V_AUTO {
+                    swipeAutoCommitted = true
+                    swipeCommittedAxis = .vertical
+                    HapticFeedback.alignment()
+                    commitSwipeClose()
+                    return true
+                }
+            }
+
+        case .ended:
+            guard swipeActive else { return false }
+            swipeActive = false
+
+            if swipeCommittedAxis == nil {
+                if swipeAccumY > V_SUCCESS {
+                    // Release past success threshold — commit close.
+                    swipeCommittedAxis = .vertical
+                    HapticFeedback.alignment()
+                    commitSwipeClose()
+                    swipeCommittedAxis = nil
+                    return true
+                } else if onRestingPill, swipeAccumY < -V_DOWN {
+                    // Down-swipe on resting pill — expand to slab.
+                    // Same snap-without-animation pattern so the
+                    // pill doesn't spring back while the slab is
+                    // already animating open.
+                    swipeCommittedAxis = .vertical
+                    HapticFeedback.alignment()
+                    panel.setFrame(swipeBaseFrame, display: false)
+                    var txn = Transaction()
+                    txn.disablesAnimations = true
+                    withTransaction(txn) {
+                        presenter.swipeOffsetY = 0
+                        presenter.swipeProgress = 0
+                        presenter.swipeHorizontalProgress = 0
+                    }
+                    show(mode: .hover)
+                    swipeCommittedAxis = nil
+                    return true
+                }
+                // Else: below threshold — gesture cancels. SwiftUI's
+                // .interactiveSpring naturally springs all three
+                // values back to 0 when we set them below. WITH the
+                // animation enabled (default), so we get the
+                // release-spring + ease-out tail the user asked for.
+            }
+            // CANCEL path (gesture released below threshold, or any
+            // axis other than commit): allow SwiftUI to spring back.
+            // Default Transaction (animation enabled) lets
+            // .interactiveSpring carry blur/scale/offset home with
+            // its natural release-spring + ease-out tail.
+            presenter.swipeProgress = 0
+            presenter.swipeHorizontalProgress = 0
+            presenter.swipeOffsetY = 0
+            swipeCommittedAxis = nil
+            swipeAutoCommitted = false
+
+        case .cancelled:
+            // System cancelled the gesture (Mission Control, Spaces
+            // swipe, app switch). Snap the panel home + clear all
+            // progress state so the next gesture starts clean.
+            if swipeActive {
+                panel.setFrame(swipeBaseFrame, display: false)
+            }
+            presenter.swipeProgress = 0
+            presenter.swipeHorizontalProgress = 0
+            presenter.swipeOffsetY = 0
+            swipeActive = false
+            swipeCommittedAxis = nil
+            swipeAutoCommitted = false
+
+        default:
+            return false
+        }
+
+        return true
+    }
+
+    // MARK: - Close-swipe commit
+    //
+    // Shared by both auto-fire (mid-gesture, past V_AUTO) and
+    // release-fire (.ended, past V_SUCCESS). Both close paths must
+    // start the close FROM the current pinched visual state rather
+    // than from full-open.
+    //
+    // BUG that drove this helper: earlier we Transaction-snapped
+    // swipeProgress and swipeOffsetY to 0 SYNCHRONOUSLY before
+    // calling hide(). That made the SwiftUI scale spring back from
+    // ~0.93 (gesture-pinched) to 1.0 (full size) in one frame,
+    // BEFORE hide()'s panel.frame animation began. The user saw it
+    // exactly: "instade of closing from that position it's closing
+    // from almost opening position" — for a single frame the pill
+    // re-rendered at full open size, then the close animation
+    // started from there.
+    //
+    // Fix: leave the gesture-pinched scale state in place during
+    // the close. hide()'s panel.frame spring (158/25 ≈ 320ms for
+    // notch-hidden close, 480/40 ≈ 440ms for music close) handles
+    // the slab → pill morph; the silhouette stays at scale ~0.93
+    // throughout, so panel.frame shrinking + scale-pinched together
+    // read as ONE continuous shrink from the gesture position.
+    //
+    // After the close has visually completed (~0.55s, comfortably
+    // beyond both spring durations), Transaction-snap the gesture
+    // values to 0 so a subsequent open doesn't inherit stale state.
+    // The pill is at resting size by then; the scale snap from
+    // 0.93 → 1.0 changes the pill width by ~17pt and height by
+    // ~1.5pt — sub-pixel for vertical, barely perceptible
+    // horizontally, and lands in steady-state where there's no
+    // adjacent motion to make it pop.
+    //
+    // Why we don't naturally spring scale → 1.0 during hide():
+    // scale grows means silhouette extends DOWNWARD (anchor: .top);
+    // panel.frame shrinking means silhouette's bottom rises UP.
+    // Opposing motions on the bottom edge → "expanding back" feel.
+    // Holding scale constant during the close avoids that conflict.
+    private func commitSwipeClose() {
+        // Horizontal progress doesn't affect the close visual; clear
+        // it now so transport buttons stop showing swipe glow as
+        // soon as the close fires.
+        presenter.swipeHorizontalProgress = 0
+
+        hide()
+
+        // Defer the gesture-state reset until AFTER hide()'s visible
+        // close animation lands, so the pill doesn't briefly render
+        // at full open size before the close starts.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak presenter] in
+            guard let presenter else { return }
+            var txn = Transaction()
+            txn.disablesAnimations = true
+            withTransaction(txn) {
+                presenter.swipeProgress = 0
+                presenter.swipeOffsetY = 0
+            }
+        }
+    }
+
     func show(mode: OpenMode = .click) {
         // Clear any in-flight tease state — we're going to a full open
         // now, so the tease has served its purpose. If show() was called
@@ -846,6 +1353,16 @@ final class PanelWindowController {
         // tease frame into the slab.
         isTeasing = false
         openMode = mode
+        // Defensive reset of swipe progress signals at the start of
+        // every show. Belt and suspenders alongside the matching
+        // reset in hide() — guarantees the panel never opens with
+        // stale blur, content offset, or button-glow state from a
+        // previous gesture that ended unexpectedly.
+        presenter.swipeProgress = 0
+        presenter.swipeHorizontalProgress = 0
+        presenter.swipeOffsetY = 0
+        swipeActive = false
+        swipeCommittedAxis = nil
 
         // Music-first auto-routing. When music is actively playing,
         // open the panel onto MusicPanelView regardless of what was
@@ -1223,6 +1740,17 @@ final class PanelWindowController {
         // the user copied something new in between.
         lastSeenChangeCount = NSPasteboard.general.changeCount
         removeMonitors()
+        // Defensive reset of all swipe-progress signals. If hide()
+        // was triggered mid-gesture by something other than the
+        // swipe handler (click-outside, hotkey, system event), the
+        // gesture's .ended path may never fire and SwiftUI would
+        // re-render with the stale blur next time we open. Clearing
+        // here guarantees a clean state for the next show().
+        presenter.swipeProgress = 0
+        presenter.swipeHorizontalProgress = 0
+        presenter.swipeOffsetY = 0
+        swipeActive = false
+        swipeCommittedAxis = nil
         // Flip `isShown=false` to start the 0.18s content fade-out
         // (PanelRootView gates the always-mounted content overlay's
         // opacity on this flag). The fade runs IN PARALLEL with the
@@ -1770,6 +2298,48 @@ final class PanelWindowController {
         let halo = PanelWindowController.haloPadding
         let height = overlap + PanelWindowController.teasePillBump + halo
         let width = PanelWindowController.teasePillWidth + 2 * halo
+        return NSRect(
+            x: frame.midX - width / 2,
+            y: frame.maxY - height,
+            width: width,
+            height: height
+        )
+    }
+
+    /// Track-change announcement banner geometry — the panel grows
+    /// out of the resting pill into a wider, taller silhouette that
+    /// drops a visible apron below the notch hardware. The PILL ROOT
+    /// view positions trackChanged content at `.padding(.top, notchOverlap)`
+    /// so artwork/title/artist render in this apron, not behind the
+    /// hardware. Restores to `closedPillFrame` when the SystemEvent
+    /// timeout (3.5s) clears the announcement.
+    private func trackBannerFrame(for screen: NSScreen?) -> NSRect {
+        let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let overlap = PanelWindowController.notchOverlap(for: screen)
+        let halo = PanelWindowController.haloPadding
+        let height = overlap + PanelWindowController.trackBannerBump + halo
+        let width = PanelWindowController.trackBannerWidth + 2 * halo
+        return NSRect(
+            x: frame.midX - width / 2,
+            y: frame.maxY - height,
+            width: width,
+            height: height
+        )
+    }
+
+    /// Volume HUD banner geometry — same anchoring pattern as the
+    /// track banner (top edge welded to screen top so the panel
+    /// appears to grow OUT of the hardware notch). The PILL ROOT
+    /// view positions volume content at `.padding(.top, notchOverlap)`
+    /// so the speaker glyph + bar render in the visible apron.
+    /// Restores to `closedPillFrame` when the SystemEvent timeout
+    /// (1.5s) clears the announcement.
+    private func volumeBannerFrame(for screen: NSScreen?) -> NSRect {
+        let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let overlap = PanelWindowController.notchOverlap(for: screen)
+        let halo = PanelWindowController.haloPadding
+        let height = overlap + PanelWindowController.volumeBannerBump + halo
+        let width = PanelWindowController.volumeBannerWidth + 2 * halo
         return NSRect(
             x: frame.midX - width / 2,
             y: frame.maxY - height,
@@ -2526,6 +3096,221 @@ final class PanelWindowController {
             self.currentSpring = nil
             self.panel.setFrame(target, display: true)
             NSLog("nox: exitRestingMode — settled at notch-hidden (alive as drag target)")
+        }
+    }
+
+    // MARK: - Track-change banner
+
+    /// Animate the resting pill into the wider/taller banner geometry
+    /// for a track-change announcement. NO-OP if the user is currently
+    /// hovering the slab open / teasing — the announcement stays out
+    /// of the way of explicit interactions. After ~3.5s
+    /// `dismissTrackBanner()` returns the panel to closedPillFrame.
+    func showTrackBanner() {
+        // Only valid in resting mode and only when the resting pill
+        // is the visible chrome (not slab, not tease in flight).
+        guard presenter.isResting else { return }
+        if isVisible { return }
+        if isTeasing { return }
+
+        let screen = panel.screen ?? NSScreen.main
+        let target = trackBannerFrame(for: screen)
+        let start = panel.frame
+        if start == target { return }
+
+        currentSpring?.cancel()
+
+        // SINGLE-STAGE GROW. User feedback 2026-05-07: "animation
+        // can be a little more smoother". Earlier 380/28 (ζ=0.72)
+        // had visible 4% overshoot which read as a tiny bounce —
+        // user wants smoother. Damped closer to critical so the
+        // silhouette settles without overshoot.
+        //
+        // stiffness 320 / damping 33 / mass 1
+        // → ω_n=17.9, ζ=0.92, settle ~245ms.
+        // ζ=0.92 is right under critical (1.0). The landing has
+        // no visible overshoot but isn't fully critically damped
+        // either — keeps just enough organic feel to not read as
+        // a hard mechanical ramp.
+        let spring = SpringFrameAnimator(stiffness: 320, damping: 33, mass: 1.0)
+        spring.shadowTickHandler = { [weak self] in
+            self?.updateShadowPath()
+        }
+        currentSpring = spring
+        spring.animate(panel: panel, from: start, to: target) { [weak self] in
+            self?.currentSpring = nil
+            self?.panel.setFrame(target, display: true)
+            self?.updateShadowPath()
+        }
+        NSLog("nox: showTrackBanner — single-stage grow to banner=\(target)")
+    }
+
+    /// Reverse of `showTrackBanner()`. Animates back to the regular
+    /// resting pill frame (closedPillFrame if music is alive,
+    /// transientPillFrame otherwise). Calls `completion` when the
+    /// spring lands so the caller (AppDelegate) can clear the
+    /// pendingSystemEvent in lockstep — that ordering keeps content
+    /// (.trackChanged → musicPillContent) aligned with geometry
+    /// (banner → resting pill). Without it, two independent timers
+    /// would race and the user would see content/geometry mismatch.
+    func dismissTrackBanner(completion: (() -> Void)? = nil) {
+        guard presenter.isResting else {
+            completion?()
+            return
+        }
+        if isVisible {
+            completion?()
+            return
+        }
+        if isTeasing {
+            completion?()
+            return
+        }
+
+        let screen = panel.screen ?? NSScreen.main
+        let target: NSRect = (presenter.nowPlaying != nil)
+            ? closedPillFrame(for: screen)
+            : transientPillFrame(for: screen)
+        let start = panel.frame
+        if start == target {
+            completion?()
+            return
+        }
+
+        currentSpring?.cancel()
+        let spring = SpringFrameAnimator(stiffness: 600, damping: 45, mass: 1.0)
+        spring.shadowTickHandler = { [weak self] in
+            self?.updateShadowPath()
+        }
+        currentSpring = spring
+        spring.animate(panel: panel, from: start, to: target) { [weak self] in
+            self?.currentSpring = nil
+            self?.panel.setFrame(target, display: true)
+            self?.updateShadowPath()
+            completion?()
+        }
+        NSLog("nox: dismissTrackBanner — returning to pill=\(target)")
+    }
+
+    // MARK: - Volume HUD banner
+    //
+    // Same morph recipe as the track-change banner, retargeted to
+    // `volumeBannerFrame`. The user described the desired visual:
+    // "it's going to open up from the notch, which is the hardware
+    // notch, and then expands sideways" — the notch-anchored frame
+    // morph (top edge welded to screen top, width grows) does
+    // exactly that.
+    //
+    // Idempotent: if the panel is already at the volume banner
+    // frame, calling showVolumeBanner again is a no-op (the held-key
+    // tick spam wouldn't otherwise fire dozens of redundant
+    // animations). The pendingSystemEvent push from AppDelegate
+    // still resets the dismiss timer per tick, so the HUD stays
+    // pinned for the duration of the keypress.
+
+    /// Animate the resting pill into the volume HUD banner geometry.
+    /// NO-OP if the user is currently in slab / tease — volume HUD
+    /// stays out of the way of explicit interactions, just like the
+    /// track banner.
+    func showVolumeBanner() {
+        guard presenter.isResting else { return }
+        if isVisible { return }
+        if isTeasing { return }
+
+        let screen = panel.screen ?? NSScreen.main
+        let target = volumeBannerFrame(for: screen)
+        let start = panel.frame
+        if start == target { return }
+
+        // ANTI-THRASH: if a spring is already animating to the
+        // volume banner target, let it finish — don't cancel and
+        // restart. Held volume keys fire showVolumeBanner ~30×/sec
+        // and each restart resets the spring from a mid-flight
+        // position, which never settles → jittery/laggy morph.
+        if currentSpringTarget == target { return }
+
+        currentSpring?.cancel()
+
+        // SOFTER spring than track banner (was 1100/62 — too stiff
+        // for rapid-fire volume keys; the high stiffness made every
+        // tick visually punchy and amplified the perceived jitter
+        // when held-key spam landed on top of it). 600/45 settles
+        // ~250ms, smoother per-tick velocity profile, much easier
+        // on the shadowPath update budget.
+        let spring = SpringFrameAnimator(stiffness: 600, damping: 45, mass: 1.0)
+        spring.shadowTickHandler = { [weak self] in
+            self?.updateShadowPath()
+        }
+        currentSpring = spring
+        currentSpringTarget = target
+        // Reduce drop shadow opacity during the volume HUD —
+        // Alcove's reference frames show NO visible drop shadow
+        // around the volume pill (vs the larger 0.55 shadow we
+        // use for the music pill). The shadow halo was reading as
+        // "blur" around the silhouette per user feedback.
+        // 0.18 keeps a faint contact shadow so the pill still
+        // reads as elevated against the desktop, but doesn't
+        // create a visible glow halo.
+        setShadowOpacity(0.18, duration: 0.12)
+        spring.animate(panel: panel, from: panel.frame, to: target) { [weak self] in
+            self?.currentSpring = nil
+            self?.currentSpringTarget = nil
+            self?.panel.setFrame(target, display: true)
+            self?.updateShadowPath()
+        }
+    }
+
+    /// Reverse of `showVolumeBanner`. Animates back to whichever
+    /// resting pill is appropriate (closedPillFrame if music is
+    /// alive, transientPillFrame otherwise). Calls `completion`
+    /// when the spring lands so AppDelegate can clear the pending
+    /// event in lockstep with the geometry settling.
+    func dismissVolumeBanner(completion: (() -> Void)? = nil) {
+        guard presenter.isResting else {
+            completion?()
+            return
+        }
+        if isVisible {
+            completion?()
+            return
+        }
+        if isTeasing {
+            completion?()
+            return
+        }
+
+        let screen = panel.screen ?? NSScreen.main
+        let target: NSRect = (presenter.nowPlaying != nil)
+            ? closedPillFrame(for: screen)
+            : transientPillFrame(for: screen)
+        let start = panel.frame
+        if start == target {
+            completion?()
+            return
+        }
+        // Anti-thrash: skip if already dismissing to the same frame.
+        if currentSpringTarget == target {
+            completion?()
+            return
+        }
+
+        currentSpring?.cancel()
+        let spring = SpringFrameAnimator(stiffness: 600, damping: 45, mass: 1.0)
+        spring.shadowTickHandler = { [weak self] in
+            self?.updateShadowPath()
+        }
+        currentSpring = spring
+        currentSpringTarget = target
+        // Restore default resting-pill shadow opacity on dismiss.
+        // Music pill / transient pill use 0.30-0.55 depending on
+        // state; 0.40 is a clean middle ground.
+        setShadowOpacity(0.40, duration: 0.18)
+        spring.animate(panel: panel, from: start, to: target) { [weak self] in
+            self?.currentSpring = nil
+            self?.currentSpringTarget = nil
+            self?.panel.setFrame(target, display: true)
+            self?.updateShadowPath()
+            completion?()
         }
     }
 

@@ -6,6 +6,35 @@ final class PanelPresenter: ObservableObject {
     @Published var isShown: Bool = false
     @Published var activeTab: PanelTab = .notes
 
+    /// Progress 0–1 during a two-finger trackpad close-swipe.
+    /// Driven by PanelWindowController's gesture handler. SwiftUI
+    /// views read this to apply progressive blur, scale, and tint
+    /// feedback to the panel contents — the same Alcove pattern
+    /// where the panel "looks like it's tucking back into the
+    /// notch" as you swipe up. 0 = at rest, 1 = at the commit
+    /// threshold (gesture would dismiss on release).
+    @Published var swipeProgress: Double = 0
+
+    /// Signed horizontal swipe progress (−1 to +1), driven by the
+    /// trackpad gesture handler. Negative = swiping left (next
+    /// track), positive = swiping right (previous track). Reset to
+    /// 0 outside the gesture. MusicPanelView uses this to scale +
+    /// glow the corresponding transport button as the user drags,
+    /// so the buttons animate alongside the swipe (Alcove parity:
+    /// `useAccentColorOnGestures` + `_gestureHorizontalProgress`).
+    @Published var swipeHorizontalProgress: Double = 0
+
+    /// Vertical content offset during a swipe-up close gesture, in
+    /// points. Applied as a SwiftUI `.offset(y: -swipeOffsetY)` on
+    /// the panel content. PanelWindowController writes this on
+    /// every gesture tick; SwiftUI's `.interactiveSpring` smooths
+    /// the motion into a real elastic-spring response (no hard
+    /// linear translation, no NSAnimationContext one-shot — the
+    /// spring tracks the target continuously, which is what
+    /// Alcove's `alignmentSpring` does at the AppKit level).
+    /// Resets to 0 on commit / cancel / show / hide.
+    @Published var swipeOffsetY: CGFloat = 0
+
     /// CoreAudio-driven "is any user-facing app actually outputting
     /// audio right now?" signal. Sourced from
     /// `SystemAudioWatcher.isAudioFlowing` via NotchOrchestrator.
@@ -299,6 +328,27 @@ final class PanelPresenter: ObservableObject {
         /// Brief acknowledgement so the user doesn't wonder if
         /// their files went somewhere they didn't intend.
         case airDropFailed
+        /// New music track started playing — pill briefly expands
+        /// to show "♫ Title · Artist" with the album art and a tiny
+        /// equalizer indicator, like Alcove. Auto-collapses after the
+        /// per-event window. Artwork lives in
+        /// `lastAnnouncedTrackArtwork` (out-of-band so the enum stays
+        /// cheap to Equatable-compare). Fires once per
+        /// (title, artist) pair so pause/resume of the same track
+        /// doesn't re-announce.
+        case trackChanged(title: String, artist: String)
+        /// User adjusted system output volume (volume keys, menu-bar
+        /// slider, AppleScript). Pill expands into a notch-anchored
+        /// banner with a speaker glyph + horizontal volume bar that
+        /// fills to `level` (0–1). `muted` flips the icon and dims
+        /// the bar regardless of level.
+        ///
+        /// Each repeated push (held keys = ~10–30 events/sec) is
+        /// equality-distinct because either `level` or `muted`
+        /// changed, which resets the auto-dismiss timer — so the HUD
+        /// stays visible the whole time the user holds the key and
+        /// auto-dismisses ~1.5s after they release.
+        case volumeChanged(level: Float, muted: Bool)
     }
     @Published var pendingSystemEvent: SystemEvent? = nil
     private var pendingSystemEventTimer: Task<Void, Never>?
@@ -319,6 +369,36 @@ final class PanelPresenter: ObservableObject {
     /// each time CalendarMonitorService pushes a new upcoming event;
     /// nil otherwise. Read by the click handler to open the join link.
     @Published var upcomingMeetingJoinURL: URL? = nil
+
+    /// Album artwork for the most recent `trackChanged` announcement.
+    /// Held out-of-band from the SystemEvent enum so a `Data` blob
+    /// doesn't slow down the enum's per-frame Equatable comparison
+    /// (SwiftUI calls it on every body re-evaluation while the pill
+    /// is visible). Set by AppDelegate alongside `setPendingSystemEvent`,
+    /// read by the trackChanged pill renderer.
+    @Published var lastAnnouncedTrackArtwork: Data? = nil
+
+    /// True from the moment AppDelegate decides to fire a
+    /// `.trackChanged` banner until the dismiss spring completes.
+    /// PanelRootView's `.onChange(of: presenter.nowPlaying)` Branch 4
+    /// reads this and skips the music-pill swap animation when a
+    /// banner is about to take over — otherwise the user briefly
+    /// sees the music pill's artwork fading in/out during the
+    /// 250ms pre-show window before the banner appears (perceived
+    /// as flicker, user feedback 2026-05-07: "music is like
+    /// flickering for some reason").
+    @Published var trackChangedFiring: Bool = false
+
+    /// Artwork that was being displayed BEFORE the current track-
+    /// change announcement fired. Captured by AppDelegate at the
+    /// moment a banner is about to fire — used by TrackChangedPillBody
+    /// to render the FRONT face of a two-faced card flip. The flip
+    /// rotates from front (old artwork) → 180° → back (new artwork)
+    /// so the user visibly sees the artwork CHANGING during the
+    /// banner expansion. User feedback 2026-05-07: "we need to tilt
+    /// the artwork when it's changing the music and the thing
+    /// expanding".
+    @Published var bannerFromArtwork: Data? = nil
 
     /// Closure AppDelegate installs to forward a "user tapped the
     /// calendar pill" signal. Defaults to opening
@@ -396,6 +476,23 @@ final class PanelPresenter: ObservableObject {
             // (or it failed); we just don't want them wondering if
             // something went out by accident.
             return 2.0
+        case .trackChanged:
+            // SAFETY-NET timeout. AppDelegate owns the trackChanged
+            // lifecycle: 100ms pre-show delay + ~1500ms sustain +
+            // ~250ms dismiss = ~1850ms normal-case total. This
+            // auto-clear at 3.0s is the FALLBACK in case AppDelegate's
+            // dispatched closure never runs (app suspended mid-banner,
+            // etc.). Set well past AppDelegate's 1.85s so the two
+            // timers don't race in the normal case.
+            return 3.0
+        case .volumeChanged:
+            // Matches macOS native volume HUD timing — short enough
+            // to stay out of the way, long enough that a single tap
+            // is readable. Each held-key tick re-pushes and resets
+            // the timer, so the HUD stays visible the whole time the
+            // user is dragging the level up or down and dismisses
+            // ~1.5s after their last input.
+            return 1.5
         }
     }
 
@@ -427,6 +524,17 @@ final class PanelPresenter: ObservableObject {
         case .airDropSent, .airDropFailed:
             // User explicitly initiated this AirDrop send — they
             // need to know whether it landed regardless of focus.
+            return false
+        case .trackChanged:
+            // Track-change announcements are the chatty kind that
+            // SHOULD respect Focus mode. If the user is heads-down,
+            // the music keeps playing without the pill flashing every
+            // 3 minutes when the song changes.
+            return true
+        case .volumeChanged:
+            // Volume HUD is user-initiated — they pressed a key.
+            // Suppressing it would feel broken (matches macOS native
+            // volume HUD which always shows regardless of Focus).
             return false
         }
     }

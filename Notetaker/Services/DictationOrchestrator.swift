@@ -388,11 +388,32 @@ final class DictationOrchestrator: ObservableObject {
 
     private func setStateAndNotify(_ new: State) {
         setState(new)
+        // Mark dictation "active" for any non-idle state — this
+        // suppresses the volume HUD while the user is dictating
+        // (works regardless of whether the user's hotkey is Fn,
+        // ⌘⇧D, or a custom binding). SystemVolumeWatcher reads
+        // this flag and skips firing the HUD callback while it's
+        // true. Cleared back to false on .idle.
+        switch new {
+        case .idle:
+            DictationOrchestrator.isActive = false
+        default:
+            DictationOrchestrator.isActive = true
+        }
         onStateChange?(new)
         if case .error(let msg) = new {
             scheduleErrorRecovery(after: msg.count > 80 ? 4.5 : 2.5)
         }
     }
+
+    /// Globally observable "is dictation active" flag. True from the
+    /// moment the user triggers their dictation hotkey (Fn / ⌘⇧D /
+    /// whatever they configured) through the recording, transcription,
+    /// and error-recovery phases — back to false when state returns
+    /// to .idle. SystemVolumeWatcher reads this to suppress the volume
+    /// HUD during the entire dictation session, regardless of how the
+    /// user triggered it.
+    static var isActive: Bool = false
 
     private func scheduleErrorRecovery(after delay: TimeInterval) {
         errorRecoveryTask?.cancel()

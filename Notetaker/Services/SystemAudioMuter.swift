@@ -29,6 +29,40 @@ import Foundation
 /// mute step than crash the dictation flow.
 enum SystemAudioMuter {
 
+    /// True while a programmatic silence/restore operation is in
+    /// flight (or its trailing settle window). `SystemVolumeWatcher`
+    /// reads this and skips the volume HUD pop for the resulting
+    /// CoreAudio property-change notifications — without it, every
+    /// dictation start/stop would flash the volume HUD because our
+    /// listener can't tell the difference between a user pressing a
+    /// volume key and us writing the property programmatically.
+    ///
+    /// Using a counter rather than a Bool so back-to-back calls
+    /// (silence → restore → silence) don't race the trailing reset.
+    /// The counter is bumped synchronously before each AudioObject
+    /// write and decremented after a 0.4s window — that's well past
+    /// the typical CoreAudio listener fire delay (a few ms) and
+    /// short enough that a real user volume tap immediately after
+    /// dictation isn't accidentally swallowed.
+    static var programmaticChangeCount: Int = 0
+    static var isPerformingProgrammaticChange: Bool {
+        programmaticChangeCount > 0
+    }
+
+    /// Bracket a programmatic CoreAudio write so the volume listener
+    /// suppresses HUD pops for the resulting change notifications.
+    /// Always pair: counter increments before the write, decrements
+    /// 0.4s later via async dispatch.
+    static func bracketProgrammaticChange(_ block: () -> Void) {
+        programmaticChangeCount += 1
+        block()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            if programmaticChangeCount > 0 {
+                programmaticChangeCount -= 1
+            }
+        }
+    }
+
     /// Snapshot of what we changed. Pass to `restore(_:)` to undo.
     struct State {
         /// The user already had system muted before we started — so
@@ -233,6 +267,15 @@ enum SystemAudioMuter {
             return State(alreadyMuted: false, mutedViaProperty: false, originalVolume: nil)
         }
 
+        // Suppress the volume-HUD listener for the duration of this
+        // programmatic write + a trailing 0.4s settle window.
+        programmaticChangeCount += 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            if programmaticChangeCount > 0 {
+                programmaticChangeCount -= 1
+            }
+        }
+
         let preMute = readMuted(device)
         let preVol = readVolume(device)
         let wireless = isWirelessDevice(device)
@@ -322,6 +365,17 @@ enum SystemAudioMuter {
             audioLog("restore: no device")
             return
         }
+
+        // Suppress the volume-HUD listener for the duration of this
+        // programmatic write + trailing 0.4s settle window. Same
+        // pattern as silence() above.
+        programmaticChangeCount += 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            if programmaticChangeCount > 0 {
+                programmaticChangeCount -= 1
+            }
+        }
+
         let preVol = readVolume(device)
         audioLog("restore ENTER: alreadyMuted=\(state.alreadyMuted) viaProp=\(state.mutedViaProperty) origVol=\(String(describing: state.originalVolume)) preVol=\(String(describing: preVol))")
         if state.alreadyMuted {

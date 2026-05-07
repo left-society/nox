@@ -750,6 +750,21 @@ struct MusicPanelView: View {
         // New layout: Spacer | prev play next | Spacer. Cluster
         // (~166pt) centers in 235pt VStack with ~35pt of breathing
         // room on each side.
+        // Live horizontal swipe progress for transport-button
+        // animation. Negative = swiping LEFT (next). Positive =
+        // swiping RIGHT (previous). PanelWindowController writes
+        // this to the presenter on every gesture tick.
+        //
+        // Per-button factor: each side of the transport row picks
+        // up the abs of progress IN ITS DIRECTION, clamped to 0–1.
+        // The corresponding button scales up + tints with the
+        // accent color in real time as the user drags. The opposite
+        // button stays at rest. Same pattern Alcove uses
+        // (`useAccentColorOnGestures`).
+        let swipe = presenter.swipeHorizontalProgress
+        let nextActive = max(0, -swipe)        // 0–1, leftward swipe magnitude
+        let prevActive = max(0, swipe)         // 0–1, rightward swipe magnitude
+
         return HStack(spacing: 0) {
             Spacer(minLength: 0)
 
@@ -762,6 +777,17 @@ struct MusicPanelView: View {
                     accent: accent,
                     accessibility: "Previous track"
                 ) { dispatch(.previous) }
+                .scaleEffect(1 + prevActive * 0.18)
+                .shadow(
+                    color: accent.opacity(prevActive * 0.55),
+                    radius: prevActive * 16,
+                    x: 0, y: 0
+                )
+                .animation(
+                    .spring(response: 0.28, dampingFraction: 0.72),
+                    value: prevActive
+                )
+
                 MusicControlButton(
                     systemImage: isPlaying ? "pause.fill" : "play.fill",
                     glyphSize: 22,
@@ -770,6 +796,7 @@ struct MusicPanelView: View {
                     accent: accent,
                     accessibility: isPlaying ? "Pause" : "Play"
                 ) { dispatch(.togglePlayPause) }
+
                 MusicControlButton(
                     systemImage: "forward.fill",
                     glyphSize: 16,
@@ -778,6 +805,16 @@ struct MusicPanelView: View {
                     accent: accent,
                     accessibility: "Next track"
                 ) { dispatch(.next) }
+                .scaleEffect(1 + nextActive * 0.18)
+                .shadow(
+                    color: accent.opacity(nextActive * 0.55),
+                    radius: nextActive * 16,
+                    x: 0, y: 0
+                )
+                .animation(
+                    .spring(response: 0.28, dampingFraction: 0.72),
+                    value: nextActive
+                )
             }
 
             Spacer(minLength: 0)

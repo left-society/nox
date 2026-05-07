@@ -173,7 +173,20 @@ actor LocalWhisperService {
 
         var options = DecodingOptions()
         options.language = "en"
+        // Start at temperature 0 (greedy decoding — most accurate),
+        // but let WhisperKit fall back to higher temperatures if the
+        // greedy output triggers `compressionRatioThreshold` (the
+        // "too repetitive" check) or `logProbThreshold` (low-confidence
+        // check). The defaults (2.4 / -1.0) are conservative; a
+        // tighter compressionRatioThreshold catches the doubling
+        // failure mode (user feedback 2026-05-08: "doubling the
+        // sentence that I am saying").
         options.temperature = 0
+        options.compressionRatioThreshold = 1.8         // default 2.4 — tighter
+        options.logProbThreshold = -0.5                  // default -1.0 — tighter
+        options.noSpeechThreshold = 0.3                  // default 0.6 — drop silent segments more aggressively
+        options.temperatureFallbackCount = 5
+        options.temperatureIncrementOnFallback = 0.2
 
         if let prompt = vocabularyPrompt, !prompt.isEmpty,
            let tokenizer = pipeline.tokenizer {
@@ -190,7 +203,73 @@ actor LocalWhisperService {
         NSLog("nox: LocalWhisper transcribe done in \(String(format: "%.2f", dt))s")
 
         let text = results.map { $0.text }.joined(separator: " ")
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Self.filterHallucinationsAndDedup(
+            text.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    /// Strip well-known Whisper training-data hallucinations and
+    /// de-duplicate consecutive identical sentences. Whisper was
+    /// trained on YouTube subtitles, so on silent or low-signal
+    /// audio it likes to emit canned phrases ("Thanks for
+    /// watching!", "Subtitles by the Amara.org community", etc.)
+    /// even with `noSpeechThreshold` set. Greedy decoding can also
+    /// produce direct sentence repeats ("Hello world. Hello world.")
+    /// that pass the compression-ratio check at sentence granularity.
+    /// Both cleanups happen here as a final post-process.
+    static func filterHallucinationsAndDedup(_ raw: String) -> String {
+        guard !raw.isEmpty else { return raw }
+
+        // Known Whisper hallucination phrases. Case-insensitive
+        // exact-line matches; partial matches are deliberately
+        // skipped to avoid eating real sentences that happen to
+        // contain "you" etc.
+        let hallucinations: Set<String> = [
+            "thanks for watching!",
+            "thanks for watching",
+            "thank you for watching!",
+            "thank you for watching",
+            "thank you.",
+            "thank you",
+            "subtitles by the amara.org community",
+            "subtitles by the amara.org",
+            "subscribe to the channel",
+            "please subscribe",
+            "[ music ]",
+            "[music]",
+            "(music)",
+            "♪ music ♪",
+            "♪♪",
+            "you",                                // lone-"you" hallucination
+            ".",                                  // lone period
+        ]
+
+        // Split into sentence-ish units, filter, dedup, rejoin.
+        // Use both period+space AND newline boundaries so we catch
+        // each Whisper segment cleanly.
+        let segments = raw
+            .components(separatedBy: CharacterSet(charactersIn: ".!?\n"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+
+        var out: [String] = []
+        var lastNormalized = ""
+        for seg in segments {
+            let normalized = seg.lowercased()
+                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".,!?")))
+            // Drop hallucinated lines outright.
+            if hallucinations.contains(normalized) { continue }
+            // Drop back-to-back duplicates (case-insensitive).
+            if normalized == lastNormalized { continue }
+            out.append(seg)
+            lastNormalized = normalized
+        }
+
+        // Rejoin with periods so the cleanup-LLM downstream sees
+        // proper sentence boundaries. Trailing punctuation already
+        // stripped above.
+        return out.joined(separator: ". ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
