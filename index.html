@@ -224,14 +224,23 @@
     align-items: center;
     gap: 24px;
     padding: 0 6px 0 18px;
-    background: rgba(10, 10, 14, 0.85);
-    backdrop-filter: blur(20px) saturate(170%);
-    -webkit-backdrop-filter: blur(20px) saturate(170%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    /*  Real glass treatment matching the page's .liquid-glass
+        cards. Subtle white-tint gradient over a near-transparent
+        dark base lets the wallpaper bleed through; backdrop-filter
+        blur + saturate gives the actual glass refraction. */
+    background:
+      linear-gradient(180deg,
+        rgba(255, 255, 255, 0.07),
+        rgba(255, 255, 255, 0.02)),
+      rgba(20, 20, 28, 0.30);
+    backdrop-filter: blur(22px) saturate(180%);
+    -webkit-backdrop-filter: blur(22px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 999px;
     box-shadow:
-      0 12px 32px rgba(0, 0, 0, 0.45),
-      0 1px 0 rgba(255, 255, 255, 0.05) inset;
+      0 14px 40px rgba(0, 0, 0, 0.55),
+      0 1px 0 rgba(255, 255, 255, 0.10) inset,
+      0 -1px 0 rgba(0, 0, 0, 0.35) inset;
     overflow: hidden;
     /*  No CSS transition on width / padding / gap — those are
         animated by the JS damped-spring integrator (matching
@@ -1804,17 +1813,24 @@
       blurred halo, because at 20–28px those layers compress to a
       tiny dark square and the ring detail disappears (visible in
       the user's screenshot when we tried the full glyph in the
-      nav). Same gradient ring as #noxGlyph so the brand reads
-      consistently; just the ambient backdrop layers stripped.
+      nav).
 
-      Bumped stroke-width 20/1024 → 60/1024 so the ring stays
-      readable when scaled down to 22px (effective stroke ~1.3px).
+      Mask defined INSIDE the symbol so it inherits the symbol's
+      viewBox coordinate system (0 0 1024 1024). Earlier the mask
+      was in the outer 0×0 wrapper SVG and its coordinates were
+      interpreted in that wrapper's user space — making the mask
+      effectively black everywhere and hiding the entire ring.
+
+      Stroke-width 60/1024 so the ring stays readable when scaled
+      down to 22-28px (effective stroke ~1.3-1.7px).
     -->
-    <mask id="nox-mark-notch" maskUnits="userSpaceOnUse">
-      <rect width="1024" height="1024" fill="white"/>
-      <rect x="484" y="180" width="56" height="50" fill="black"/>
-    </mask>
     <symbol id="noxMark" viewBox="0 0 1024 1024">
+      <defs>
+        <mask id="nox-mark-notch">
+          <rect width="1024" height="1024" fill="white"/>
+          <rect x="484" y="180" width="56" height="50" fill="black"/>
+        </mask>
+      </defs>
       <g mask="url(#nox-mark-notch)">
         <circle cx="512" cy="512" r="350" fill="none"
                 stroke="url(#nox-ringFill)" stroke-width="60"
