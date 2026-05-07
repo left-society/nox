@@ -90,19 +90,29 @@
   body {
     background: var(--bg);
   }
-  /*  Live wallpaper layer.
-      Apple ships TahoeDark.heic (still) but no Tahoe Dark
-      .mov, and the only Tahoe video (Tahoe Day) stays bright
-      throughout. Used the next best system asset: Sonoma
-      Graphic Dark Landscape.mov, re-encoded for web at 1280×720
-      (WebM 3.8MB / MP4 6MB) + a still poster for instant paint.
+  /*  Live wallpaper layer (Tahoe Dark).
+      Apple ships TahoeDark.heic but no native Tahoe Dark
+      .mov. Synthesized a real video file by taking the
+      TahoeDark still and baking subtle Ken Burns motion into
+      it via ffmpeg's zoompan filter (sine-wave breathing
+      scale 1.0→1.06, gentle horizontal+vertical drift, 30s
+      perfect loop). The motion lives INSIDE the encoded
+      video, so it's an actual <video> element at the page
+      level — qualifies as a "live wallpaper" the same way
+      any animated background does, just authored from the
+      Tahoe Dark source instead of from a Sonoma source.
 
-      The <video> element sits at z-index: -3, full-bleed,
-      object-fit: cover. Auto-plays, loops, muted, playsinline
-      so iOS Safari treats it as inline media not a fullscreen
-      modal. The poster image (a frame from the same video)
-      shows during load and on devices that block autoplay
-      so users always see SOMETHING on the backdrop. */
+      Final files: WebM 215KB (VP9), MP4 662KB (H.264). The
+      tiny size comes from the slow motion + low scene
+      complexity — both codecs compress the static-ish frames
+      down to almost nothing.
+
+      The <video> sits at z-index: -3, full-bleed, object-fit:
+      cover. Auto-plays, loops, muted, playsinline so iOS
+      Safari treats it as inline media not a fullscreen modal.
+      Poster = wallpaper-tahoe-dark.jpg (same source still),
+      so users see Tahoe Dark instantly even before the
+      video frames decode. */
   .wallpaper {
     position: fixed;
     inset: 0;
@@ -119,7 +129,7 @@
     .wallpaper { display: none; }
     body {
       background:
-        url("/assets/wallpaper-sonoma-dark.jpg") center/cover fixed no-repeat,
+        url("/assets/wallpaper-tahoe-dark.jpg") center/cover fixed no-repeat,
         var(--bg);
     }
   }
@@ -1597,7 +1607,7 @@
      when autoplay is blocked. Sits behind everything at
      z-index: -3 (see .wallpaper rule in <style>). -->
 <video class="wallpaper" autoplay loop muted playsinline preload="metadata"
-       poster="/assets/wallpaper-sonoma-dark.jpg" aria-hidden="true">
+       poster="/assets/wallpaper-tahoe-dark.jpg" aria-hidden="true">
   <source src="/assets/wallpaper-live.webm" type="video/webm" />
   <source src="/assets/wallpaper-live.mp4"  type="video/mp4" />
 </video>
