@@ -89,21 +89,112 @@
       ----------------------------------------------------------------  */
   body {
     background: var(--bg);
+    /*  Body needs to be relative-positioned so the absolutely-
+        positioned .wallpaper-stack can size to the document
+        height (its containing block becomes <body>). */
+    position: relative;
   }
-  /*  Wallpaper layer — actual macOS Tahoe Dark wallpaper.
-      The .heic Apple ships at /System/Library/ExtensionKit/
-      Extensions/NeptuneOneWallpaper.appex/Contents/Resources/
-      TahoeDark.heic, converted to JPEG, fixed to the viewport.
-      Same image macOS sets as the desktop wallpaper when you
-      pick Tahoe Dark in System Settings. No video, no
-      synthesized motion — the actual macOS wallpaper. */
-  .wallpaper {
-    position: fixed;
+
+  /*  Wallpaper STACK — three macOS wallpapers layered down the
+      page, each owning a vertical band of the scroll. They use
+      `position: absolute` (not fixed) so they SCROLL WITH the
+      page content rather than feeling stuck on the viewport.
+      Author: "[the wallpaper] should scroll with it too, so it
+      doesn't look like it's just a background. It's part of
+      the website."
+
+      Three layers:
+        wp-1: Tahoe Dark    — top of page, purple/dark Apple
+        wp-2: Sonoma Dark   — middle, abstract dark swooshes
+        wp-3: Sonoma Horizon — bottom, midnight blue horizon
+
+      Each layer is sized to span ~200vh and they OVERLAP by
+      50vh so consecutive layers crossfade. Top and bottom
+      gradient mask on every layer makes the fade smooth — no
+      visible seam between sections.
+
+      All wallpapers are real Apple system assets, so there's
+      a coherent design language across the journey: dark
+      wallpaper → dark wallpaper → dark wallpaper, just with
+      different palettes. */
+  .wallpaper-stack {
+    position: absolute;
     inset: 0;
     z-index: -3;
     pointer-events: none;
-    background:
-      url("/assets/wallpaper-tahoe-dark.jpg") center/cover no-repeat;
+    overflow: hidden;
+  }
+  .wp-layer {
+    position: absolute;
+    left: 0;
+    right: 0;
+    background-size: cover;
+    background-position: center;
+    /*  Top + bottom gradient mask: fade in over the first 12%
+        of the layer's height, fully opaque in the middle, fade
+        out over the last 12%. With 200vh layer heights and 50vh
+        overlap, the fade-out region of one layer overlaps the
+        fade-in region of the next, producing a smooth crossfade
+        as the user scrolls past the boundary. */
+    -webkit-mask-image: linear-gradient(180deg,
+      transparent 0%,
+      black 12%,
+      black 88%,
+      transparent 100%);
+            mask-image: linear-gradient(180deg,
+      transparent 0%,
+      black 12%,
+      black 88%,
+      transparent 100%);
+  }
+  /*  Layers sized as PERCENTAGES of the wallpaper-stack height
+      (which equals the full document height because .wallpaper-
+      stack has inset:0). vh units would only cover a few
+      viewports — the page is ~5 viewports tall, so we need
+      relative-to-document sizing.
+
+      Layout:
+        wp-1   0%  →  42%   (fades out  82%–100% of self)
+        wp-2  28%  →  72%   (fades in 0–18%, fades out 82–100%)
+        wp-3  58%  → 100%   (fades in 0–18%)
+
+      Overlap zones: 28-42% (wp-1 fading out, wp-2 fading in)
+                     58-72% (wp-2 fading out, wp-3 fading in)
+      Each layer's background-image is sized cover, repeated
+      vertically — repeating-cover gives a continuous backdrop
+      throughout the layer's range without horizontal seams. */
+  .wp-1 {
+    top: 0;
+    height: 42%;
+    background-image: url("/assets/wallpaper-tahoe-dark.jpg");
+    background-attachment: scroll;
+    background-size: 100vw auto;
+    background-repeat: repeat-y;
+    /*  First layer: no top fade (page starts full), bottom
+        fade-out for crossfade with wp-2. */
+    -webkit-mask-image: linear-gradient(180deg,
+      black 0%, black 80%, transparent 100%);
+            mask-image: linear-gradient(180deg,
+      black 0%, black 80%, transparent 100%);
+  }
+  .wp-2 {
+    top: 28%;
+    height: 44%;
+    background-image: url("/assets/wallpaper-sonoma-dark.jpg");
+    background-size: 100vw auto;
+    background-repeat: repeat-y;
+  }
+  .wp-3 {
+    top: 58%;
+    height: 42%;
+    background-image: url("/assets/wallpaper-sonoma-horizon.jpg");
+    background-size: 100vw auto;
+    background-repeat: repeat-y;
+    /*  Last layer: fades in at top, no fade at bottom. */
+    -webkit-mask-image: linear-gradient(180deg,
+      transparent 0%, black 18%, black 100%);
+            mask-image: linear-gradient(180deg,
+      transparent 0%, black 18%, black 100%);
   }
   body::before {
     content: "";
@@ -1737,13 +1828,30 @@
 </head>
 <body>
 
-<!-- macOS Tahoe Dark wallpaper. The actual Apple wallpaper file
-     (TahoeDark.heic from /System/Library/ExtensionKit/Extensions/
-     NeptuneOneWallpaper.appex/), converted to JPEG. Same image
-     macOS shows on the desktop when you pick Tahoe Dark, just
-     served as a fixed background instead of a desktop picture.
-     No synthesized motion, no video file. -->
-<div class="wallpaper" aria-hidden="true"></div>
+<!--
+  Three-layer scrolling wallpaper stack. Each layer is a real
+  macOS dark wallpaper, positioned absolute (NOT fixed) so it
+  scrolls with the page like part of the document. Adjacent
+  layers overlap by ~50vh and use gradient masks at top/bottom
+  so they crossfade smoothly as the user scrolls.
+
+  Author: "the wallpaper that we have should scroll with it too,
+  so it doesn't look like it's just a background. It's part of
+  the website."
+
+  Layer ranges:
+    wp-1 (Tahoe Dark)         0vh →  200vh   purple anchor
+    wp-2 (Sonoma Dark)        150vh →  350vh   crossfade middle
+    wp-3 (Sonoma Horizon)     300vh →  620vh   blue tail
+
+  See .wallpaper-stack rule in <style> for the gradient masks
+  and crossfade math.
+-->
+<div class="wallpaper-stack" aria-hidden="true">
+  <div class="wp-layer wp-1"></div>
+  <div class="wp-layer wp-2"></div>
+  <div class="wp-layer wp-3"></div>
+</div>
 
 <!--
   Reusable nox brand mark — full app icon (1024×1024 source).
