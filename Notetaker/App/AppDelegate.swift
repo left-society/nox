@@ -2048,9 +2048,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Existing-note short-circuit. Don't create a duplicate
             // and don't pop the pill again — user already saw the
             // earlier capture.
-            if env.noteStore.notes.contains(where: { $0.body == text }) {
-                return
+            //
+            // Earlier rev only matched EXACT body strings, so
+            // "hello world" vs "hello world\n" (trailing newline)
+            // vs "Hello World" all bypassed the dedupe and stacked
+            // up as separate notes. User feedback 2026-05-08:
+            // "in notes same thing won't copy twice in 6-7 line".
+            // Now we normalize (case-fold + collapse whitespace)
+            // and only inspect the most-recent 7 notes — a
+            // recent-window check matches the user's intent
+            // (don't re-capture something I just captured) and
+            // doesn't false-positive on legitimately-repeated
+            // text across hours of usage.
+            let normalize: (String) -> String = { s in
+                s.lowercased()
+                    .components(separatedBy: .whitespacesAndNewlines)
+                    .filter { !$0.isEmpty }
+                    .joined(separator: " ")
             }
+            let normalizedIncoming = normalize(text)
+            let recentDupe = env.noteStore.notes
+                .prefix(7)
+                .contains { normalize($0.body) == normalizedIncoming }
+            if recentDupe { return }
             do {
                 // Tag this as a clipboard capture (NOT handwritten).
                 // The Notes tab UI segments on this so user can scan
