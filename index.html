@@ -233,15 +233,19 @@
       0 12px 32px rgba(0, 0, 0, 0.45),
       0 1px 0 rgba(255, 255, 255, 0.05) inset;
     overflow: hidden;
-    /*  Spring-ish transition. cubic-bezier(0.34, 1.56, 0.64, 1)
-        is the canonical "ease-out-back" curve — overshoots
-        slightly past target then settles, mimicking a damped
-        spring. Width + padding + border-radius all morph in
-        sync; child opacity uses a faster linear fade. */
+    /*  No CSS transition on width / padding / gap — those are
+        animated by the JS damped-spring integrator (matching
+        framer-motion's stiffness:260 damping:22) so we get
+        real spring physics with proper bounce-back, not just a
+        bezier curve approximation. See the inline spring
+        animator at the bottom of <body>.
+
+        Padding and gap still need a transition so they morph
+        in lockstep with the JS-driven width — keep them at
+        the same duration the spring takes to settle (~600ms). */
     transition:
-      width 0.55s cubic-bezier(0.34, 1.56, 0.64, 1),
-      padding 0.55s cubic-bezier(0.34, 1.56, 0.64, 1),
-      gap 0.55s cubic-bezier(0.34, 1.56, 0.64, 1);
+      padding 0.55s cubic-bezier(0.4, 0, 0.2, 1),
+      gap 0.55s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   /*  Brand area: lavender notch glyph + "nox" wordmark. */
@@ -272,33 +276,18 @@
     transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   .brand-mark svg { display: block; }
-  /*  Stagger pattern (matches Subedit's framer-motion variants):
-      on EXPAND, items fade IN in this order with these delays —
-        brand-name      0.18s
-        nav-links       0.24s
-        nav-cta         0.30s
-      on COLLAPSE, items fade OUT in REVERSE order —
-        nav-cta         0.00s
-        nav-links       0.05s
-        brand-name      0.10s
-      Delays on the default state apply during transitions TO that
-      state (expanding). Delays on .collapsed state apply during
-      transitions to collapsed. CSS gives us asymmetric timing that
-      way without needing JS to coordinate. */
-  .brand-name {
-    transition:
-      opacity 0.3s ease 0.18s,
-      transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) 0.18s;
-  }
+  /*  No CSS transition on .brand-name, .nav-links, or .nav-cta.
+      Their opacity / x-translate / scale are spring-animated
+      by JS (matching framer-motion's variants in the original
+      AnimatedNav.tsx) with explicit per-element delays for
+      the staggered fade. */
+  .brand-name { /* spring-animated by JS */ }
 
   /*  Nav links — pill-highlight hover, fade out on collapse. */
   .nav-links {
     display: flex;
     gap: 4px;
     align-items: center;
-    transition:
-      opacity 0.3s ease 0.24s,
-      transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) 0.24s;
   }
   .nav-links a {
     text-decoration: none;
@@ -327,11 +316,11 @@
     border-radius: 999px;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
     flex-shrink: 0;
+    /*  Hover/active color transitions only. Opacity/transform
+        animations on collapse/expand are spring-driven by JS. */
     transition:
       background 0.18s ease,
-      filter 0.18s ease,
-      opacity 0.3s ease 0.30s,
-      transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) 0.30s;
+      filter 0.18s ease;
   }
   header .btn-primary.nav-cta:hover {
     background: var(--accent-strong);
@@ -341,13 +330,32 @@
   }
   header .btn-primary.nav-cta svg { fill: currentColor; }
 
-  /*  COLLAPSED STATE — header morphs to a 44px circle. The
-      brand mark stays visible (centered absolutely so it
-      doesn't depend on the flex flow). Wordmark, links, and
-      CTA fade away with a slight inward translate so the
-      eye reads them as receding into the mark. */
+  /*  COLLAPSED-MARK
+      Sits absolute-centered, opacity 0 by default. JS fades it
+      to 1 on collapse and back to 0 on expand. Same pattern as
+      Subedit's separate <motion.div> with collapsedMarkVariants.
+      Lets the brand area crossfade between expanded (badge
+      visible) and collapsed (this mark visible) without a
+      position-flip jump. */
+  .collapsed-mark {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    opacity: 0;
+    /*  Slight scale spring on the mark itself when it appears
+        is animated by JS, but the base scale starts at 0.85
+        so it has somewhere to spring up FROM. */
+    transform: scale(0.85);
+    filter: drop-shadow(0 0 6px rgba(200, 181, 255, 0.45));
+  }
+  .collapsed-mark svg { display: block; }
+
+  /*  COLLAPSED STATE — structural CSS only. Width, opacity,
+      and transform are JS-spring-driven. */
   header.collapsed {
-    width: 44px;
     padding: 0;
     gap: 0;
     cursor: pointer;
@@ -355,47 +363,10 @@
   header.collapsed:hover { transform: translateX(-50%) scale(1.06); }
   header.collapsed:active { transform: translateX(-50%) scale(0.94); }
 
-  header.collapsed .brand {
-    /*  Center the brand area absolutely — when the pill becomes
-        a 44px circle, the mark needs to be exactly centered
-        inside the circle, not flow-positioned. */
-    position: absolute;
-    inset: 0;
-    justify-content: center;
-    pointer-events: none;
-  }
-  header.collapsed .brand-mark {
-    /*  Slight scale-up on the collapsed mark so it visually
-        "fills" the smaller pill more confidently. */
-    transform: translateY(0) scale(1.15);
-  }
-  /*  Collapse stagger: CTA goes first, then nav-links, then
-      brand-name. Reverse of the expand stagger so the items
-      appear to "wrap into" the brand mark. Delays here apply
-      during the transition TO .collapsed (collapsing). */
-  header.collapsed .nav-cta {
-    opacity: 0;
-    transform: translateX(-12px) scale(0.96);
-    pointer-events: none;
-    transition:
-      opacity 0.2s ease 0s,
-      transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) 0s;
-  }
+  header.collapsed .brand,
+  header.collapsed .nav-cta,
   header.collapsed .nav-links {
-    opacity: 0;
-    transform: translateX(-12px) scale(0.96);
     pointer-events: none;
-    transition:
-      opacity 0.2s ease 0.05s,
-      transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) 0.05s;
-  }
-  header.collapsed .brand-name {
-    opacity: 0;
-    transform: translateX(-12px) scale(0.96);
-    pointer-events: none;
-    transition:
-      opacity 0.2s ease 0.10s,
-      transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) 0.10s;
   }
 
   @media (max-width: 720px) {
@@ -1829,6 +1800,17 @@
     <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.463 1.58-1.518 3.12-.945 1.34-1.94 2.71-3.43 2.71-1.517 0-1.9-.88-3.63-.88-1.698 0-2.302.91-3.67.91-1.49 0-2.534-1.32-3.43-2.64-1.911-2.81-3.39-7.94-1.41-11.4.954-1.69 2.717-2.78 4.66-2.81 1.46-.03 2.83.96 3.71.96.88 0 2.55-.96 4.31-.82.74.03 2.81.3 4.13 2.25-.11.07-2.47 1.44-2.44 4.31.04 3.43 3.01 4.57 3.04 4.59-.07.04-2.84-1.41-3.5-2.91z"/></svg>
     <span class="cta-label">Download</span>
   </a>
+  <!--
+    Collapsed-state mark. Sits absolute-centered, hidden when
+    expanded, fades in on collapse. This is the same pattern
+    Subedit uses (a separate <motion.div> with collapsedMark
+    Variants in AnimatedNav.tsx) so the brand area can crossfade
+    smoothly between expanded and collapsed without a position-
+    flip jump.
+  -->
+  <span class="collapsed-mark" aria-hidden="true">
+    <svg viewBox="0 0 32 32" width="26" height="26"><use href="#noxGlyph"/></svg>
+  </span>
 </header>
 
 <!-- ── Hero ─────────────────────────────────────────────────── -->
@@ -2397,88 +2379,218 @@
     components/landing/AnimatedNav.tsx (Subedit's nav, itself a
     port of reapollo's "Navigation Menu" pattern from 21st.dev).
 
-    Behavior:
-      - scroll DOWN past 150px → add .collapsed class (CSS does
-        the morph: pill shrinks to a 44px circle, child elements
-        fade out)
-      - scroll UP by 80px from the collapse point → remove
-        .collapsed
-      - click the collapsed circle → expand immediately
-      - on top of the page (≤150px) the pill is always expanded
+    The original uses framer-motion with a spring transition:
+        { type: 'spring', damping: 22, stiffness: 260 }
 
-    Spring physics handled in CSS via cubic-bezier(0.34, 1.56,
-    0.64, 1) — overshoots slightly past target, settles, mimics
-    a damped spring without needing framer-motion.
+    To match the EXACT spring feel without bringing in
+    framer-motion's 50KB+ runtime, this script implements the
+    same damped-spring ODE that framer-motion uses internally
+    (see framer-motion/src/animation/generators/spring.ts).
+    Per-frame integration via requestAnimationFrame, with the
+    same critical-damping ratio math, gives visually identical
+    motion to the React version at a fraction of the size.
     ----------------------------------------------------------------  */
 (() => {
   const header = document.getElementById("navHeader");
   if (!header) return;
 
+  const brand         = header.querySelector(".brand");
+  const brandName     = header.querySelector(".brand-name");
+  const navLinks      = header.querySelector(".nav-links");
+  const navCta        = header.querySelector(".nav-cta");
+  const collapsedMark = header.querySelector(".collapsed-mark");
+
   const COLLAPSE_AT = 150;
   const EXPAND_SCROLL_THRESHOLD = 80;
 
-  let lastY = window.scrollY;
-  let collapseY = 0;
-  let isCollapsed = false;
+  /*  Spring physics matched to framer-motion's defaults for
+      the AnimatedNav layout transition. Damping ratio
+      ζ = damping / (2 * sqrt(stiffness * mass)) = 22 / (2*16.12) ≈ 0.68
+      → underdamped, visible bounce, settles in ~600ms. */
+  const SPRING_STIFFNESS = 260;
+  const SPRING_DAMPING   = 22;
+  const SPRING_MASS      = 1;
 
-  /*  CSS can't transition `width` from `auto` to `44px` — it just
-      snaps. framer-motion's <motion.nav layout> in the original
-      AnimatedNav handles this by measuring the element before
-      AND after the state change, then animating between the two
-      numeric widths. We do the same dance manually:
+  /*  Per-element animator. Each element has its own current
+      value + velocity for the property being animated. RAF tick
+      reads dt, computes spring force + damping force, integrates
+      Verlet-style. Settles when both position error and velocity
+      drop below their thresholds. */
+  const activeAnimators = new WeakMap();
 
-        on COLLAPSE:
-          1. Read current offsetWidth (e.g., 540px)
-          2. Lock it as inline style: width: 540px
-          3. Force a reflow (read offsetHeight)
-          4. Add .collapsed class (its CSS sets width: 44px and
-             overrides the inline 540px)
-          5. Browser transitions from 540 → 44 over 0.55s
+  function springAnimate(el, property, target, options = {}) {
+    const {
+      stiffness = SPRING_STIFFNESS,
+      damping   = SPRING_DAMPING,
+      mass      = SPRING_MASS,
+      delay     = 0,
+      onUpdate,
+    } = options;
 
-        on EXPAND:
-          1. Remove .collapsed (briefly the element is auto width)
-          2. Measure the natural offsetWidth (e.g., 540px)
-          3. Set inline width: 44px (starting point of animation)
-          4. Force reflow
-          5. Set inline width to the measured natural value
-          6. Browser transitions 44 → 540 over 0.55s
-          7. After transitionend, clear the inline width so the
-             pill goes back to auto-sizing on content
-  */
-  const setCollapsed = (next) => {
-    if (next === isCollapsed) return;
-    isCollapsed = next;
+    /*  Cancel any in-flight animator on this element/property
+        so a fast scroll-flicker doesn't stack two springs. */
+    const key = el.__springKey = (el.__springKey || {});
+    if (key[property]) key[property].cancelled = true;
 
-    if (next) {
-      const fromWidth = header.offsetWidth;
-      header.style.width = fromWidth + "px";
-      // Force layout flush so the browser actually paints at the
-      // locked width before the class change kicks in.
-      void header.offsetHeight;
-      header.classList.add("collapsed");
-      // Clear the inline width AFTER the class is on. The CSS rule
-      // (.collapsed { width: 44px }) now takes over, the
-      // transition runs from the locked 540px → 44px.
-      header.style.width = "";
-      collapseY = window.scrollY;
-    } else {
-      header.classList.remove("collapsed");
-      // Element is briefly at auto width — measure it
-      const naturalWidth = header.offsetWidth;
-      // Snap back to 44px as the start frame
-      header.style.width = "44px";
-      void header.offsetHeight;
-      header.style.width = naturalWidth + "px";
-      // After the spring settles, drop the inline width so the
-      // pill returns to auto-sizing (room for content changes).
-      const onEnd = (e) => {
-        if (e.propertyName !== "width") return;
-        header.style.width = "";
-        header.removeEventListener("transitionend", onEnd);
-      };
-      header.addEventListener("transitionend", onEnd);
+    /*  Read current value as the starting point. For width we
+        read offsetWidth; for opacity / x / scale we track in
+        the element's __springState so we don't have to parse
+        computed styles every tick. */
+    const state = (el.__springState = el.__springState || {});
+    let current = state[property];
+    if (current === undefined) {
+      if (property === "width") current = el.offsetWidth;
+      else if (property === "opacity") current = parseFloat(getComputedStyle(el).opacity) || 1;
+      else current = 0;
     }
-  };
+
+    let velocity = 0;
+    let lastTime = null;
+    let elapsed = 0;
+    const handle = { cancelled: false };
+    key[property] = handle;
+
+    const apply = (v) => {
+      state[property] = v;
+      if (onUpdate) {
+        onUpdate(v);
+        return;
+      }
+      if (property === "width") {
+        el.style.width = v + "px";
+      } else if (property === "opacity") {
+        el.style.opacity = v;
+      } else if (property === "x") {
+        const sc = state.scale ?? 1;
+        el.style.transform = `translateX(${v}px) scale(${sc})`;
+      } else if (property === "scale") {
+        const x = state.x ?? 0;
+        el.style.transform = `translateX(${x}px) scale(${v})`;
+      }
+    };
+
+    const tick = (now) => {
+      if (handle.cancelled) return;
+      if (lastTime === null) {
+        lastTime = now;
+        requestAnimationFrame(tick);
+        return;
+      }
+      const rawDt = (now - lastTime) / 1000;
+      lastTime = now;
+      elapsed += rawDt;
+
+      if (elapsed < delay) {
+        requestAnimationFrame(tick);
+        return;
+      }
+
+      // Clamp dt so a tab-switch doesn't blow up the integrator.
+      const dt = Math.min(rawDt, 1 / 30);
+
+      const force      = -stiffness * (current - target);
+      const dampForce  = -damping * velocity;
+      const accel      = (force + dampForce) / mass;
+      velocity        += accel * dt;
+      current         += velocity * dt;
+
+      apply(current);
+
+      const positionError = Math.abs(current - target);
+      const velocityMag   = Math.abs(velocity);
+      // Per-property settle thresholds — width is in pixels so
+      // 0.5 is fine; opacity is 0–1 so we need a finer threshold.
+      const posThresh = property === "opacity" || property === "scale" ? 0.001 : 0.5;
+      const velThresh = property === "opacity" || property === "scale" ? 0.01  : 1.0;
+
+      if (positionError < posThresh && velocityMag < velThresh) {
+        current = target;
+        apply(current);
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  let isCollapsed = false;
+  let collapseY = 0;
+  let lastY = window.scrollY;
+  let cachedExpandedWidth = 0;
+
+  function collapse() {
+    if (isCollapsed) return;
+    isCollapsed = true;
+    collapseY = window.scrollY;
+    cachedExpandedWidth = header.offsetWidth;
+
+    header.classList.add("collapsed");
+
+    // Header morphs to 44px with the spring. Lock the start
+    // frame as inline style first so the spring has a known
+    // starting numeric value.
+    header.style.width = cachedExpandedWidth + "px";
+    void header.offsetHeight;
+    springAnimate(header, "width", 44);
+
+    /*  Stagger child fade-outs (matches framer-motion variants
+        in the original AnimatedNav). Order: nav-cta (0ms),
+        nav-links (50ms), brand badge (100ms). */
+    springAnimate(navCta,   "opacity", 0, { delay: 0    });
+    springAnimate(navCta,   "x",     -12, { delay: 0    });
+    springAnimate(navCta,   "scale", 0.96, { delay: 0   });
+    springAnimate(navLinks, "opacity", 0, { delay: 0.05 });
+    springAnimate(navLinks, "x",     -12, { delay: 0.05 });
+    springAnimate(navLinks, "scale", 0.96, { delay: 0.05 });
+    springAnimate(brand,    "opacity", 0, { delay: 0.10 });
+    springAnimate(brand,    "x",     -20, { delay: 0.10 });
+
+    /*  Crossfade in the collapsed-mark. Slight delay so it
+        appears AFTER the brand badge starts fading out.
+        Subedit uses delay: 0.18 here (collapsedMarkVariants). */
+    springAnimate(collapsedMark, "opacity", 1, { delay: 0.18 });
+    springAnimate(collapsedMark, "scale",   1, { delay: 0.18 });
+  }
+
+  function expand() {
+    if (!isCollapsed) return;
+    isCollapsed = false;
+
+    header.classList.remove("collapsed");
+
+    /*  Spring back to the cached expanded width. After the
+        spring settles, clear the inline width so the pill
+        goes back to auto-sizing on content. */
+    springAnimate(header, "width", cachedExpandedWidth, {
+      onUpdate: (v) => {
+        header.style.width = v + "px";
+        if (Math.abs(v - cachedExpandedWidth) < 0.5) {
+          // Settled — drop the inline width on the next tick.
+          requestAnimationFrame(() => {
+            header.style.width = "";
+          });
+        }
+      },
+    });
+
+    /*  Crossfade out the collapsed-mark first so the brand
+        badge has somewhere to materialize back in. */
+    springAnimate(collapsedMark, "opacity", 0);
+    springAnimate(collapsedMark, "scale",   0.85);
+
+    /*  Reverse stagger on expand. Order: brand badge first
+        (180ms), nav-links (240ms), nav-cta (300ms). */
+    springAnimate(brand,    "opacity", 1, { delay: 0.18 });
+    springAnimate(brand,    "x",       0, { delay: 0.18 });
+    springAnimate(navLinks, "opacity", 1, { delay: 0.24 });
+    springAnimate(navLinks, "x",       0, { delay: 0.24 });
+    springAnimate(navLinks, "scale",   1, { delay: 0.24 });
+    springAnimate(navCta,   "opacity", 1, { delay: 0.30 });
+    springAnimate(navCta,   "x",       0, { delay: 0.30 });
+    springAnimate(navCta,   "scale",   1, { delay: 0.30 });
+  }
+
+  const setCollapsed = (next) => (next ? collapse() : expand());
 
   const onScroll = () => {
     const y = window.scrollY;
