@@ -261,18 +261,19 @@
     flex-shrink: 0;
     transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
-  /*  Brand mark — wraps the inline #noxGlyph SVG (a lavender
-      ring with the notch cut from its top). Drop shadow on the
-      wrapper gives the ring a soft lavender glow that matches
-      the app icon's outer corona. */
+  /*  Brand mark — wraps the inline #noxMark SVG (compact ring +
+      notch, no squircle background — at 22px the full app icon
+      compresses into an unreadable dark square, see the user's
+      screenshot). drop-shadow on the wrapper gives the ring the
+      soft lavender corona glow that matches the app icon. */
   .brand-mark {
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    filter: drop-shadow(0 0 6px rgba(200, 181, 255, 0.45));
+    filter: drop-shadow(0 0 8px rgba(200, 181, 255, 0.55));
     transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   .brand-mark svg { display: block; }
@@ -1796,6 +1797,30 @@
         </g>
       </g>
     </symbol>
+
+    <!--
+      Compact mark for inline use at small sizes (nav, footer, etc).
+      Just the lavender ring + notch — no squircle background, no
+      blurred halo, because at 20–28px those layers compress to a
+      tiny dark square and the ring detail disappears (visible in
+      the user's screenshot when we tried the full glyph in the
+      nav). Same gradient ring as #noxGlyph so the brand reads
+      consistently; just the ambient backdrop layers stripped.
+
+      Bumped stroke-width 20/1024 → 60/1024 so the ring stays
+      readable when scaled down to 22px (effective stroke ~1.3px).
+    -->
+    <mask id="nox-mark-notch" maskUnits="userSpaceOnUse">
+      <rect width="1024" height="1024" fill="white"/>
+      <rect x="484" y="180" width="56" height="50" fill="black"/>
+    </mask>
+    <symbol id="noxMark" viewBox="0 0 1024 1024">
+      <g mask="url(#nox-mark-notch)">
+        <circle cx="512" cy="512" r="350" fill="none"
+                stroke="url(#nox-ringFill)" stroke-width="60"
+                stroke-linecap="round"/>
+      </g>
+    </symbol>
   </defs>
 </svg>
 
@@ -1818,7 +1843,7 @@
 <header id="navHeader">
   <a class="brand" href="/">
     <span class="brand-mark" aria-hidden="true">
-      <svg width="22" height="22" viewBox="0 0 1024 1024"><use href="#noxGlyph"/></svg>
+      <svg width="24" height="24" viewBox="0 0 1024 1024"><use href="#noxMark"/></svg>
     </span>
     <span class="brand-name">nox</span>
   </a>
@@ -1842,7 +1867,7 @@
     flip jump.
   -->
   <span class="collapsed-mark" aria-hidden="true">
-    <svg width="26" height="26" viewBox="0 0 1024 1024"><use href="#noxGlyph"/></svg>
+    <svg width="28" height="28" viewBox="0 0 1024 1024"><use href="#noxMark"/></svg>
   </span>
 </header>
 
