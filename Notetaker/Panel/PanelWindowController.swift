@@ -3231,33 +3231,39 @@ final class PanelWindowController {
 
         currentSpring?.cancel()
 
-        // SOFTER spring than track banner (was 1100/62 — too stiff
-        // for rapid-fire volume keys; the high stiffness made every
-        // tick visually punchy and amplified the perceived jitter
-        // when held-key spam landed on top of it). 600/45 settles
-        // ~250ms, smoother per-tick velocity profile, much easier
-        // on the shadowPath update budget.
-        let spring = SpringFrameAnimator(stiffness: 600, damping: 45, mass: 1.0)
-        spring.shadowTickHandler = { [weak self] in
-            self?.updateShadowPath()
-        }
-        currentSpring = spring
+        // ── PREMIUM ANIMATION via NSAnimationContext + Apple's
+        // signature out-quint cubic-bezier (0.32, 0.72, 0, 1).
+        // Off-thread Core Animation (no main-thread spring
+        // contention). Source: WWDC23 / DynamicNotchKit pattern.
+        currentSpring?.cancel()
+        currentSpring = nil
         currentSpringTarget = target
-        // Reduce drop shadow opacity during the volume HUD —
-        // Alcove's reference frames show NO visible drop shadow
-        // around the volume pill (vs the larger 0.55 shadow we
-        // use for the music pill). The shadow halo was reading as
-        // "blur" around the silhouette per user feedback.
-        // 0.18 keeps a faint contact shadow so the pill still
-        // reads as elevated against the desktop, but doesn't
-        // create a visible glow halo.
-        setShadowOpacity(0.18, duration: 0.12)
-        spring.animate(panel: panel, from: panel.frame, to: target) { [weak self] in
-            self?.currentSpring = nil
-            self?.currentSpringTarget = nil
-            self?.panel.setFrame(target, display: true)
-            self?.updateShadowPath()
-        }
+        // HIDE SHADOW during the morph. The CALayer drop shadow
+        // uses a SHAPE PATH (silhouette CGPath) that's only valid
+        // for the CURRENT panel.frame. When the frame morphs, the
+        // shadowPath stays at the OLD shape — visible as a
+        // rectangular black halo around the morphing silhouette
+        // (the user's "black square glitch"). Per-tick
+        // updateShadowPath() would fix it but causes main-thread
+        // lag. Best compromise: shadow fades to 0 at morph start,
+        // updateShadowPath() at completion, then shadow fades
+        // back in.
+        setShadowOpacity(0, duration: 0.10)
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.40
+            ctx.timingFunction = CAMediaTimingFunction(
+                controlPoints: 0.32, 0.72, 0, 1
+            )
+            ctx.allowsImplicitAnimation = true
+            panel.animator().setFrame(target, display: true, animate: true)
+        }, completionHandler: { [weak self] in
+            guard let self else { return }
+            self.currentSpringTarget = nil
+            self.panel.setFrame(target, display: true)
+            self.updateShadowPath()
+            // Shadow fades back in over 0.20s using the new path.
+            self.setShadowOpacity(0.18, duration: 0.20)
+        })
     }
 
     /// Reverse of `showVolumeBanner`. Animates back to whichever
@@ -3294,24 +3300,29 @@ final class PanelWindowController {
             return
         }
 
+        // SAME PATTERN as showVolumeBanner. Hide shadow during
+        // the morph (avoids "black square halo" glitch from stale
+        // shadowPath), updateShadowPath at completion, fade
+        // shadow back in over 0.20s.
         currentSpring?.cancel()
-        let spring = SpringFrameAnimator(stiffness: 600, damping: 45, mass: 1.0)
-        spring.shadowTickHandler = { [weak self] in
-            self?.updateShadowPath()
-        }
-        currentSpring = spring
+        currentSpring = nil
         currentSpringTarget = target
-        // Restore default resting-pill shadow opacity on dismiss.
-        // Music pill / transient pill use 0.30-0.55 depending on
-        // state; 0.40 is a clean middle ground.
-        setShadowOpacity(0.40, duration: 0.18)
-        spring.animate(panel: panel, from: start, to: target) { [weak self] in
-            self?.currentSpring = nil
-            self?.currentSpringTarget = nil
-            self?.panel.setFrame(target, display: true)
-            self?.updateShadowPath()
+        setShadowOpacity(0, duration: 0.10)
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.40
+            ctx.timingFunction = CAMediaTimingFunction(
+                controlPoints: 0.32, 0.72, 0, 1
+            )
+            ctx.allowsImplicitAnimation = true
+            panel.animator().setFrame(target, display: true, animate: true)
+        }, completionHandler: { [weak self] in
+            guard let self else { return }
+            self.currentSpringTarget = nil
+            self.panel.setFrame(target, display: true)
+            self.updateShadowPath()
+            self.setShadowOpacity(0.40, duration: 0.20)
             completion?()
-        }
+        })
     }
 
 }

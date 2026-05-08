@@ -816,6 +816,16 @@ struct PanelRootView: View {
                        ? .interpolatingSpring(mass: 1.0, stiffness: 1000, damping: 65, initialVelocity: 0)
                        : .interpolatingSpring(mass: 1.0, stiffness: 158, damping: 25, initialVelocity: 0),
                        value: presenter.isShown)
+            // ALSO animate the corner radii when pendingSystemEvent
+            // changes (e.g. .volumeChanged → nil). Without this, the
+            // radii pop INSTANTLY from banner character (14, 12) to
+            // music pill character (8, 6) while the panel.frame is
+            // still morphing — visible as an inside "glitch" during
+            // the volume HUD dismiss. Using the SAME timingCurve as
+            // the panel.frame morph so radii lerp in lockstep with
+            // the frame interpolation.
+            .animation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.40),
+                       value: pillEventCaseKey)
             // 2026-05-04 (user feedback after Alcove SS audit:
             // "the dropshadow only comes when you open... but
             // doesn't last"): smooth the shadow radius transition
@@ -832,7 +842,12 @@ struct PanelRootView: View {
             // 0.22s easeOut tracks the panel.frame settle so the
             // shadow finishes "growing into" its full radius
             // about 200ms after the spring settles.
-            .animation(.easeOut(duration: 0.22), value: presenter.isMorphing)
+            // EXACT cubic-bezier match to the panel-frame morph
+            // (0.32, 0.72, 0, 1) — same out-quint Apple uses.
+            // Lockstep with silhouette + content swap, no curve
+            // mismatch.
+            .animation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.40),
+                       value: presenter.isMorphing)
             .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
             // PERF GATE: both shadows render only when isShown=true.
             // During the morph itself both radii are 0 — SwiftUI's
@@ -885,6 +900,28 @@ struct PanelRootView: View {
             // Documented 50-80% perf gain per CALayer docs:
             // shadowPath skips the offscreen alpha-analysis pass
             // SwiftUI's .shadow() was forcing every frame.
+    }
+
+    // MARK: - Slab blur gating
+
+    /// Whether the slab content's 4pt focus-pull blur should fire
+    /// during the current morph. True only for the OPEN/CLOSE morphs
+    /// that are about the slab itself (pill ↔ slab transition);
+    /// false during pill-state morphs that are about other content
+    /// (volume HUD expand/dismiss, track banner, etc.).
+    ///
+    /// The slab content is at opacity 0 during pill state, so the
+    /// blur is invisible — but SwiftUI still renders the Metal
+    /// gaussian, which competes with the panel-frame spring on the
+    /// main thread. Skipping it for volume HUD specifically means
+    /// the close animation stays clean and matches Alcove (no
+    /// focus-pull during the volume HUD dismiss).
+    private var shouldBlurSlabDuringMorph: Bool {
+        if presenter.isShown { return false }
+        if !presenter.isMorphing { return false }
+        // Skip during volume HUD lifecycle — Alcove parity.
+        if case .volumeChanged = presenter.pendingSystemEvent { return false }
+        return true
     }
 
     // MARK: - Cascade animation curve
@@ -1075,20 +1112,19 @@ struct PanelRootView: View {
         // unidentifiable, and 200ms easeOut tracks the panel's
         // 230-270ms frame morph so the blur clears as the panel
         // settles instead of trailing behind it.
-        // 2026-05-07: Gated this blur on `isMorphing` so it only
-        // runs during the actual panel-frame morph instead of the
-        // entire pill-state lifetime. Previously the 4pt blur was
-        // active across every pill state (charging, screenshot,
-        // VOLUME HUD) — running a Metal gaussian over invisible
-        // (opacity-0) content for the full duration of the HUD.
-        // For volume HUD that's 1.5s × ~120 frames = 180+ wasted
-        // blur passes. User feedback "blur is making thing bad"
-        // — this was the most likely culprit.
+        // 2026-05-07: Gated this blur on `isMorphing` AND skip
+        // for volume HUD specifically. Previously the 4pt blur ran
+        // during ANY pill-state morph (open, close, volume, track
+        // banner, etc.) — for the volume HUD's morph back to pill,
+        // that blur created a visible focus-pull artifact during
+        // the close. User feedback: "closing kinda weird with all
+        // that blur. Can we follow alcove please." Alcove has no
+        // blur on the volume HUD close — silhouette just shrinks
+        // cleanly.
         //
-        // Now: blur only fires DURING the morph (~250ms), then
-        // settles to 0. Same visual character (focus-pull during
-        // open/close) but zero cost in steady state.
-        .blur(radius: (presenter.isShown || !presenter.isMorphing) ? 0 : 4)
+        // Skip when pendingSystemEvent is .volumeChanged (or was
+        // recently — guarded by the morph itself being short).
+        .blur(radius: shouldBlurSlabDuringMorph ? 4 : 0)
         // Direction-aware spring matching the panel's close timing
         // so content doesn't trail behind the panel.
         .animation(presenter.isShown
@@ -1439,20 +1475,26 @@ struct PanelRootView: View {
                 // tick. The bar's animation tracks the level value
                 // continuously as the user holds the key.
                 volumePillContent(level: level, muted: muted)
-                    // Content GROWS OUT OF THE NOTCH with the
-                    // silhouette — scale anchored at .top so the
-                    // content's top edge stays welded to the menu
-                    // bar baseline while it scales up + fades in.
-                    // Core Animation handles this off-thread, so
-                    // it doesn't compete with the panel-frame
-                    // SpringFrameAnimator on the main thread —
-                    // unlike the @State+withAnimation approach
-                    // earlier (round 13) that caused jitter.
+                    // Removal uses .volumeExit which bakes in a
+                    // light 4pt blur alongside scale + opacity —
+                    // softens the content edge so it visually
+                    // matches the silhouette boundary as both
+                    // shrink together. Round 36: "we have to
+                    // match the movment of inside of the content
+                    // with a little blur so it matchs perfectly."
+                    //
+                    // Insertion is symmetric scale+opacity (no
+                    // blur on entrance — content should be crisp
+                    // when it lands).
                     .transition(
                         .asymmetric(
                             insertion: .scale(scale: 0.7, anchor: .top)
                                 .combined(with: .opacity),
-                            removal: .opacity
+                            removal: .volumeExit
+                                .animation(
+                                    .timingCurve(0.32, 0.72, 0, 1,
+                                                 duration: 0.32)
+                                )
                         )
                     )
                     .id("volume")
@@ -1505,7 +1547,43 @@ struct PanelRootView: View {
                     .id("dictation")
             } else {
                 musicPillContent
-                    .transition(.opacity)
+                    // STAGGERED INSERTION — music pill fades in
+                    // during the SECOND half of the silhouette
+                    // shrink, not the first.
+                    //
+                    // User's diagnosis (round 34): "1st layer is
+                    // showing the sign of closing but the 2nd layer
+                    // was in that position so it's creating an
+                    // illution that instade of closing it got stuck
+                    // for mili seconds." The music pill content was
+                    // sitting at its final (small) position from t=0
+                    // while the silhouette was still at full HUD size
+                    // and shrinking toward it — visually the
+                    // silhouette appeared stuck because the content
+                    // inside wasn't moving WITH it.
+                    //
+                    // SOFT ENTRANCE — fades in with a 5pt blur
+                    // that decays to 0 over 200ms, starting at
+                    // t=200ms (mid-morph). The artwork gracefully
+                    // sharpens into focus instead of snap-popping.
+                    // Round 39: "the artwork ... appearing like a
+                    // glitch ... if we can have crossfade on that
+                    // or some kind of blur."
+                    //
+                    // 200ms duration (vs round 35's 80ms) gives
+                    // the blur enough time to be perceptually
+                    // smooth, not a flash. Total visible window:
+                    // t=200ms (start) → t=400ms (full focus) lands
+                    // exactly when the silhouette settles.
+                    .transition(
+                        .asymmetric(
+                            insertion: .softMusicEntrance.animation(
+                                .timingCurve(0.32, 0.72, 0, 1,
+                                             duration: 0.20).delay(0.20)
+                            ),
+                            removal: .opacity
+                        )
+                    )
                     .id("music")
             }
         }
@@ -1527,9 +1605,19 @@ struct PanelRootView: View {
         // damped spring without the overshoot/wobble physics
         // that interpolatingSpring sometimes introduces. Cleaner
         // landing for transient pill dismiss.
-        .animation(.easeOut(duration: 0.27),
+        // EXACT cubic-bezier match to the panel-frame morph's
+        // CAMediaTimingFunction (0.32, 0.72, 0, 1) — Apple's
+        // signature out-quint. SwiftUI's `.easeOut` is a generic
+        // ease-out (different curve), and the curve mismatch was
+        // the "2nd layer not syncing properly" feeling: two
+        // animations of the same duration but different curves
+        // tick at different speeds at the midpoint and look
+        // staggered. Using `.timingCurve(0.32, 0.72, 0, 1)`
+        // aligns SwiftUI's content-swap curve EXACTLY with the
+        // off-main CA frame morph — they advance in lockstep.
+        .animation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.40),
                    value: presenter.pendingSystemEvent)
-        .animation(.easeOut(duration: 0.27),
+        .animation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.40),
                    value: presenter.pendingVideoCandidate)
         // Dictation pill MOUNT/UNMOUNT animation — only fires at
         // entrance (idle → non-idle) and exit (non-idle → idle).
@@ -3755,18 +3843,26 @@ private struct PillSwapBlur: ViewModifier {
             .blur(radius: blur)
             .onChange(of: caseKey) { newKey in
                 // Suppress the blur swap-mask for trackChanged
-                // transitions. Alcove's track-change is a clean
-                // pill-grow with no blur — user 2026-05-07: "why
-                // there is a blur now fix the animation do it
-                // exactly like the alcove". The blur was useful
-                // for ambient pill swaps (music → charging →
-                // music) where two rectangles crossfade and the
-                // seam is visible; for trackChanged the pill is
-                // just morphing geometry and the same content
-                // family stays on screen, so no seam to mask.
-                let isTrackChanged = newKey.hasPrefix("trackChanged") ||
-                                     previousKey.hasPrefix("trackChanged")
-                if newKey != previousKey && !previousKey.isEmpty && !isTrackChanged {
+                // AND volumeChanged. Per user 2026-05-08: "instade
+                // of using blur for syncing too separate thing /
+                // We can have smooth motion while closing / It's
+                // like 2 is closing and when blur it will be
+                // tranjasation but it will be simuntanius."
+                //
+                // The blur was a crutch to mask that we have two
+                // separate content branches crossfading. The
+                // premium solution: rely on SwiftUI's simultaneous
+                // crossfade via `.transition(.opacity)` on each
+                // branch + the unified 0.40s curve. Old branch
+                // fades OUT and new branch fades IN at the SAME
+                // time, in lockstep with the silhouette morph.
+                // One simultaneous motion, no blur required.
+                let isBannerSwap =
+                    newKey.hasPrefix("trackChanged") ||
+                    previousKey.hasPrefix("trackChanged") ||
+                    newKey == "volume" ||
+                    previousKey == "volume"
+                if newKey != previousKey && !previousKey.isEmpty && !isBannerSwap {
                     triggerBlur()
                 }
                 previousKey = newKey
@@ -3774,17 +3870,17 @@ private struct PillSwapBlur: ViewModifier {
             .onAppear { previousKey = caseKey }
     }
 
-    /// Two-stage spring: quick ramp UP to peak blur synced with
-    /// the SwiftUI transition's visible-overlap moment, then a
-    /// slower decay back to zero as the new content settles.
-    /// 6pt is heavy enough to obscure the seam but light enough
-    /// that the new content reads through it almost immediately.
+    /// Two-stage spring tuned to finish in lockstep with the
+    /// 0.40s panel-frame morph (Apple out-quint cubic-bezier).
+    /// 130ms ramp + 270ms decay = 400ms total, lands EXACTLY
+    /// when the silhouette settles. 4pt peak blur masks the
+    /// content swap seam without obscuring the morph.
     private func triggerBlur() {
-        withAnimation(.easeOut(duration: 0.14)) {
-            blur = 6
+        withAnimation(.easeOut(duration: 0.13)) {
+            blur = 4
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
-            withAnimation(.easeOut(duration: 0.32)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.13) {
+            withAnimation(.easeOut(duration: 0.27)) {
                 blur = 0
             }
         }
@@ -4193,6 +4289,74 @@ extension AnyTransition {
     /// Convenience: the asymmetric pair as a single transition.
     static var pillPop: AnyTransition {
         .asymmetric(insertion: .pillEnter, removal: .pillExit)
+    }
+
+    /// Volume HUD exit — scale-down + fade + LIGHT BLUR. The blur
+    /// softens the edge of the shrinking content so it visually
+    /// matches the silhouette pace better. Without blur, the
+    /// content's edge stays sharp while the silhouette boundary
+    /// is morphing — eye picks up the mismatch as a "stuck" feel.
+    /// 4pt peak blur is light enough to keep content recognizable
+    /// while letting it dissolve smoothly with the silhouette.
+    /// User feedback round 36: "we have to match the movment of
+    /// inside of the content with a little blur so it matchs
+    /// perfectly."
+    static var volumeExit: AnyTransition {
+        .modifier(
+            active: VolumeExitModifier(progress: 0),
+            identity: VolumeExitModifier(progress: 1)
+        )
+    }
+}
+
+/// At progress=1 (identity): scale 1.0, opacity 1.0, blur 0
+/// At progress=0 (active/exit): scale 0.7, opacity 0, blur 2pt
+///
+/// Round 40 (background-blur perception fix): blur reduced 4pt→2pt.
+/// 4pt was perceptible as a sudden "background blur ramp-up" once
+/// the value crossed ~2pt threshold mid-animation. 2pt stays
+/// perceptually subtle throughout — just enough to soften the
+/// content edge so it dissolves with the silhouette.
+private struct VolumeExitModifier: ViewModifier {
+    let progress: Double  // 0 = exited, 1 = at-rest
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(0.7 + (progress * 0.3), anchor: .top)
+            .opacity(progress)
+            .blur(radius: (1.0 - progress) * 2.0)
+    }
+}
+
+/// Soft entrance: at progress=0 view is at opacity 0 + 2.5pt blur,
+/// at progress=1 view is at opacity 1 + 0pt blur. Used for the
+/// music pill's appearance after a volume HUD dismiss so the
+/// artwork "blurs in" smoothly instead of snapping to focus.
+///
+/// Round 40: blur reduced 5pt→2.5pt for the same reason as
+/// VolumeExitModifier — keeps the blur perceptually subtle so
+/// the user doesn't feel a sudden "blur intensity jump."
+private struct SoftEntranceModifier: ViewModifier {
+    let progress: Double  // 0 = invisible, 1 = visible
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(progress)
+            .blur(radius: (1.0 - progress) * 2.5)
+    }
+}
+
+extension AnyTransition {
+    /// Music pill / fallback content soft entrance — fades in
+    /// with a brief blur tail so the artwork doesn't snap-pop
+    /// into focus. Round 39: "the artwork ... appearing like a
+    /// glitch ... if we can have crossfade on that or some kind
+    /// of blur."
+    static var softMusicEntrance: AnyTransition {
+        .modifier(
+            active: SoftEntranceModifier(progress: 0),
+            identity: SoftEntranceModifier(progress: 1)
+        )
     }
 }
 
