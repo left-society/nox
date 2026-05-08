@@ -100,154 +100,75 @@
   }
 
   /*  ----------------------------------------------------------------
-      Backdrop: macOS Sonoma wallpaper.
+      Backdrop: solid dark canvas with a brand-color bloom from the
+      notch.
 
-      Real Apple liquid glass works because it sits on top of an
-      actual colorful desktop. Refraction has something to bend.
-      We extract the system Sonoma wallpaper (cherry-red / pink
-      sunset gradient) and lock it behind everything as a fixed
-      backdrop so liquid-glass cards have real color content to
-      displace and saturate.
+      Earlier passes used three real macOS wallpaper photos
+      (Tahoe Dark / Sonoma Dark / Sonoma Horizon) crossfaded by JS
+      on scroll. The wallpapers' photographic features competed
+      with the page content even after darkening + blur — light
+      bands and color swirls were still visible behind text.
 
-      The dark veil on top keeps copy legible (the wallpaper alone
-      is too bright in the warm regions for white body text), but
-      stays at 65% so the wallpaper hue is still felt through it.
-      The lavender radial glow that was here before is gone — the
-      wallpaper now provides the warm color anchor.
+      The new approach is conceptually tied to the product:
+      the brand color "leaks" out of where the user's MacBook
+      notch would be (top-center of the viewport, fixed) so the
+      backdrop literally evokes the product. No photos to compete
+      with content, no scroll-driven JS, just a single soft
+      lavender bloom + a film-grain overlay.
+
+      Z-index stack (below content):
+        body                    var(--bg) — solid #07070a
+        body::before     z=-2   lavender bloom from the notch
+        body::after      z=-1   film-grain noise (kept from
+                                previous design — adds texture
+                                that pure gradients lack)
       ----------------------------------------------------------------  */
   body {
     background: var(--bg);
-    /*  Body needs to be relative-positioned so the absolutely-
-        positioned .wallpaper-stack can size to the document
-        height (its containing block becomes <body>). */
     position: relative;
   }
+  /*  Lavender bloom — fixed at the top-center of the viewport so
+      it tracks the user's notch position regardless of scroll.
+      The radial origin is at 50% 0% (top edge) so light fades
+      downward + outward, evoking color leaking from the notch.
 
-  /*  WALLPAPER STACK — fixed-position layers that crossfade as
-      the user scrolls past section boundaries.
+      Width clamp keeps the bloom from getting absurd on ultrawide
+      displays while still scaling on narrower screens. The blur
+      filter diffuses any banding so the gradient reads as soft
+      glow instead of a hard ellipse.
 
-      Author wanted real Apple wallpapers (not a CSS-orb scene)
-      with the same smoothness the atmosphere gave: "actual
-      wallpapers, not like these kinds of things. Apple wallpaper,
-      but in this form. They should be having some transition
-      while scrolling, just the wallpaper transitions, like
-      cross-fading between two wallpapers while scrolling to
-      another page or two pages, so that we can separate the
-      individual things from each other."
-
-      Implementation:
-        - Each wallpaper is its own position:fixed full-viewport
-          layer with background-size:cover. Fixed-position avoids
-          the photo-tile stretching that broke the previous
-          absolute-position attempt.
-        - Opacity is JS-driven from window.scrollY mapped through
-          smoothstep so adjacent wallpapers crossfade over a
-          scroll band, then sit solid through the next "section
-          zone." See the IIFE at the bottom of <body>.
-
-      Section zones (mapped to scroll progress 0–1):
-        wp-1 (Tahoe Dark)        solid  0–25%, fade out 25–42%
-        wp-2 (Sonoma Dark)       fade in 25–42%, solid 42–60%, fade out 60–78%
-        wp-3 (Sonoma Horizon)    fade in 60–78%, solid 78–100%
-
-      Result: distinct wallpaper for each phase of the page
-      (top, middle, bottom), with smooth section-aligned
-      crossfades that mark the transition. No tiling, no
-      stretching — each wallpaper is just there, then fades to
-      the next.
-  */
-  .wallpaper-stack {
-    position: fixed;
-    inset: 0;
-    z-index: -3;
-    pointer-events: none;
-  }
-  .wp-layer {
-    position: absolute;
-    inset: 0;
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
-    opacity: 0;
-    /*  No CSS transition — the JS scroll handler writes opacity
-        continuously per rAF tick, smoothstep-eased on scroll
-        progress, so any CSS transition would just lag the
-        crossfade behind the scroll position. */
-    will-change: opacity;
-  }
-  /*  Wallpaper journey — atmospheric Apple wallpapers, all dark.
-
-      Earlier passes used Mac Purple / iMac Purple (the brand-
-      colored Apple wallpapers) for "brand alignment", but those
-      images carry prominent photo features — Mac Purple's bright
-      blue swirl and iMac Purple's giant vertical pill stripes —
-      that compete with the page content. Even after darkening
-      them via ffmpeg the shapes were still legible behind text
-      and made every section feel like one continuous wallpaper
-      reel rather than distinct sections.
-
-      Reverted to the original quieter trio. Each one is dark
-      and largely featureless — pure ambient color:
-        wp-1  Tahoe Dark        deep midnight blue + faint horizon
-        wp-2  Sonoma Dark       muted dawn — calm fade
-        wp-3  Sonoma Horizon    midnight blue with soft light hint
-
-      A heavy darkening + blur veil (body::before) sits on top of
-      this stack so the wallpapers read as ambient hue, not as
-      photographs. */
-  .wp-1 {
-    background-image: url("/assets/wallpaper-tahoe-dark.jpg");
-    opacity: 1;
-  }
-  .wp-2 {
-    background-image: url("/assets/wallpaper-sonoma-dark.jpg");
-  }
-  .wp-3 {
-    background-image: url("/assets/wallpaper-sonoma-horizon.jpg");
-  }
+      Two color stops (lavender #C5A3FF + slightly more
+      saturated #A882E8) so the bloom has a subtle hue shift
+      from center to edge — feels lit, not flat. */
   body::before {
     content: "";
     position: fixed;
-    inset: 0;
+    top: -120px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(1600px, 130vw);
+    height: 820px;
     z-index: -2;
     pointer-events: none;
-    /*  Heavy darkening + a soft backdrop blur on the wallpaper
-        layer behind. Earlier the veil sat at ~18% center / 62%
-        edges and the wallpapers' photographic features (Mac
-        Purple's swirls, iMac Purple's vertical pill stripes,
-        Tahoe Dark's bright sky stripe) showed through clearly
-        enough to compete with content. Now:
-
-          – darker veil (52% center → 88% edges) so wallpapers
-            read as ambient color, not photographs
-          – backdrop-filter blur(14px) so any remaining photo
-            shapes (light bands, soft swirls) become diffused
-            color, not recognizable forms
-
-        The lavender top/bottom tints stay (1-2%) just to keep
-        brand presence at the page extremes. */
-    background:
-      radial-gradient(ellipse at 50% 30%,
-        rgba(7, 7, 10, 0.52),
-        rgba(7, 7, 10, 0.78) 55%,
-        rgba(7, 7, 10, 0.88) 100%),
-      linear-gradient(180deg,
-        rgba(168, 130, 232, 0.06) 0%,
-        rgba(7, 7, 10, 0.0) 30%,
-        rgba(7, 7, 10, 0.0) 70%,
-        rgba(168, 130, 232, 0.05) 100%);
-    backdrop-filter: blur(14px) saturate(115%);
-    -webkit-backdrop-filter: blur(14px) saturate(115%);
+    background: radial-gradient(ellipse 65% 80% at 50% 0%,
+      rgba(197, 163, 255, 0.30) 0%,
+      rgba(168, 130, 232, 0.16) 25%,
+      rgba(168, 130, 232, 0.06) 50%,
+      rgba(168, 130, 232, 0.02) 70%,
+      transparent 85%);
+    filter: blur(48px);
   }
   /*  Subtle film grain to break up the gradient banding and
-      give the page a film-stock feel against the warm wallpaper. */
+      give the page a film-stock feel. Bumped from 0.04 → 0.05
+      with the lighter backdrop — no wallpaper underneath to
+      provide texture, so the grain has to do more work. */
   body::after {
     content: "";
     position: fixed;
     inset: 0;
     z-index: -1;
     pointer-events: none;
-    opacity: 0.04;
+    opacity: 0.05;
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
   }
 
@@ -1955,22 +1876,10 @@
 <body>
 
 <!--
-  Wallpaper stack. Three brand-aligned Apple wallpapers (all
-  in the lavender/purple family of #C5A3FF), each fixed to the
-  viewport, opacity-crossfaded by JS as the user scrolls past
-  section boundaries. See .wallpaper-stack in <style> and the
-  scroll handler at the bottom of <body> for the smoothstep math.
-
-  Journey (top → bottom):
-    wp-1  Tahoe Dark        Hero + Features         deep midnight purple
-    wp-2  Mac Purple        Why nox + Privacy       saturated brand purple
-    wp-3  iMac Purple       FAQ + CTA               softer lavender
+  No wallpaper stack — the backdrop is now a fixed lavender
+  bloom (body::before) that emanates from where the user's
+  notch would be. See the body CSS at the top of <style>.
 -->
-<div class="wallpaper-stack" aria-hidden="true">
-  <div class="wp-layer wp-1"></div>
-  <div class="wp-layer wp-2"></div>
-  <div class="wp-layer wp-3"></div>
-</div>
 
 <!--
   Reusable nox brand mark — full app icon (1024×1024 source).
@@ -2931,91 +2840,6 @@
     },
     { passive: true }
   );
-})();
-</script>
-
-<script>
-/*  ----------------------------------------------------------------
-    Wallpaper crossfade — scroll-driven smoothstep opacity.
-
-    Three fixed-position wallpapers. As the user scrolls, each
-    layer's opacity is computed continuously from window.scrollY
-    so adjacent wallpapers crossfade across a "fade band" while
-    one section transitions to the next.
-
-    Mapping (scroll progress 0–1):
-      wp-1   1   0   0   0
-              ↘
-      wp-2   0   1   1   0
-                    ↘
-      wp-3   0   0   1   1
-
-    Anchors: 0%, 33%, 66%, 100%
-    Fade bands: 25–42%, 60–78% (configurable below)
-
-    Smoothstep ease so the crossfade has a soft S-curve rather
-    than linear ramps — feels more organic, matches Apple-style
-    motion.
-    ----------------------------------------------------------------  */
-(() => {
-  const wp1 = document.querySelector(".wp-1");
-  const wp2 = document.querySelector(".wp-2");
-  const wp3 = document.querySelector(".wp-3");
-  if (!wp1 || !wp2 || !wp3) return;
-
-  /*  Fade-band edges as fractions of total scroll. The first
-      number is where the previous wallpaper starts fading out
-      (and the next starts fading in); the second is where the
-      crossfade is complete. */
-  const FADE1_START = 0.25;
-  const FADE1_END   = 0.42;
-  const FADE2_START = 0.60;
-  const FADE2_END   = 0.78;
-
-  /*  Hermite smoothstep — 3t² − 2t³ — gives a soft S-curve
-      between 0 and 1 instead of a linear ramp. */
-  const smoothstep = (a, b, x) => {
-    if (x <= a) return 0;
-    if (x >= b) return 1;
-    const t = (x - a) / (b - a);
-    return t * t * (3 - 2 * t);
-  };
-
-  let pending = false;
-  const update = () => {
-    pending = false;
-    const max = Math.max(1, document.body.scrollHeight - window.innerHeight);
-    const p = window.scrollY / max;
-
-    /*  Each layer gets:
-          op1 = 1 − smoothstep(FADE1)               (full → 0 in band 1)
-          op2 = smoothstep(FADE1) − smoothstep(FADE2) (peaks in middle)
-          op3 = smoothstep(FADE2)                   (0 → full in band 2)
-        Subtracting the second smoothstep from op2 makes wp2
-        fade BACK to 0 across the second band, just as wp3 is
-        fading in. */
-    const f1 = smoothstep(FADE1_START, FADE1_END, p);
-    const f2 = smoothstep(FADE2_START, FADE2_END, p);
-
-    wp1.style.opacity = 1 - f1;
-    wp2.style.opacity = f1 - f2;
-    wp3.style.opacity = f2;
-  };
-
-  /*  rAF-throttled scroll listener so we don't fight 120Hz
-      ProMotion scroll. Run once on load to set initial state. */
-  window.addEventListener(
-    "scroll",
-    () => {
-      if (pending) return;
-      pending = true;
-      requestAnimationFrame(update);
-    },
-    { passive: true }
-  );
-  /*  Re-run on resize too, since scrollHeight changes. */
-  window.addEventListener("resize", () => requestAnimationFrame(update));
-  update();
 })();
 </script>
 
