@@ -118,6 +118,21 @@ final class PanelPresenter: ObservableObject {
     /// false forever and the gating becomes a no-op.
     @Published var isFocused: Bool = false
 
+    /// Wall-clock time when the current Focus session began. Set by
+    /// AppDelegate from `FocusStatusService.focusSessionStartedAt`
+    /// — the FSS clears it on focus-off, repopulates on focus-on.
+    /// Read by PanelRootView's resting-pill timer (TimelineView
+    /// ticks every minute) and the Focus detail panel's hero subtitle.
+    @Published var focusSessionStartedAt: Date? = nil
+
+    /// Sibling to `focusSessionStartedAt` — wall-clock anchor for
+    /// the user's study session. Mirrors Focus exactly: AppDelegate
+    /// pumps it via `recomputeQuietState()` whenever the
+    /// `noxStudyMode` UserDefault flips. Read by the resting pill's
+    /// study branch (TimelineView ticks per minute, formats elapsed
+    /// as "Mm" / "Hh Mm").
+    @Published var studySessionStartedAt: Date? = nil
+
     /// True when the panel is sitting at closed-pill geometry as a
     /// persistent now-playing indicator (Alcove-style "always-on" pill).
     /// Mutually exclusive with `isShown` in spirit — the panel transitions
@@ -244,6 +259,105 @@ final class PanelPresenter: ObservableObject {
     /// recorder's audio queue when `.recording` is the current
     /// dictation phase. Drives waveform-bar amplitudes.
     @Published var dictationLevel: Float = 0
+
+    // MARK: - Teleprompter state
+
+    /// Set when the user hits "Start reading" on a script in the
+    /// Script tab. Drives the panel into the wider+taller
+    /// teleprompter pill geometry (PanelWindowController watches
+    /// this via Combine sink) and signals PanelRootView to render
+    /// `teleprompterPillContent` inside the pill — full-bleed
+    /// scrolling text instead of the music/focus chrome.
+    ///
+    /// The pill morph follows the same play-book as the track-change
+    /// banner: close slab if open, then animate pill width/height to
+    /// teleprompter geometry. Setting this back to nil reverses.
+    @Published var teleprompterScript: Script? = nil
+
+    /// Wall-clock anchor for the current teleprompter session. Set
+    /// at the same instant `teleprompterScript` becomes non-nil. The
+    /// pill's scroll engine derives elapsed time from this so the
+    /// scroll position is purely a function of `(now - anchor)` —
+    /// no frame-by-frame state to lose.
+    @Published var teleprompterStartedAt: Date? = nil
+
+    /// True once the teleprompter pill morph is ACTUALLY in flight
+    /// (or settled). Distinct from `teleprompterScript != nil` to
+    /// avoid rendering pill content during the slab-close → resting
+    /// → teleprompter handoff: when the user taps Start with the
+    /// slab open, we close the slab first, and during that ~0.4s
+    /// close the panel is at resting-pill geometry. If we let the
+    /// pill body render purely on `teleprompterScript`, it would
+    /// briefly appear at the WRONG (smaller, narrower) frame and
+    /// glitch into place once the morph fired. The controller flips
+    /// this flag true ONLY at the moment the morph begins, so the
+    /// SwiftUI side mounts the content in lockstep with the
+    /// frame morph.
+    @Published var teleprompterPillVisible: Bool = false
+
+    /// When non-nil, reading is PAUSED and this value records the
+    /// elapsed seconds at the moment of pausing. The scroll engine
+    /// uses this directly as "elapsed" (frozen) instead of computing
+    /// from `Date() - startedAt`, so the text holds in place. On
+    /// resume we shift `teleprompterStartedAt` forward by the wall-
+    /// clock pause duration, then clear this — elapsed re-derives
+    /// from the date diff and ticks forward seamlessly.
+    @Published var teleprompterPausedAtElapsed: TimeInterval? = nil
+
+    /// User asked to start reading `script`. Idempotent on the same
+    /// script (no-op if already reading it); switches if a different
+    /// script is requested mid-session.
+    ///
+    /// `resumeFromElapsed` lets the caller resume mid-script — pass
+    /// the saved `lastReadOffset` (interpreted as elapsed seconds)
+    /// to skip the scroll forward. Capped at the script's full
+    /// duration; if the user finished a script and re-starts, they
+    /// get a fresh run from the beginning.
+    func startTeleprompter(_ script: Script, resumeFromElapsed: TimeInterval = 0) {
+        if let existing = teleprompterScript, existing.id == script.id { return }
+        teleprompterScript = script
+        teleprompterPausedAtElapsed = nil
+        // Shift the anchor backward so `now - startedAt == resumeFromElapsed`.
+        // Clamp negative offsets just in case.
+        let resume = max(0, resumeFromElapsed)
+        teleprompterStartedAt = Date().addingTimeInterval(-resume)
+    }
+
+    /// Toggle pause/resume on the active teleprompter session. No-op
+    /// if no script is currently being read. The scroll engine reads
+    /// `teleprompterPausedAtElapsed` directly when set; on resume we
+    /// shift `teleprompterStartedAt` forward by the wall-clock pause
+    /// duration so elapsed continues seamlessly.
+    func toggleTeleprompterPause() {
+        guard teleprompterScript != nil,
+              let started = teleprompterStartedAt else { return }
+        if let pausedAt = teleprompterPausedAtElapsed {
+            // Resume — shift anchor so elapsed = pausedAt at this instant.
+            teleprompterStartedAt = Date().addingTimeInterval(-pausedAt)
+            teleprompterPausedAtElapsed = nil
+        } else {
+            // Pause — snapshot current elapsed.
+            teleprompterPausedAtElapsed = Date().timeIntervalSince(started)
+        }
+    }
+
+    /// User stopped reading (×, end-of-script auto-stop, escape).
+    /// Clears state so the pill morph + content revert to the prior
+    /// resting state (music pill / focus pill / empty pill,
+    /// whichever applies).
+    ///
+    /// Order matters: flip `teleprompterPillVisible` false FIRST so
+    /// the SwiftUI content fades out as the morph begins, not after.
+    /// Caller is responsible for persisting `lastReadOffset` to the
+    /// script BEFORE calling this — once we clear the script ref,
+    /// the offset can't be derived from in-memory state.
+    func stopTeleprompter() {
+        guard teleprompterScript != nil else { return }
+        teleprompterPillVisible = false
+        teleprompterScript = nil
+        teleprompterStartedAt = nil
+        teleprompterPausedAtElapsed = nil
+    }
 
     /// Closure that the AppDelegate installs to handle "user clicked
     /// Download on the video preview pill." Lifts the actual download
@@ -526,11 +640,24 @@ final class PanelPresenter: ObservableObject {
             // need to know whether it landed regardless of focus.
             return false
         case .trackChanged:
-            // Track-change announcements are the chatty kind that
-            // SHOULD respect Focus mode. If the user is heads-down,
-            // the music keeps playing without the pill flashing every
-            // 3 minutes when the song changes.
-            return true
+            // 2026-05-09: track-change banner now ALWAYS fires,
+            // even in Focus mode. User feedback: "we need 3d
+            // title there when changing the music — just as the
+            // other places — and show the song name and artist
+            // name just like with no focus mode." The track-flip
+            // banner (with title + artist + 3D card flip) is the
+            // primary way the user learns "what's playing now,"
+            // and gating it on Focus left them blind to song
+            // changes during deep work — defeating the value of
+            // the persistent music indicator on the pill.
+            //
+            // The other ambient pills (charger, screenshot,
+            // AirDrop, Bluetooth) stay muted during Focus —
+            // those are the truly chatty ones the user wants
+            // suppressed. Track changes happen at user-initiated
+            // moments (skipping a song, autoplay landing on a
+            // new track) which is fundamentally different.
+            return false
         case .volumeChanged:
             // Volume HUD is user-initiated — they pressed a key.
             // Suppressing it would feel broken (matches macOS native
@@ -540,19 +667,48 @@ final class PanelPresenter: ObservableObject {
     }
 
     func setPendingSystemEvent(_ event: SystemEvent) {
-        // Focus / DND auto-hide. When the user has enabled the
-        // "respect Focus" toggle (`SettingsKey.respectFocusMode`,
-        // default true), and their system Focus is active, swallow
-        // the ambient pills so the pill stays out of the way. This
-        // intentionally does NOT clear an already-displayed event —
-        // if the user toggled Focus on while a charging pill was
-        // mid-fade, let it finish; only NEW events get muted.
-        if isFocused && Self.isMutedByFocus(event) {
-            let respect: Bool = {
+        // Quiet-mode suppression. Two independent reasons can mute
+        // an ambient pill:
+        //
+        //   1. nox's OWN quiet mode (`SettingsKey.noxQuietMode`) —
+        //      user flipped the toggle on the Live > Focus
+        //      dashboard. Always honored, doesn't depend on macOS
+        //      Focus state. This is the path that "just works"
+        //      for users who don't set up macOS Focus.
+        //
+        //   2. macOS Focus auto-sync (`SettingsKey.respectFocusMode`,
+        //      default true) — when the user is in a system Focus
+        //      mode AND has the auto-sync toggle on, ambient pills
+        //      stay quiet too.
+        //
+        // Either condition triggers suppression. Mutually-exclusive
+        // states aren't possible — both can be on at once and
+        // they OR cleanly.
+        //
+        // Suppression intentionally does NOT clear an already-
+        // displayed event — if the user toggled quiet mode on while
+        // a charging pill was mid-fade, let it finish; only NEW
+        // events get muted.
+        if Self.isMutedByFocus(event) {
+            let muteByQuiet: Bool = UserDefaults.standard
+                .bool(forKey: "noxFocusMode")
+            let muteByStudy: Bool = UserDefaults.standard
+                .bool(forKey: "noxStudyMode")
+            let muteByFocus: Bool = {
+                guard isFocused else { return false }
                 if UserDefaults.standard.object(forKey: "respectFocusMode") == nil { return true }
                 return UserDefaults.standard.bool(forKey: "respectFocusMode")
             }()
-            if respect { return }
+            if muteByQuiet || muteByStudy || muteByFocus {
+                // Record the mute against the FocusSessionTracker
+                // (the only one with a per-session counter — the
+                // StudySessionTracker tracks day-level minutes,
+                // not pill suppressions). One mute = one increment;
+                // the user sees the count on the Focus dashboard
+                // regardless of which mode triggered the mute.
+                FocusSessionTracker.shared.recordMute(typeKey: event.trackingTypeKey)
+                return
+            }
         }
 
         pendingSystemEvent = event
@@ -648,10 +804,13 @@ final class PanelPresenter: ObservableObject {
     /// only appears when something is actively playing — when nothing
     /// is playing the bar is the original 4-tab strip and the user
     /// never sees a "Music" segment that does nothing.
+    ///
+    /// Script (1.9.10): always visible — teleprompter is a tool the
+    /// user goes to deliberately. Sits at the right end of the bar.
     var visibleTabs: [PanelTab] {
         var tabs: [PanelTab] = []
         if nowPlaying != nil { tabs.append(.music) }
-        tabs.append(contentsOf: [.notes, .images, .videos, .files])
+        tabs.append(contentsOf: [.notes, .images, .videos, .files, .script])
         return tabs
     }
 }

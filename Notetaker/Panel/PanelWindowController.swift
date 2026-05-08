@@ -324,6 +324,33 @@ final class PanelWindowController {
     /// there).
     static let volumeBannerWidth: CGFloat = 400
     static let volumeBannerBump:  CGFloat = 0
+
+    /// Teleprompter pill geometry — wider, taller silhouette that
+    /// hosts the scrolling-text reading pane right below the camera.
+    /// User intent (2026-05-09): "live transcript reading… you can
+    /// read your script live" while looking at the camera, so the
+    /// pill needs to stay anchored at the notch (eye-line) but offer
+    /// enough vertical room to show ~3 lines of text comfortably.
+    ///
+    /// Width 600pt — substantially wider than music pill (302pt)
+    /// and volume banner (400pt). Iterated with the user
+    /// 2026-05-09: 540pt was "a little big" (their wording was
+    /// unclear), then 460pt was "more bigger horizontally" — so
+    /// the answer is "wider than the original." 600pt fits ~13–14
+    /// words per line at 17pt rounded font, giving the
+    /// teleprompter a true "banner across the camera notch" feel
+    /// rather than a music-pill cousin.
+    ///
+    /// Bump 76pt — `notchOverlap` covers the upper portion (behind
+    /// the camera hardware); the bump is the visible apron where
+    /// scrolling text actually lives. 76pt at 16pt font with 8pt
+    /// line spacing → ~3 lines visible (the current/next/peek-
+    /// preview cadence the user described as "promt box, going
+    /// slowly down"). Vertical held throughout the iteration —
+    /// only width was contested.
+    static let teleprompterPillWidth: CGFloat = 600
+    static let teleprompterPillBump:  CGFloat = 76
+
     private static let edgeGap: CGFloat = 10
     private static let topGap: CGFloat = 40
     /// True Alcove-style placement: the NSPanel's TOP edge sits AT the
@@ -845,9 +872,29 @@ final class PanelWindowController {
         .sink { [weak self] _, _, _, _ in
             self?.updateShadowPath()
         }
+
+        // Teleprompter morph hook. When the user hits "Start reading"
+        // on a script, presenter.teleprompterScript becomes non-nil
+        // and we morph the pill to teleprompter geometry. Setting it
+        // back to nil reverses to the appropriate resting frame.
+        // Wrapped in `removeDuplicates(by:)` since we only care about
+        // nil ↔ non-nil transitions, not script-to-script identity
+        // changes (those don't need a re-morph).
+        teleprompterSubscription = presenter.$teleprompterScript
+            .map { $0 != nil }
+            .removeDuplicates()
+            .sink { [weak self] isReading in
+                guard let self else { return }
+                if isReading {
+                    self.showTeleprompterPill()
+                } else {
+                    self.dismissTeleprompterPill()
+                }
+            }
     }
 
     private var shadowStateSubscription: AnyCancellable?
+    private var teleprompterSubscription: AnyCancellable?
 
     /// Builds the silhouette CGPath in CALayer non-flipped coordinates
     /// (origin at bottom-left). The silhouette is the same shape
@@ -949,6 +996,13 @@ final class PanelWindowController {
             // Slab character
             return (22, PanelWindowController.innerCornerRadius)
         }
+        // Teleprompter pill — taller apron with a slab-ish bottom
+        // radius. Same top-flare math as the slab (22pt) so the
+        // pill silhouette flows naturally out of the notch but the
+        // bottom rounds into a banner shape, not a slab.
+        if presenter.teleprompterScript != nil {
+            return (22, 18)
+        }
         // Volume HUD banner — matches PanelRootView's panelTopRadius=12
         // / panelBottomRadius=14 for the .volumeChanged state. Without
         // this case, any updateShadowPath() call while the volume HUD
@@ -958,6 +1012,13 @@ final class PanelWindowController {
         // sudden corner reshape on the halo.
         if case .volumeChanged = presenter.pendingSystemEvent {
             return (12, 14)
+        }
+        // Track-change banner — matches PanelRootView's
+        // panelTopRadius=6 (falls through to nowPlaying branch in
+        // SwiftUI; deliberately kept at the music-pill 6pt to avoid
+        // an "edge cut" mid-morph) and panelBottomRadius=14.
+        if case .trackChanged = presenter.pendingSystemEvent {
+            return (6, 14)
         }
         if presenter.nowPlaying != nil {
             // Music pill character
@@ -1822,7 +1883,27 @@ final class PanelWindowController {
         //   beat), single ease-out shrink with alpha fade for the
         //   notch-hidden case (no recoil — there's nothing to land at).
         let screen = panel.screen ?? NSScreen.main
-        let target = presenter.isResting
+        // Pick the close target. Anchored state (music / Focus /
+        // nox quiet) keeps the pill open at closedPillFrame —
+        // mirrored in the animateClose completion handler so the
+        // post-close state is consistent. Without an anchor, we
+        // sink into the hardware notch (notchHiddenFrame).
+        let noxQuiet = UserDefaults.standard.bool(forKey: "noxFocusMode")
+        let noxStudy = UserDefaults.standard.bool(forKey: "noxStudyMode")
+        let pillAnchored = presenter.nowPlaying != nil
+            || presenter.isFocused
+            || noxQuiet || noxStudy
+        // Make sure isResting reflects whether the close should
+        // land at the resting pill. If quiet mode flipped on
+        // while the slab was open and no other anchor existed,
+        // isResting was set by recomputeQuietState's
+        // enterRestingMode call — but defensively re-set here too
+        // so a directly-toggled-mid-slab state doesn't slip
+        // through and land at notch-hidden.
+        if pillAnchored && !presenter.isResting {
+            presenter.isResting = true
+        }
+        let target = (presenter.isResting && pillAnchored)
             ? closedPillFrame(for: screen)
             : notchHiddenFrame(for: screen)
         // Flip the silhouette mode BEFORE animateClose runs the spring
@@ -1891,17 +1972,29 @@ final class PanelWindowController {
         // squeeze user rejected). +14pt width and +6pt height bump
         // — barely perceptible growth but registers as "I see you,
         // hold the cursor for a moment."
+        //
+        // 2026-05-09: derive the tease's BASE width from the CURRENT
+        // resting frame (`closedPillFrame`) instead of hard-coding
+        // `closedPillWidth + 14`. With music + Focus active the pill
+        // is wider (`closedPillWidth + focusPillExtraWidth`) — the
+        // hard-coded path was making the tease SHRINK on cursor
+        // approach instead of grow. User feedback: "in this big pill
+        // the animation of moving cursor closer is getting affected
+        // by smaller pill — we need separate one for this so it
+        // opens from this position."
         if presenter.isResting && presenter.nowPlaying != nil {
             let screen = screenContainingCursor() ?? NSScreen.main
             let frame = screen?.frame ?? .zero
             let overlap = PanelWindowController.notchOverlap(for: screen)
             let halo = PanelWindowController.haloPadding
-            let visibleWidth = PanelWindowController.closedPillWidth + 14
+            // baseRestingFrame already includes halo padding +
+            // focusPillExtraWidth bonus when applicable.
+            let baseRestingFrame = closedPillFrame(for: screen)
             let visibleBump: CGFloat = 6
             let teaseFrameMusic = NSRect(
-                x: frame.midX - (visibleWidth + 2 * halo) / 2,
+                x: frame.midX - (baseRestingFrame.width + 14) / 2,
                 y: frame.maxY - (overlap + visibleBump + halo),
-                width: visibleWidth + 2 * halo,
+                width: baseRestingFrame.width + 14,
                 height: overlap + visibleBump + halo
             )
             animateTease(to: teaseFrameMusic)
@@ -2068,6 +2161,11 @@ final class PanelWindowController {
                 quickPasteFeedback()
                 return true
             }
+        case .script:
+            // No quick-paste action for the Script tab — scripts
+            // aren't a list of clipboard-shaped items the way notes
+            // / images / files are. Pass the ⌘N keystroke through.
+            return false
         }
         return false
     }
@@ -2180,14 +2278,37 @@ final class PanelWindowController {
         let overlap = PanelWindowController.notchOverlap(for: screen)
         let halo = PanelWindowController.haloPadding
         let height = overlap + PanelWindowController.closedPillBump + halo
-        // Focus / DND mode widens the pill so the SwiftUI HStack inside
-        // can fit the "Focus" text + divider + moon glyph alongside the
-        // existing artwork + waveform. Width returns to the base
-        // closedPillWidth automatically when isFocused flips off.
-        // morphRestingFrameForFocusChange() (below) re-animates the
-        // panel.frame on flip so the user sees a smooth grow/shrink.
-        let focusBonus = presenter.isFocused ? Self.focusPillExtraWidth : 0
-        let width = PanelWindowController.closedPillWidth + focusBonus + 2 * halo
+        // 2026-05-09 v2: focusPillExtraWidth bonus restored, but
+        // ONLY when BOTH music AND Focus are active simultaneously.
+        // User feedback: "when music and focus mode are togather
+        // let's get back the long pill like before."
+        //
+        // Three-state width matrix:
+        //   • Music only → closedPillWidth (no bonus)
+        //   • Focus only (no music) → closedPillWidth (focus pill
+        //     replaces music content, no extra room needed)
+        //   • Music + Focus → closedPillWidth + focusPillExtraWidth
+        //     (both content blocks visible side-by-side; needs the
+        //     extra horizontal headroom)
+        //
+        // "Focus" here means EITHER nox's own toggle OR macOS Focus
+        // (auto-synced via respectFocusMode default-true), mirroring
+        // every other anchor check in the app.
+        let hasMusic = presenter.nowPlaying != nil
+        let noxFocus = UserDefaults.standard.bool(forKey: "noxFocusMode")
+        let noxStudy = UserDefaults.standard.bool(forKey: "noxStudyMode")
+        let respectFocus: Bool = {
+            if UserDefaults.standard.object(forKey: "respectFocusMode") == nil { return true }
+            return UserDefaults.standard.bool(forKey: "respectFocusMode")
+        }()
+        // 2026-05-09: study mirrors focus as a "needs the wider
+        // pill alongside music" anchor. Either toggle (focus or
+        // study) bumps the pill to the +65pt width when music is
+        // also playing, so the side-by-side music + indicator
+        // layout has room.
+        let modeActive = noxFocus || noxStudy || (presenter.isFocused && respectFocus)
+        let bonus = (hasMusic && modeActive) ? Self.focusPillExtraWidth : 0
+        let width = PanelWindowController.closedPillWidth + bonus + 2 * halo
         return NSRect(
             x: frame.midX - width / 2,
             y: frame.maxY - height,
@@ -2220,7 +2341,25 @@ final class PanelWindowController {
         if isTeasing { return }
 
         let screen = panel.screen ?? NSScreen.main
-        let target = closedPillFrame(for: screen)
+        // Pick the right resting target — same logic as
+        // enterRestingMode. When isFocused / noxQuietMode flips
+        // and we're already resting, we morph between music-pill /
+        // transient-pill geometry without orderOut'ing.
+        //
+        // 2026-05-08: extended the anchor list to include nox's
+        // own quiet-mode toggle. Without this, the pill would
+        // collapse when the user flipped nox-quiet on with no
+        // music + no macOS Focus — defeating the "persistent
+        // visual reminder" we want for quiet mode.
+        let noxQuiet = UserDefaults.standard.bool(forKey: "noxFocusMode")
+        let noxStudy = UserDefaults.standard.bool(forKey: "noxStudyMode")
+        let target: NSRect = {
+            if presenter.nowPlaying != nil || presenter.isFocused || noxQuiet || noxStudy {
+                return closedPillFrame(for: screen)
+            } else {
+                return transientPillFrame(for: screen)
+            }
+        }()
         let start = panel.frame
         // 1pt tolerance — sub-pixel diffs from previous animations
         // shouldn't trigger a redundant morph.
@@ -2378,6 +2517,40 @@ final class PanelWindowController {
         )
     }
 
+    /// Standalone Focus-pill frame — used when the user has Focus /
+    /// DND on but NO music is playing. Sized to fit the
+    /// `🌙 Focus 23m` cluster comfortably with a tiny ⭐×N counter
+    /// on its right (Phase C reward system, when that lands).
+    ///
+    /// Same height as `transientPillFrame` (visibleBump 8) so the
+    /// silhouette reads as the same "soft hardware-notch pill"
+    /// shape — just slightly wider to host the text cluster
+    /// instead of being empty. Width 200pt is a deliberate middle
+    /// ground: narrower than the music pill (278pt) so the user
+    /// reads it as "smaller / quieter context", wider than the
+    /// transient pill (220pt) is — wait, transient is 220, and we
+    /// want focus to feel slightly smaller still (no artwork). So
+    /// 200pt: enough for moon (11pt) + "Focus 23m" (~58pt) +
+    /// ~2pt safety + future ⭐×N (~20pt) + 6pt of padding each
+    /// side = ~110pt content; 200pt gives ~90pt of breathing room.
+    /// Matches Phase A scope; Phase C may want to bump if the star
+    /// counter doesn't fit.
+    static let focusOnlyPillWidth: CGFloat = 200
+    private func focusOnlyPillFrame(for screen: NSScreen?) -> NSRect {
+        let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let overlap = PanelWindowController.notchOverlap(for: screen)
+        let halo = PanelWindowController.haloPadding
+        let visibleBump: CGFloat = 8
+        let height = overlap + visibleBump + halo
+        let width = Self.focusOnlyPillWidth + 2 * halo
+        return NSRect(
+            x: frame.midX - width / 2,
+            y: frame.maxY - height,
+            width: width,
+            height: height
+        )
+    }
+
     private func teasePillFrame(for screen: NSScreen?) -> NSRect {
         let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let overlap = PanelWindowController.notchOverlap(for: screen)
@@ -2426,6 +2599,28 @@ final class PanelWindowController {
         let halo = PanelWindowController.haloPadding
         let height = overlap + PanelWindowController.volumeBannerBump + halo
         let width = PanelWindowController.volumeBannerWidth + 2 * halo
+        return NSRect(
+            x: frame.midX - width / 2,
+            y: frame.maxY - height,
+            width: width,
+            height: height
+        )
+    }
+
+    /// Teleprompter pill geometry — same anchoring pattern as the
+    /// track / volume banners (top edge welded to screen top so the
+    /// pill grows OUT of the hardware notch). The PILL ROOT view
+    /// positions teleprompter content at `.padding(.top, notchOverlap)`
+    /// so scrolling text renders only in the visible apron, never
+    /// behind the camera hardware. Restored to the prior resting
+    /// frame (closed pill / focus pill / transient pill) by
+    /// `dismissTeleprompterPill()` when the user stops reading.
+    private func teleprompterPillFrame(for screen: NSScreen?) -> NSRect {
+        let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let overlap = PanelWindowController.notchOverlap(for: screen)
+        let halo = PanelWindowController.haloPadding
+        let height = overlap + PanelWindowController.teleprompterPillBump + halo
+        let width = PanelWindowController.teleprompterPillWidth + 2 * halo
         return NSRect(
             x: frame.midX - width / 2,
             y: frame.maxY - height,
@@ -2845,9 +3040,21 @@ final class PanelWindowController {
             // the user's experience is identical to "panel hidden,"
             // but AppKit knows the window is alive.
             let hasMusic = self.presenter.nowPlaying != nil
+            // 2026-05-08: extended the "stay at resting pill"
+            // anchor list to include nox's own quiet mode and
+            // macOS Focus. Previously only `hasMusic` kept the
+            // pill visible after a close; user feedback said the
+            // pill collapsed to notch-hidden when they had quiet
+            // mode on with no music — defeating the persistent
+            // visual reminder. Now any of these three reasons
+            // anchors the pill: music, macOS Focus, nox quiet
+            // mode.
+            let noxQuiet = UserDefaults.standard.bool(forKey: "noxFocusMode")
+        let noxStudy = UserDefaults.standard.bool(forKey: "noxStudyMode")
+            let pillAnchored = hasMusic || self.presenter.isFocused || noxQuiet || noxStudy
             self.panel.setFrame(target, display: true)
-            if !(self.presenter.isResting && hasMusic) {
-                // No-music path: panel STAYS visible at notch-hidden
+            if !(self.presenter.isResting && pillAnchored) {
+                // No anchor: panel STAYS visible at notch-hidden
                 // (black-on-black with hardware) as a drag target.
                 // Clear isResting so future show() flows start clean.
                 self.presenter.isResting = false
@@ -2867,12 +3074,14 @@ final class PanelWindowController {
                 // is cleared the moment the panel starts opening again.
                 self.presenter.isAtNotchHidden = isNotchHiddenTarget
             } else {
-                // Music close path lands at the music pill (278×32
-                // visible silhouette, wider than hardware notch). The
-                // 6/8 inverse-bow + bottom-flare radii read fine here
-                // — the per-side narrowing is only ~5% of the width,
-                // not ~7.5% like at notch-hidden. So clear the flag
-                // (defensive) so the music pill always uses pill radii.
+                // Anchored close path lands at the resting pill
+                // (closedPillFrame). The 6/8 inverse-bow +
+                // bottom-flare radii read fine here — the
+                // per-side narrowing is only ~5% of the width,
+                // not ~7.5% like at notch-hidden. So clear the
+                // flag (defensive) so the resting pill always
+                // uses pill radii regardless of which anchor
+                // (music / Focus / quiet) is keeping it open.
                 self.presenter.isAtNotchHidden = false
             }
         }
@@ -3082,9 +3291,23 @@ final class PanelWindowController {
         //     like a music pill. User 2026-05-05: "when a screenshot
         //     is taken in empty state ... it's taking a shape of
         //     the music pill ... it should be from inside of the notch."
-        let pillFrame: NSRect = (presenter.nowPlaying != nil)
-            ? closedPillFrame(for: screen)
-            : transientPillFrame(for: screen)
+        // Pill geometry choice:
+        //   • Music playing OR Focus on → closedPillFrame (the
+        //     standard music pill geometry with optional
+        //     focusPillExtraWidth tacked on if isFocused). Reusing
+        //     the music pill silhouette for the standalone Focus
+        //     case so the user sees the SAME visual surface they
+        //     already know — only the content inside swaps.
+        //   • No music + no Focus → transientPillFrame (bare
+        //     hardware-notch silhouette for transient banners
+        //     emerging from a fully-quiet state).
+        let pillFrame: NSRect = {
+            if presenter.nowPlaying != nil || presenter.isFocused {
+                return closedPillFrame(for: screen)
+            } else {
+                return transientPillFrame(for: screen)
+            }
+        }()
         // Only snap to hiddenStart if panel is currently OFF-SCREEN.
         // User screenshot evidence 2026-05-05: previously this ALWAYS
         // snapped panel to notch-hidden (185pt) before animating to
@@ -3219,31 +3442,87 @@ final class PanelWindowController {
         let start = panel.frame
         if start == target { return }
 
-        currentSpring?.cancel()
+        // Anti-thrash: if a morph to this exact target is already
+        // in flight, let it finish — don't cancel and restart from
+        // a mid-flight position. (Track banner is fired once per
+        // song change so this is mostly defensive — but matches
+        // the volume HUD's contract exactly.)
+        if currentSpringTarget == target { return }
 
-        // SINGLE-STAGE GROW. User feedback 2026-05-07: "animation
-        // can be a little more smoother". Earlier 380/28 (ζ=0.72)
-        // had visible 4% overshoot which read as a tiny bounce —
-        // user wants smoother. Damped closer to critical so the
-        // silhouette settles without overshoot.
+        currentSpring?.cancel()
+        currentSpring = nil
+        currentSpringTarget = target
+
+        // ── PREMIUM ANIMATION via NSAnimationContext + Apple's
+        // signature out-quint cubic-bezier (0.32, 0.72, 0, 1).
+        // Off-thread Core Animation runs on the WindowServer
+        // animation thread, so other main-thread work (Combine
+        // sinks, SwiftUI re-renders, MR ticks) can't intercept
+        // the morph mid-flight.
         //
-        // stiffness 320 / damping 33 / mass 1
-        // → ω_n=17.9, ζ=0.92, settle ~245ms.
-        // ζ=0.92 is right under critical (1.0). The landing has
-        // no visible overshoot but isn't fully critically damped
-        // either — keeps just enough organic feel to not read as
-        // a hard mechanical ramp.
-        let spring = SpringFrameAnimator(stiffness: 320, damping: 33, mass: 1.0)
-        spring.shadowTickHandler = { [weak self] in
-            self?.updateShadowPath()
-        }
-        currentSpring = spring
-        spring.animate(panel: panel, from: start, to: target) { [weak self] in
-            self?.currentSpring = nil
-            self?.panel.setFrame(target, display: true)
-            self?.updateShadowPath()
-        }
-        NSLog("nox: showTrackBanner — single-stage grow to banner=\(target)")
+        // 2026-05-08 rewrite: replaces the previous SpringFrameAnimator
+        // (CADisplayLink-driven main-thread spring at 320/33/1)
+        // which suffered intermittent dropped frames whenever the
+        // main thread was busy — visibly "intercepted" the morph.
+        // 0.40s + (0.32, 0.72, 0, 1) matches the SwiftUI
+        // `.animation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.40),
+        //   value: pillEventCaseKey)` modifier in PanelRootView, so
+        // the silhouette radii, the panel.frame, and the shadow
+        // path all run on the same off-thread CA pipeline with
+        // matched curves — frame-perfect lockstep.
+        //
+        // SHADOW PATH — animated via CABasicAnimation on the layer's
+        // `shadowPath` so the drop shadow halo grows with the
+        // silhouette. Same recipe as showVolumeBanner.
+        let halo = PanelWindowController.haloPadding
+        let targetSilhouetteRect = CGRect(
+            x: halo,
+            y: halo,
+            width: target.size.width - 2 * halo,
+            height: target.size.height - halo
+        )
+        // Track banner radii — matches PanelRootView's
+        // panelTopRadius=6 / panelBottomRadius=14 for the
+        // `.trackChanged` + nowPlaying state.
+        let targetShadowPath = Self.silhouetteCGPath(
+            in: targetSilhouetteRect,
+            topFlareRadius: 6,
+            bottomCornerRadius: 14
+        )
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.40
+            ctx.timingFunction = CAMediaTimingFunction(
+                controlPoints: 0.32, 0.72, 0, 1
+            )
+            ctx.allowsImplicitAnimation = true
+            panel.animator().setFrame(target, display: true, animate: true)
+            if let layer = panel.contentView?.layer {
+                let fromPath: CGPath = layer.presentation()?.shadowPath
+                    ?? layer.shadowPath
+                    ?? targetShadowPath
+                let pathAnim = CABasicAnimation(keyPath: "shadowPath")
+                pathAnim.fromValue = fromPath
+                pathAnim.toValue = targetShadowPath
+                pathAnim.duration = 0.40
+                pathAnim.timingFunction = CAMediaTimingFunction(
+                    controlPoints: 0.32, 0.72, 0, 1
+                )
+                layer.removeAnimation(forKey: "trackBannerShadowPath")
+                layer.add(pathAnim, forKey: "trackBannerShadowPath")
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer.shadowPath = targetShadowPath
+                CATransaction.commit()
+            }
+        }, completionHandler: { [weak self] in
+            guard let self else { return }
+            self.currentSpringTarget = nil
+            self.panel.setFrame(target, display: true)
+            // Don't call updateShadowPath() — model already at
+            // targetShadowPath, animation played out cleanly.
+        })
+        NSLog("nox: showTrackBanner — NSAnimationContext morph to banner=\(target)")
     }
 
     /// Reverse of `showTrackBanner()`. Animates back to the regular
@@ -3277,20 +3556,84 @@ final class PanelWindowController {
             completion?()
             return
         }
-
-        currentSpring?.cancel()
-        let spring = SpringFrameAnimator(stiffness: 600, damping: 45, mass: 1.0)
-        spring.shadowTickHandler = { [weak self] in
-            self?.updateShadowPath()
-        }
-        currentSpring = spring
-        spring.animate(panel: panel, from: start, to: target) { [weak self] in
-            self?.currentSpring = nil
-            self?.panel.setFrame(target, display: true)
-            self?.updateShadowPath()
+        if currentSpringTarget == target {
             completion?()
+            return
         }
-        NSLog("nox: dismissTrackBanner — returning to pill=\(target)")
+
+        // SAME RECIPE as showTrackBanner. Off-thread CA via
+        // NSAnimationContext + matched cubic-bezier + shadow-path
+        // CABasicAnimation. Replaces the previous
+        // SpringFrameAnimator at 600/45/1 — that worked but
+        // suffered the same main-thread interception under load
+        // as the show side. Keeping both halves of the round-trip
+        // on the WindowServer animation thread keeps the
+        // silhouette + shadow + content morph in lockstep with
+        // SwiftUI's pillEventCaseKey radii animation throughout.
+        currentSpring?.cancel()
+        currentSpring = nil
+        currentSpringTarget = target
+
+        let halo = PanelWindowController.haloPadding
+        let targetSilhouetteRect = CGRect(
+            x: halo,
+            y: halo,
+            width: target.size.width - 2 * halo,
+            height: target.size.height - halo
+        )
+        // Target radii match the resting state we're returning to.
+        // Music pill (most common): (6, 14) — same shape as the
+        // banner, just smaller frame, so the path interpolation is
+        // a clean shrink with no radius wobble. Empty resting
+        // (rare — fires only when AppDelegate's nowPlaying nil-
+        // debounce coincides with the dismiss): (0, 6).
+        let targetTopR: CGFloat
+        let targetBottomR: CGFloat
+        if presenter.nowPlaying != nil {
+            targetTopR = 6
+            targetBottomR = 14
+        } else {
+            targetTopR = 0
+            targetBottomR = 6
+        }
+        let targetShadowPath = Self.silhouetteCGPath(
+            in: targetSilhouetteRect,
+            topFlareRadius: targetTopR,
+            bottomCornerRadius: targetBottomR
+        )
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.40
+            ctx.timingFunction = CAMediaTimingFunction(
+                controlPoints: 0.32, 0.72, 0, 1
+            )
+            ctx.allowsImplicitAnimation = true
+            panel.animator().setFrame(target, display: true, animate: true)
+            if let layer = panel.contentView?.layer {
+                let fromPath: CGPath = layer.presentation()?.shadowPath
+                    ?? layer.shadowPath
+                    ?? targetShadowPath
+                let pathAnim = CABasicAnimation(keyPath: "shadowPath")
+                pathAnim.fromValue = fromPath
+                pathAnim.toValue = targetShadowPath
+                pathAnim.duration = 0.40
+                pathAnim.timingFunction = CAMediaTimingFunction(
+                    controlPoints: 0.32, 0.72, 0, 1
+                )
+                layer.removeAnimation(forKey: "trackBannerShadowPath")
+                layer.add(pathAnim, forKey: "trackBannerShadowPath")
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer.shadowPath = targetShadowPath
+                CATransaction.commit()
+            }
+        }, completionHandler: { [weak self] in
+            guard let self else { return }
+            self.currentSpringTarget = nil
+            self.panel.setFrame(target, display: true)
+            completion?()
+        })
+        NSLog("nox: dismissTrackBanner — NSAnimationContext morph to pill=\(target)")
     }
 
     // MARK: - Volume HUD banner
@@ -3527,6 +3870,209 @@ final class PanelWindowController {
             // disagree at the AppDelegate-completion handoff).
             completion?()
         })
+    }
+
+    // MARK: - Teleprompter pill morph
+    //
+    // Driven by `teleprompterSubscription` watching
+    // `presenter.$teleprompterScript`. When the user taps Start
+    // reading: nil → non-nil triggers `showTeleprompterPill()`,
+    // which morphs the panel from whatever it's currently doing
+    // (slab open / resting pill / at-notch-hidden) into the wider/
+    // taller teleprompter pill geometry. Setting back to nil
+    // triggers `dismissTeleprompterPill()` which returns to the
+    // appropriate resting frame.
+
+    /// Animate the panel into teleprompter pill geometry. Handles
+    /// three entry states:
+    ///   • Slab open  → close slab to resting pill, then morph to
+    ///     teleprompter (two-stage). Uses `hide()` for the close so
+    ///     all the slab-cleanup plumbing (cascade, drop picker,
+    ///     swipe state) runs normally.
+    ///   • Resting    → direct morph to teleprompter geometry.
+    ///   • Notch-hidden / not visible → fall-through to direct morph
+    ///     (we still want the pill to appear for the user).
+    func showTeleprompterPill() {
+        // Close slab first if it's open. We schedule the morph for
+        // ~0.42s later — the slab close runs ~0.32-0.36s, plus a
+        // safety margin so animateClose has fully settled. Without
+        // this two-stage, the morph and close fight each other and
+        // the silhouette judders.
+        if isVisible {
+            hide()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) { [weak self] in
+                self?.morphIntoTeleprompterFrame()
+            }
+            return
+        }
+        morphIntoTeleprompterFrame()
+    }
+
+    /// Reverse of `showTeleprompterPill()`. Restores the pill to its
+    /// appropriate resting frame — closed pill if music is alive or
+    /// Focus is on, transient pill otherwise — same chooser logic
+    /// `enterRestingMode()` uses.
+    func dismissTeleprompterPill() {
+        // Flip pill-visible FIRST so SwiftUI's content overlay starts
+        // unmounting immediately. Defensive — `stopTeleprompter()`
+        // already did this, but if dismiss is called from a path
+        // that bypassed the presenter (e.g. emergency cleanup), the
+        // pill content shouldn't outlive the morph.
+        presenter.teleprompterPillVisible = false
+
+        let screen = panel.screen ?? NSScreen.main
+        let noxQuiet = UserDefaults.standard.bool(forKey: "noxFocusMode")
+        let noxStudy = UserDefaults.standard.bool(forKey: "noxStudyMode")
+        let target: NSRect = {
+            if presenter.nowPlaying != nil || presenter.isFocused || noxQuiet || noxStudy {
+                return closedPillFrame(for: screen)
+            } else {
+                return transientPillFrame(for: screen)
+            }
+        }()
+
+        let start = panel.frame
+        if start == target { return }
+        if currentSpringTarget == target { return }
+
+        currentSpring?.cancel()
+        currentSpring = nil
+        currentSpringTarget = target
+
+        // Same out-quint curve every other pill morph in this file
+        // uses. Shadow path animates in lockstep so the halo follows
+        // the silhouette during the shrink.
+        let halo = PanelWindowController.haloPadding
+        let targetSilhouetteRect = CGRect(
+            x: halo,
+            y: halo,
+            width: target.size.width - 2 * halo,
+            height: target.size.height - halo
+        )
+        // Target radii — matches the resting pill we're returning to.
+        let targetTopR: CGFloat
+        let targetBottomR: CGFloat
+        if presenter.nowPlaying != nil {
+            targetTopR = 12
+            targetBottomR = PanelWindowController.pillCornerRadius
+        } else {
+            targetTopR = 0
+            targetBottomR = 6
+        }
+        let targetShadowPath = Self.silhouetteCGPath(
+            in: targetSilhouetteRect,
+            topFlareRadius: targetTopR,
+            bottomCornerRadius: targetBottomR
+        )
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.40
+            ctx.timingFunction = CAMediaTimingFunction(
+                controlPoints: 0.32, 0.72, 0, 1
+            )
+            ctx.allowsImplicitAnimation = true
+            panel.animator().setFrame(target, display: true, animate: true)
+            if let layer = panel.contentView?.layer {
+                let fromPath: CGPath = layer.presentation()?.shadowPath
+                    ?? layer.shadowPath
+                    ?? targetShadowPath
+                let pathAnim = CABasicAnimation(keyPath: "shadowPath")
+                pathAnim.fromValue = fromPath
+                pathAnim.toValue = targetShadowPath
+                pathAnim.duration = 0.40
+                pathAnim.timingFunction = CAMediaTimingFunction(
+                    controlPoints: 0.32, 0.72, 0, 1
+                )
+                layer.removeAnimation(forKey: "teleprompterShadowPath")
+                layer.add(pathAnim, forKey: "teleprompterShadowPath")
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer.shadowPath = targetShadowPath
+                CATransaction.commit()
+            }
+        }, completionHandler: { [weak self] in
+            guard let self else { return }
+            self.currentSpringTarget = nil
+            self.panel.setFrame(target, display: true)
+        })
+        NSLog("nox: dismissTeleprompterPill — morph to resting=\(target.size)")
+    }
+
+    /// Inner morph step — assumes panel is at resting (no slab) and
+    /// just animates frame + shadow path to teleprompter geometry.
+    private func morphIntoTeleprompterFrame() {
+        let screen = panel.screen ?? NSScreen.main
+        let target = teleprompterPillFrame(for: screen)
+        let start = panel.frame
+        if start == target { return }
+        if currentSpringTarget == target { return }
+
+        currentSpring?.cancel()
+        currentSpring = nil
+        currentSpringTarget = target
+
+        // Make sure panel is visible (in case we came from a notch-
+        // hidden state). Resting flag stays true — the teleprompter
+        // pill IS a resting state from the controller's POV.
+        if !panel.isVisible {
+            panel.alphaValue = 1
+            panel.orderFrontRegardless()
+        }
+
+        // Flip pill-visible BEFORE the morph starts so the SwiftUI
+        // content (TeleprompterPillBody) mounts in lockstep with the
+        // frame growth. Without this gate, content rendered the
+        // moment teleprompterScript was set — which could be ~0.4s
+        // earlier while the slab was still closing.
+        presenter.teleprompterPillVisible = true
+
+        let halo = PanelWindowController.haloPadding
+        let targetSilhouetteRect = CGRect(
+            x: halo,
+            y: halo,
+            width: target.size.width - 2 * halo,
+            height: target.size.height - halo
+        )
+        // Match the radii in `currentSilhouetteRadii()`'s teleprompter
+        // case (22 / 18) so SwiftUI's rendered silhouette and CALayer's
+        // shadow path agree throughout the morph.
+        let targetShadowPath = Self.silhouetteCGPath(
+            in: targetSilhouetteRect,
+            topFlareRadius: 22,
+            bottomCornerRadius: 18
+        )
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.42
+            ctx.timingFunction = CAMediaTimingFunction(
+                controlPoints: 0.32, 0.72, 0, 1
+            )
+            ctx.allowsImplicitAnimation = true
+            panel.animator().setFrame(target, display: true, animate: true)
+            if let layer = panel.contentView?.layer {
+                let fromPath: CGPath = layer.presentation()?.shadowPath
+                    ?? layer.shadowPath
+                    ?? targetShadowPath
+                let pathAnim = CABasicAnimation(keyPath: "shadowPath")
+                pathAnim.fromValue = fromPath
+                pathAnim.toValue = targetShadowPath
+                pathAnim.duration = 0.42
+                pathAnim.timingFunction = CAMediaTimingFunction(
+                    controlPoints: 0.32, 0.72, 0, 1
+                )
+                layer.removeAnimation(forKey: "teleprompterShadowPath")
+                layer.add(pathAnim, forKey: "teleprompterShadowPath")
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer.shadowPath = targetShadowPath
+                CATransaction.commit()
+            }
+        }, completionHandler: { [weak self] in
+            guard let self else { return }
+            self.currentSpringTarget = nil
+            self.panel.setFrame(target, display: true)
+        })
+        NSLog("nox: showTeleprompterPill — morph to teleprompter=\(target.size)")
     }
 
 }

@@ -154,6 +154,56 @@ struct VideoRecord: Identifiable, Codable, FetchableRecord, MutablePersistableRe
     }
 }
 
+/// A user-saved teleprompter script. Pasted text the user wants
+/// to read on camera while looking at the notch (which IS the
+/// camera). Configured per-script speed (WPM) and persistent
+/// last-read position so they can resume mid-session.
+///
+/// The Script tab in the slab is essentially a reduced Notes
+/// list specialised for this — paste, save, select, hit Start.
+struct Script: Identifiable, Codable, FetchableRecord, MutablePersistableRecord, Equatable {
+    var id: String
+    var title: String?
+    var body: String
+    /// Reading speed in words per minute. 150 is a comfortable
+    /// default — average TED-talk pace. Slider range 80–250 in
+    /// the editor. Persisted per script so a user with a fast
+    /// hook + a slow demo can keep both in their library at
+    /// their right pace without retuning every time.
+    var wpm: Int
+    /// Last-read position as a character offset into `body`.
+    /// Saved every ~10s while reading so closing nox mid-script
+    /// (or hitting Esc) preserves where the user left off. Reset
+    /// to 0 when the user explicitly re-starts from the top.
+    var lastReadOffset: Int
+    var createdAt: Double
+    var updatedAt: Double
+    var status: String       // "active" | "trashed"
+    var trashedAt: Double?
+
+    static let databaseTableName = "scripts"
+
+    enum Columns {
+        static let id = Column("id")
+        static let title = Column("title")
+        static let body = Column("body")
+        static let wpm = Column("wpm")
+        static let lastReadOffset = Column("last_read_offset")
+        static let createdAt = Column("created_at")
+        static let updatedAt = Column("updated_at")
+        static let status = Column("status")
+        static let trashedAt = Column("trashed_at")
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, body, wpm, status
+        case lastReadOffset = "last_read_offset"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case trashedAt = "trashed_at"
+    }
+}
+
 struct AudioRecording: Identifiable, Codable, FetchableRecord, MutablePersistableRecord, Equatable {
     var id: String
     var noteId: String

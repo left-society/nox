@@ -17,6 +17,7 @@
 		1DF8B62179AB9D609E2640E6 /* Animations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52506B59D6695A520BAEC7B9 /* Animations.swift */; };
 		20734AD228F94CD69FCC0C0E /* CelebrateIfRecent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97BC580878C88D99FE7AB2F /* CelebrateIfRecent.swift */; };
 		21B320683C749872644B6B1A /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC413C8739634F519E4E392A /* OnboardingView.swift */; };
+		CLNB1A2B3C4D5E6F70123456 /* CleanOnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CLNF1A2B3C4D5E6F70123456 /* CleanOnboardingView.swift */; };
 		2392E7D0307561B283550D39 /* RetentionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C727DFD4A4E2C994662FBCD /* RetentionServiceTests.swift */; };
 		251BAF64E160A858D45552CE /* MarkdownTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97CDA86F6ECA5B63928EBC6 /* MarkdownTextEditor.swift */; };
 		256A0AED9F319A7E21DAB17A /* LockMusicCardWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28DD915C8DAF5516CFA60ECD /* LockMusicCardWindow.swift */; };
@@ -35,6 +36,11 @@
 		35B4A484A4E1D7230530A7D0 /* RetentionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB0296047884620F7222CFC0 /* RetentionService.swift */; };
 		SCRSHARE0001A1B2C3D4E5F0 /* ScreenSharingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCRSHARE0002A1B2C3D4E5F0 /* ScreenSharingPolicy.swift */; };
 		MEDIAKEY0001A1B2C3D4E5F0 /* MediaKeyInterceptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = MEDIAKEY0002A1B2C3D4E5F0 /* MediaKeyInterceptor.swift */; };
+		FOCBARIT0001A1B2C3D4E5F /* FocusStatusBarItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = FOCBARIT0002A1B2C3D4E5F /* FocusStatusBarItem.swift */; };
+		SCRSTORE0001A1B2C3D4E5 /* ScriptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCRSTORE0002A1B2C3D4E5 /* ScriptStore.swift */; };
+		SCRVIEW00001A1B2C3D4E5 /* ScriptsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCRVIEW00002A1B2C3D4E5 /* ScriptsView.swift */; };
+		SPPILL000001A1B2C3D4E5 /* ScriptPreviewPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = SPPILL000002A1B2C3D4E5 /* ScriptPreviewPill.swift */; };
+		TPPILL000001A1B2C3D4E5 /* TeleprompterPillBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = TPPILL000002A1B2C3D4E5 /* TeleprompterPillBody.swift */; };
 		37378A6ABF6FF0A64E924EB5 /* URLExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12E503C55E4AD3245A630B37 /* URLExtractor.swift */; };
 		3EB8D6E02C178E831BFDF952 /* NotchHUDWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8605292AC765458362A6F424 /* NotchHUDWindowController.swift */; };
 		410D5B9026793F2904738A4B /* QuickPasteRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5497B7A683A649575231482 /* QuickPasteRouterTests.swift */; };
@@ -47,6 +53,9 @@
 		5C3B3FD9E4616938A9D93D0C /* LocalThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90BD720CF17DAEB227F4B2C /* LocalThumbnailView.swift */; };
 		5EC5EF6A866198545A06C4D4 /* TimerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F1E3E1BEEAFD3C78135FAA7 /* TimerService.swift */; };
 		640131856A47354072120A76 /* FocusStatusService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F2BCA1A49368682B2BD7E7D /* FocusStatusService.swift */; };
+		FCST01001A2B3C4D5E6F0123 /* FocusSessionTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCST02001A2B3C4D5E6F0123 /* FocusSessionTracker.swift */; };
+		STSESSTRK001A2B3C4D5 /* StudySessionTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = STSESSTRK002A2B3C4D5 /* StudySessionTracker.swift */; };
+		FSB101A1B2C3D4E5F022468A /* FocusShortcutBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FSB201A1B2C3D4E5F022468B /* FocusShortcutBridge.swift */; };
 		64E1146E44882F7E940B0274 /* ClipboardService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FB98CADB6E11EE3D5131617 /* ClipboardService.swift */; };
 		65BE75628A3DC39F43A16DCA /* NotetakerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F828A81402E3514A29BEF54D /* NotetakerTests.swift */; };
 		6AC9A2A29ACC2D9E3FCF4D88 /* FileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 320F7CC71F4D1499360FD6D2 /* FileStoreTests.swift */; };
@@ -165,6 +174,9 @@
 		4AF23A9CA540FCB310042CA3 /* NotesListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesListView.swift; sourceTree = "<group>"; };
 		4E9C789396FD99C877E0100E /* ImageStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageStoreTests.swift; sourceTree = "<group>"; };
 		4F2BCA1A49368682B2BD7E7D /* FocusStatusService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FocusStatusService.swift; sourceTree = "<group>"; };
+		FCST02001A2B3C4D5E6F0123 /* FocusSessionTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusSessionTracker.swift; sourceTree = "<group>"; };
+		STSESSTRK002A2B3C4D5 /* StudySessionTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudySessionTracker.swift; sourceTree = "<group>"; };
+		FSB201A1B2C3D4E5F022468B /* FocusShortcutBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusShortcutBridge.swift; sourceTree = "<group>"; };
 		52506B59D6695A520BAEC7B9 /* Animations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Animations.swift; sourceTree = "<group>"; };
 		52A9278F762CE0169AD6F820 /* DictationPasteHelper.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DictationPasteHelper.swift; sourceTree = "<group>"; };
 		5373F33379AA02A7E5679328 /* NotetakerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotetakerApp.swift; sourceTree = "<group>"; };
@@ -224,6 +236,11 @@
 		CB0296047884620F7222CFC0 /* RetentionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetentionService.swift; sourceTree = "<group>"; };
 		SCRSHARE0002A1B2C3D4E5F0 /* ScreenSharingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenSharingPolicy.swift; sourceTree = "<group>"; };
 		MEDIAKEY0002A1B2C3D4E5F0 /* MediaKeyInterceptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaKeyInterceptor.swift; sourceTree = "<group>"; };
+		FOCBARIT0002A1B2C3D4E5F /* FocusStatusBarItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusStatusBarItem.swift; sourceTree = "<group>"; };
+		SCRSTORE0002A1B2C3D4E5 /* ScriptStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptStore.swift; sourceTree = "<group>"; };
+		SCRVIEW00002A1B2C3D4E5 /* ScriptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptsView.swift; sourceTree = "<group>"; };
+		SPPILL000002A1B2C3D4E5 /* ScriptPreviewPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptPreviewPill.swift; sourceTree = "<group>"; };
+		TPPILL000002A1B2C3D4E5 /* TeleprompterPillBody.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeleprompterPillBody.swift; sourceTree = "<group>"; };
 		D047BF968A9B749E20E50F79 /* MultiFileDragSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiFileDragSource.swift; sourceTree = "<group>"; };
 		D17F08D84C04BB94F7E8254D /* ThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailCache.swift; sourceTree = "<group>"; };
 		D4B1A65817F2DD32A78B84F4 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
@@ -231,6 +248,7 @@
 		D6222E97003C8B52CDA01AC5 /* mediaremote-adapter.pl */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text; path = "mediaremote-adapter.pl"; sourceTree = "<group>"; };
 		D7EE28A91D3862C54C913D98 /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindow.swift; sourceTree = "<group>"; };
 		DC413C8739634F519E4E392A /* OnboardingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		CLNF1A2B3C4D5E6F70123456 /* CleanOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleanOnboardingView.swift; sourceTree = "<group>"; };
 		DE8C4545B6EB30E073A8D77E /* NoteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteStore.swift; sourceTree = "<group>"; };
 		E313771115CF99A1113AC90F /* BrowserMediaProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserMediaProbe.swift; sourceTree = "<group>"; };
 		E36344E7EDB3D800D5D75C81 /* LinkPreviewService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkPreviewService.swift; sourceTree = "<group>"; };
@@ -309,6 +327,7 @@
 			isa = PBXGroup;
 			children = (
 				DC413C8739634F519E4E392A /* OnboardingView.swift */,
+				CLNF1A2B3C4D5E6F70123456 /* CleanOnboardingView.swift */,
 				869518CDF64A1DFBB3C6A816 /* OnboardingWindow.swift */,
 			);
 			name = Onboarding;
@@ -338,11 +357,16 @@
 				CB0296047884620F7222CFC0 /* RetentionService.swift */,
 				SCRSHARE0002A1B2C3D4E5F0 /* ScreenSharingPolicy.swift */,
 				MEDIAKEY0002A1B2C3D4E5F0 /* MediaKeyInterceptor.swift */,
+				FOCBARIT0002A1B2C3D4E5F /* FocusStatusBarItem.swift */,
+				SCRSTORE0002A1B2C3D4E5 /* ScriptStore.swift */,
 				D17F08D84C04BB94F7E8254D /* ThumbnailCache.swift */,
 				105DAC9A68D37183682F6108 /* VideoDownloader.swift */,
 				8773562D010CDF53A5BA5E05 /* VideoDropScanner.swift */,
 				861767ACA113EC88F0692C97 /* VideoStore.swift */,
 				4F2BCA1A49368682B2BD7E7D /* FocusStatusService.swift */,
+				FCST02001A2B3C4D5E6F0123 /* FocusSessionTracker.swift */,
+				STSESSTRK002A2B3C4D5 /* StudySessionTracker.swift */,
+				FSB201A1B2C3D4E5F022468B /* FocusShortcutBridge.swift */,
 				093DDA8096D13E59AB52F32F /* CalendarMonitorService.swift */,
 				A0F3E921997B51884CEAE8A2 /* AirDropWatcher.swift */,
 				2D4C3A2DAAE3213444EE781E /* ArtworkCache.swift */,
@@ -411,6 +435,9 @@
 				C97CDA86F6ECA5B63928EBC6 /* MarkdownTextEditor.swift */,
 				D047BF968A9B749E20E50F79 /* MultiFileDragSource.swift */,
 				C7F1301544ED258BD8685CBC /* MusicPanelView.swift */,
+				SCRVIEW00002A1B2C3D4E5 /* ScriptsView.swift */,
+				SPPILL000002A1B2C3D4E5 /* ScriptPreviewPill.swift */,
+				TPPILL000002A1B2C3D4E5 /* TeleprompterPillBody.swift */,
 				CTP0AB1B2C3D4E5F60123456B /* CalendarTodayPane.swift */,
 				4AF23A9CA540FCB310042CA3 /* NotesListView.swift */,
 				BACKDROP02A1B2C3D4E5F0002 /* BackdropController.swift */,
@@ -695,6 +722,11 @@
 				35B4A484A4E1D7230530A7D0 /* RetentionService.swift in Sources */,
 				SCRSHARE0001A1B2C3D4E5F0 /* ScreenSharingPolicy.swift in Sources */,
 				MEDIAKEY0001A1B2C3D4E5F0 /* MediaKeyInterceptor.swift in Sources */,
+				FOCBARIT0001A1B2C3D4E5F /* FocusStatusBarItem.swift in Sources */,
+				SCRSTORE0001A1B2C3D4E5 /* ScriptStore.swift in Sources */,
+				SCRVIEW00001A1B2C3D4E5 /* ScriptsView.swift in Sources */,
+				SPPILL000001A1B2C3D4E5 /* ScriptPreviewPill.swift in Sources */,
+				TPPILL000001A1B2C3D4E5 /* TeleprompterPillBody.swift in Sources */,
 				A9761E0D07D7B9244A40A158 /* SettingsWindow.swift in Sources */,
 				2A3E5F59B43C598866A4D112 /* SystemAudioWatcher.swift in Sources */,
 				AA00CAFE0001SVW000000001 /* SystemVolumeWatcher.swift in Sources */,
@@ -719,6 +751,9 @@
 				29BFEF9F7B7F1D05891A1FCF /* WallpaperBackdrop.swift in Sources */,
 				5EC5EF6A866198545A06C4D4 /* TimerService.swift in Sources */,
 				640131856A47354072120A76 /* FocusStatusService.swift in Sources */,
+				FCST01001A2B3C4D5E6F0123 /* FocusSessionTracker.swift in Sources */,
+				STSESSTRK001A2B3C4D5 /* StudySessionTracker.swift in Sources */,
+				FSB101A1B2C3D4E5F022468A /* FocusShortcutBridge.swift in Sources */,
 				F194E37B475B78DA73FECAC4 /* CalendarMonitorService.swift in Sources */,
 				2B531DBFBCF834B5DB23439C /* AirDropWatcher.swift in Sources */,
 				75250397E0F027E097C0D517 /* ArtworkCache.swift in Sources */,
@@ -730,6 +765,7 @@
 				A6D71054CF33678CA76FFBF2 /* SystemAudioMuter.swift in Sources */,
 				7D6E47C3ED69586885B190CC /* DictationRouter.swift in Sources */,
 				21B320683C749872644B6B1A /* OnboardingView.swift in Sources */,
+				CLNB1A2B3C4D5E6F70123456 /* CleanOnboardingView.swift in Sources */,
 				197ACDAD565CEADD4DE5CA9D /* OnboardingWindow.swift in Sources */,
 				7951DAC1A49DCD4A4DC661D5 /* AirDropService.swift in Sources */,
 				F06587A5DD26C878D18483CE /* DropPickerView.swift in Sources */,
@@ -780,14 +816,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = Notetaker/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.9.9;
+				MARKETING_VERSION = 1.9.10;
 				PRODUCT_BUNDLE_IDENTIFIER = app.trynox;
 				PRODUCT_NAME = nox;
 				SDKROOT = macosx;
@@ -818,14 +854,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = Notetaker/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.9.9;
+				MARKETING_VERSION = 1.9.10;
 				PRODUCT_BUNDLE_IDENTIFIER = app.trynox;
 				PRODUCT_NAME = nox;
 				SDKROOT = macosx;

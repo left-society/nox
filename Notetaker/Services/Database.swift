@@ -218,6 +218,34 @@ final class Database {
             }
         }
 
+        m.registerMigration("v8_scripts") { db in
+            // Teleprompter scripts — pasted text the user wants to
+            // read on camera while looking at the notch. Stored
+            // alongside notes/images/videos rather than as a special
+            // note kind because they have script-specific metadata
+            // (WPM, last-read offset for resume) that doesn't fit
+            // the notes schema cleanly.
+            try db.create(table: "scripts") { t in
+                t.column("id", .text).primaryKey()
+                t.column("title", .text)
+                t.column("body", .text).notNull()
+                t.column("wpm", .integer).notNull().defaults(to: 150)
+                t.column("last_read_offset", .integer).notNull().defaults(to: 0)
+                t.column("created_at", .double).notNull()
+                t.column("updated_at", .double).notNull()
+                t.column("status", .text).notNull().defaults(to: "active")
+                t.column("trashed_at", .double)
+            }
+            // Same composite index pattern as notes — list query
+            // filters by status and orders by updated_at DESC.
+            try db.create(
+                index: "scripts_status_updated_idx",
+                on: "scripts",
+                columns: ["status", "updated_at"],
+                ifNotExists: true
+            )
+        }
+
         return m
     }
 }

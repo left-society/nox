@@ -1,0 +1,791 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>nox · Script tab — 10 design directions</title>
+<style>
+  :root {
+    --bg-deep: #060509;
+    --slab-bg: #0a0810;
+    --fg: #f5f3fa;
+    --fg-soft: rgba(245,243,250,0.78);
+    --muted: rgba(245,243,250,0.50);
+    --dim: rgba(245,243,250,0.30);
+    --line: rgba(245,243,250,0.10);
+    --line-soft: rgba(245,243,250,0.06);
+    --card: rgba(255,255,255,0.045);
+    --card-edge: rgba(255,255,255,0.08);
+    --accent: #c5a3ff;
+    --accent-soft: rgba(197,163,255,0.55);
+    --accent-faint: rgba(197,163,255,0.18);
+    --accent-deep: rgba(197,163,255,0.30);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font: 14px/1.55 -apple-system, "SF Pro Text", system-ui, sans-serif;
+    color: var(--fg);
+    background: var(--bg-deep);
+    min-height: 100vh;
+    padding: 56px 28px 80px;
+  }
+  header { max-width: 1240px; margin: 0 auto 36px; }
+  h1 { font: 600 30px/1.1 -apple-system, "SF Pro Display"; letter-spacing: -0.02em; margin: 0 0 8px; }
+  .lede { color: var(--fg-soft); max-width: 70ch; margin: 0; }
+
+  .grid {
+    max-width: 1240px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+  }
+  .design {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 0;
+    overflow: hidden;
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+  }
+  .design-head { padding: 18px 22px 10px; }
+  .design-num { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; letter-spacing: 0.06em; }
+  .design-title { font: 600 17px/1.2 -apple-system, "SF Pro Display"; margin: 4px 0 6px; }
+  .design-philo { color: var(--fg-soft); font-size: 12.5px; margin: 0 0 4px; }
+  .design-meta { color: var(--muted); font-size: 11px; margin: 0; }
+
+  .stage {
+    margin: 0 18px 18px;
+    border-radius: 16px;
+    overflow: hidden;
+    background: var(--slab-bg);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 18px 40px -16px rgba(0,0,0,0.6);
+  }
+
+  /* Slab common */
+  .slab-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px 0;
+  }
+  .brand { display: flex; align-items: center; gap: 8px; color: var(--fg); font-weight: 600; font-size: 14px; }
+  .brand .ring { width: 14px; height: 14px; border: 1.5px solid var(--accent); border-radius: 50%; }
+  .head-actions { display: flex; gap: 6px; }
+  .chip { background: rgba(255,255,255,0.07); border-radius: 6px; padding: 3px 6px; font-size: 9.5px; color: var(--fg-soft); }
+  .gear { width: 18px; height: 18px; background: rgba(255,255,255,0.07); border-radius: 5px; display: grid; place-items: center; color: var(--fg-soft); font-size: 10px; }
+
+  .tabs {
+    display: flex; gap: 18px; justify-content: center;
+    padding: 12px 0 14px;
+    color: var(--dim);
+    font-weight: 500;
+    font-size: 12px;
+  }
+  .tabs .tab.active {
+    color: var(--fg);
+    position: relative;
+  }
+  .tabs .tab.active::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: -6px; height: 2px;
+    background: var(--accent); border-radius: 2px;
+  }
+
+  .body { padding: 12px 18px 18px; min-height: 280px; }
+
+  /* === Common controls === */
+  .start-btn {
+    background: var(--accent);
+    color: #1c1226;
+    border: none; border-radius: 9px;
+    padding: 7px 13px;
+    font: 600 11.5px -apple-system, sans-serif;
+    cursor: pointer;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .ghost-btn {
+    background: rgba(255,255,255,0.06);
+    color: var(--fg-soft);
+    border: 1px solid var(--card-edge);
+    border-radius: 7px;
+    padding: 5px 9px;
+    font: 500 11px -apple-system, sans-serif;
+  }
+
+  .speed-track {
+    flex: 1; height: 3px; background: rgba(255,255,255,0.08); border-radius: 2px; position: relative;
+  }
+  .speed-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 45%; background: var(--accent); border-radius: 2px; }
+  .speed-thumb { position: absolute; left: calc(45% - 5px); top: -3px; width: 10px; height: 10px; border-radius: 50%; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+
+  /* ============ DESIGN 1 — Glass Manuscript ============ */
+  .d1 .body {
+    padding: 14px 18px 14px;
+    position: relative;
+    text-align: center;
+  }
+  .d1 .crumb {
+    color: var(--accent);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    margin-bottom: 12px;
+  }
+  .d1 .manuscript {
+    margin: 0 auto;
+    max-width: 360px;
+    text-align: left;
+    color: var(--fg-soft);
+    font: 400 13.5px/1.7 -apple-system, sans-serif;
+    min-height: 180px;
+    padding: 8px 0;
+  }
+  .d1 .manuscript .caret { color: var(--accent); }
+  .d1 .floating {
+    position: absolute;
+    left: 50%; bottom: 16px; transform: translateX(-50%);
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--card-edge);
+    border-radius: 999px;
+    padding: 5px 6px 5px 12px;
+    display: inline-flex; gap: 10px; align-items: center;
+    color: var(--fg-soft); font-size: 11px;
+    backdrop-filter: blur(10px);
+  }
+  .d1 .floating .stepper { display: inline-flex; gap: 4px; align-items: center; }
+  .d1 .floating .stepper .v { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .d1 .floating .dot { width: 3px; height: 3px; background: var(--muted); border-radius: 50%; }
+
+  /* ============ DESIGN 2 — Stage Console ============ */
+  .d2 .body { padding: 12px 16px 14px; }
+  .d2 .grid2 { display: grid; grid-template-columns: 60% 1fr; gap: 12px; }
+  .d2 .editor {
+    background: var(--card); border: 1px solid var(--card-edge);
+    border-radius: 10px;
+    padding: 10px; min-height: 220px;
+    font: 400 12.5px/1.6 -apple-system, sans-serif;
+    color: var(--fg-soft); position: relative;
+  }
+  .d2 .ln {
+    position: absolute; left: 4px; top: 10px;
+    color: var(--dim); font: 500 10px/1.6 ui-monospace, monospace;
+    font-variant-numeric: tabular-nums; padding-right: 8px; border-right: 1px solid var(--line-soft);
+  }
+  .d2 .editor-text { padding-left: 24px; }
+  .d2 .safe-line { position: absolute; left: 70%; top: 8px; bottom: 8px; width: 1px; background: var(--accent-faint); }
+  .d2 .rack { display: grid; gap: 8px; }
+  .d2 .module {
+    background: var(--card); border: 1px solid var(--card-edge);
+    border-radius: 8px;
+    padding: 7px 9px;
+  }
+  .d2 .module .mod-label { color: var(--muted); font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 4px; }
+  .d2 .module .mod-val { color: var(--fg); font-size: 12px; font-weight: 600; }
+  .d2 .start-ribbon {
+    background: var(--accent); color: #1c1226;
+    border-radius: 8px; padding: 8px; text-align: center;
+    font: 600 12px -apple-system, sans-serif;
+  }
+
+  /* ============ DESIGN 3 — Library Spine (current) ============ */
+  .d3 .body { padding: 0; display: flex; min-height: 280px; }
+  .d3 .rail {
+    width: 32%;
+    border-right: 1px solid var(--line-soft);
+    padding: 6px;
+    overflow: hidden;
+  }
+  .d3 .row {
+    padding: 6px 8px; border-radius: 6px;
+    color: var(--fg-soft); font-size: 11.5px;
+  }
+  .d3 .row.active { background: var(--accent-faint); color: var(--fg); font-weight: 600; }
+  .d3 .row .sub { font-size: 10px; color: var(--muted); margin-top: 1px; }
+  .d3 .editor { flex: 1; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .d3 .title { font: 600 14px -apple-system, sans-serif; }
+  .d3 .editor-text { background: rgba(0,0,0,0.3); border: 1px solid var(--line); border-radius: 8px; padding: 8px; min-height: 90px; font-size: 12px; color: var(--fg-soft); }
+  .d3 .row-bottom { display: flex; align-items: center; justify-content: space-between; }
+
+  /* ============ DESIGN 4 — Card Deck ============ */
+  .d4 .body { padding: 12px 16px 16px; }
+  .d4 .deck {
+    display: flex; gap: 9px; overflow-x: auto;
+    padding-bottom: 6px;
+    margin-bottom: 12px;
+  }
+  .d4 .deck-card {
+    flex: 0 0 130px;
+    background: var(--card); border: 1px solid var(--card-edge);
+    border-radius: 10px;
+    padding: 9px 10px;
+  }
+  .d4 .deck-card.active { border-color: var(--accent-deep); box-shadow: 0 0 0 2px var(--accent-faint); }
+  .d4 .deck-card .t { font: 600 12px -apple-system, sans-serif; color: var(--fg); }
+  .d4 .deck-card .first { color: var(--muted); font-size: 10px; margin-top: 4px; line-height: 1.4; }
+  .d4 .deck-card .dur { color: var(--accent); font-size: 9.5px; margin-top: 5px; font-weight: 600; }
+  .d4 .editor-row { display: grid; grid-template-columns: 1fr 70px; gap: 12px; }
+  .d4 .editor {
+    background: var(--card); border: 1px solid var(--card-edge);
+    border-radius: 10px;
+    padding: 10px;
+    min-height: 130px;
+    font: 400 12.5px/1.6 -apple-system, sans-serif;
+    color: var(--fg-soft);
+  }
+  .d4 .dial-col { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+  .d4 .dial {
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    background: conic-gradient(var(--accent) 0% 45%, rgba(255,255,255,0.08) 45% 100%);
+    display: grid; place-items: center;
+    position: relative;
+  }
+  .d4 .dial::before {
+    content: ""; position: absolute; inset: 6px; background: var(--slab-bg); border-radius: 50%;
+  }
+  .d4 .dial .label { position: relative; color: var(--fg); font: 700 13px -apple-system, sans-serif; font-variant-numeric: tabular-nums; }
+  .d4 .dial .lbl-sub { position: absolute; top: 78%; left: 50%; transform: translate(-50%, -50%); color: var(--muted); font-size: 8px; }
+  .d4 .ds-start { background: var(--accent); color: #1c1226; border: none; border-radius: 7px; padding: 5px 10px; font: 600 10.5px -apple-system, sans-serif; }
+
+  /* ============ DESIGN 5 — Prompter Preview ============ */
+  .d5 .body { padding: 0; display: flex; flex-direction: column; min-height: 280px; }
+  .d5 .preview {
+    height: 110px;
+    background: linear-gradient(180deg, transparent, rgba(0,0,0,0.45) 50%, transparent);
+    -webkit-mask-image: linear-gradient(180deg, transparent 0%, black 25%, black 75%, transparent 100%);
+            mask-image: linear-gradient(180deg, transparent 0%, black 25%, black 75%, transparent 100%);
+    background-color: rgba(15, 10, 25, 0.6);
+    overflow: hidden;
+    position: relative;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .d5 .preview .lines {
+    position: absolute; top: 12px; left: 24px; right: 24px;
+    color: var(--fg-soft); font-size: 13.5px; line-height: 1.6;
+    animation: scroll-up-mini 12s linear infinite;
+  }
+  .d5 .preview .lines p { margin: 0; }
+  .d5 .preview .lines p.cur { color: var(--fg); font-weight: 600; }
+  @keyframes scroll-up-mini {
+    0% { transform: translateY(0); }
+    100% { transform: translateY(-65px); }
+  }
+  .d5 .params {
+    display: flex; gap: 12px; align-items: center;
+    padding: 8px 18px;
+    border-bottom: 1px solid var(--line-soft);
+    color: var(--muted); font-size: 11px;
+  }
+  .d5 .params .speed-track { flex: 0 1 100px; }
+  .d5 .editor {
+    flex: 1;
+    padding: 10px 18px;
+    color: var(--fg-soft);
+    font: 400 12.5px/1.6 -apple-system, sans-serif;
+  }
+
+  /* ============ DESIGN 6 — Two-Mode Toggle ============ */
+  .d6 .body { padding: 12px 18px 14px; position: relative; }
+  .d6 .seg {
+    display: inline-flex; gap: 0;
+    background: rgba(255,255,255,0.06);
+    border-radius: 8px;
+    padding: 2px;
+    margin: 0 auto 10px;
+    display: flex; width: 160px;
+  }
+  .d6 .seg .opt {
+    flex: 1; text-align: center;
+    padding: 5px 0;
+    color: var(--fg-soft); font: 500 11.5px -apple-system, sans-serif;
+    border-radius: 6px;
+  }
+  .d6 .seg .opt.active { background: var(--accent); color: #1c1226; font-weight: 600; }
+  .d6 .editor {
+    background: var(--card);
+    border: 1px solid var(--card-edge);
+    border-radius: 10px;
+    padding: 12px; min-height: 200px;
+    color: var(--fg-soft); font: 400 12.5px/1.7 -apple-system, sans-serif;
+  }
+
+  /* ============ DESIGN 7 — Fountain Pro ============ */
+  .d7 .body { padding: 12px 16px 14px; display: flex; gap: 10px; min-height: 240px; }
+  .d7 .editor {
+    flex: 1;
+    background: var(--card); border: 1px solid var(--card-edge);
+    border-radius: 8px;
+    padding: 10px;
+    font: 400 11.5px/1.55 ui-monospace, "SF Mono", monospace;
+    color: var(--fg-soft);
+    min-height: 200px;
+  }
+  .d7 .editor .slug { color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  .d7 .editor .paren { color: var(--muted); font-style: italic; }
+  .d7 .editor .ch { color: var(--fg); font-weight: 600; padding-left: 18px; }
+  .d7 .outline {
+    width: 130px;
+    background: var(--card); border: 1px solid var(--card-edge);
+    border-radius: 8px;
+    padding: 9px 10px;
+  }
+  .d7 .outline .h { color: var(--muted); font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 5px; }
+  .d7 .outline .item { color: var(--fg-soft); font-size: 11px; padding: 3px 0; }
+  .d7 .outline .item.cur { color: var(--accent); font-weight: 600; }
+  .d7 .strip {
+    margin-top: 6px;
+    display: flex; align-items: center; gap: 10px;
+    color: var(--muted); font-size: 11px;
+  }
+
+  /* ============ DESIGN 8 — Conductor ============ */
+  .d8 .body { padding: 14px 18px 18px; text-align: center; position: relative; }
+  .d8 .picker {
+    position: absolute; top: 12px; left: 18px;
+    color: var(--accent); font: 500 11px -apple-system, sans-serif;
+  }
+  .d8 .dial-big {
+    margin: 4px auto 14px;
+    width: 130px; height: 130px;
+    border-radius: 50%;
+    background: conic-gradient(var(--accent) 0% 45%, rgba(255,255,255,0.08) 45% 100%);
+    display: grid; place-items: center;
+    position: relative;
+  }
+  .d8 .dial-big::before { content: ""; position: absolute; inset: 8px; background: var(--slab-bg); border-radius: 50%; }
+  .d8 .dial-big .v { position: relative; color: var(--fg); font: 700 30px -apple-system, "SF Pro Display"; font-variant-numeric: tabular-nums; }
+  .d8 .dial-big .u { position: relative; color: var(--muted); font: 600 10px -apple-system, sans-serif; letter-spacing: 0.1em; margin-top: -4px; }
+  .d8 .editor {
+    background: var(--card); border: 1px solid var(--card-edge);
+    border-radius: 10px; padding: 10px;
+    text-align: left; color: var(--fg-soft);
+    font: 400 12px/1.6 -apple-system, sans-serif; min-height: 90px;
+  }
+
+  /* ============ DESIGN 9 — Notebook Tabs ============ */
+  .d9 .body { padding: 0; }
+  .d9 .nbtabs {
+    display: flex; gap: 0;
+    background: rgba(255,255,255,0.025);
+    padding: 4px 8px 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .d9 .nbtab {
+    padding: 6px 12px;
+    color: var(--fg-soft); font: 500 11.5px -apple-system, sans-serif;
+    border-radius: 6px 6px 0 0;
+    margin-right: 2px;
+  }
+  .d9 .nbtab.active { background: var(--card); color: var(--fg); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+  .d9 .nbtab.add { color: var(--accent); }
+  .d9 .editor {
+    margin: 12px 18px 8px;
+    background: var(--card); border: 1px solid var(--card-edge);
+    border-radius: 8px;
+    padding: 10px; min-height: 170px;
+    color: var(--fg-soft); font: 400 12.5px/1.7 -apple-system, sans-serif;
+  }
+  .d9 .dock {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 18px 14px;
+    color: var(--muted); font-size: 11px;
+  }
+
+  /* ============ DESIGN 10 — Coach Card ============ */
+  .d10 .body { padding: 14px 18px 16px; text-align: center; }
+  .d10 .greet {
+    color: var(--accent); font: 600 14px -apple-system, sans-serif;
+    margin-bottom: 10px;
+  }
+  .d10 .glass-card {
+    background: var(--accent-faint);
+    border: 1px solid var(--accent-deep);
+    border-radius: 12px;
+    padding: 12px;
+    color: var(--fg);
+    font: 500 12.5px/1.6 -apple-system, sans-serif;
+    text-align: left;
+    min-height: 110px;
+  }
+  .d10 .pace {
+    display: inline-flex; gap: 4px; margin: 12px 0 8px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 8px; padding: 3px;
+  }
+  .d10 .pace .opt { padding: 5px 11px; color: var(--fg-soft); font-size: 11px; border-radius: 6px; }
+  .d10 .pace .opt.active { background: var(--accent); color: #1c1226; font-weight: 600; }
+  .d10 .recents { color: var(--muted); font-size: 10px; margin-bottom: 10px; }
+  .d10 .pulse-pill {
+    width: 100%;
+    background: var(--accent);
+    color: #1c1226;
+    border-radius: 22px;
+    padding: 9px 0;
+    font: 600 13px -apple-system, sans-serif;
+    box-shadow: 0 0 0 0 var(--accent-soft);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(197,163,255,0.4); }
+    50% { box-shadow: 0 0 0 7px rgba(197,163,255,0); }
+  }
+
+  .footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 32px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Script tab — 10 design directions</h1>
+  <p class="lede">
+    Each card is a different visual philosophy for the same Script tab. Pick one (or a combination) and I'll build it.
+  </p>
+</header>
+
+<div class="grid">
+
+  <!-- 1 -->
+  <div class="design d1">
+    <div class="design-head">
+      <div class="design-num">01 / GLASS MANUSCRIPT</div>
+      <div class="design-title">Just the page</div>
+      <p class="design-philo">Single sheet floating on dark space. All chrome dissolves into edges. The script IS the UI.</p>
+      <p class="design-meta">Reference: iA Writer + Notes focus mode · For: writers</p>
+    </div>
+    <div class="stage">
+      <div class="slab-head">
+        <div class="brand"><span class="ring"></span> nox</div>
+        <div class="head-actions"><span class="chip">⌥ Space</span><span class="gear">⚙</span></div>
+      </div>
+      <div class="tabs">
+        <span class="tab">live</span><span class="tab">notes</span><span class="tab">images</span><span class="tab">videos</span><span class="tab">files</span><span class="tab active">script</span>
+      </div>
+      <div class="body">
+        <div class="crumb">Demo intro · ⌘O for library</div>
+        <div class="manuscript">
+          Hey, what's up? I'm Aritra and this is nox — a tiny app that lives in your MacBook notch. I built it because that black cutout has been doing absolutely nothing since 2021. Move your cursor up there<span class="caret">|</span>
+        </div>
+        <div class="floating">
+          <span class="stepper">– <span class="v">150</span> + WPM</span>
+          <span class="dot"></span>
+          <span>~25s</span>
+          <span class="dot"></span>
+          <button class="start-btn" style="padding: 4px 10px; font-size: 10.5px;">▶ Start</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2 -->
+  <div class="design d2">
+    <div class="design-head">
+      <div class="design-num">02 / STAGE CONSOLE</div>
+      <div class="design-title">Broadcast control room</div>
+      <p class="design-philo">Script left, parameters as a vertical control rack on the right. For users who tweak before every take.</p>
+      <p class="design-meta">Reference: BIGVU + Logic inspector · For: power users</p>
+    </div>
+    <div class="stage">
+      <div class="slab-head">
+        <div class="brand"><span class="ring"></span> nox</div>
+        <div class="head-actions"><span class="chip">⌥ Space</span><span class="gear">⚙</span></div>
+      </div>
+      <div class="tabs">
+        <span class="tab">live</span><span class="tab">notes</span><span class="tab">images</span><span class="tab">videos</span><span class="tab">files</span><span class="tab active">script</span>
+      </div>
+      <div class="body">
+        <div class="grid2">
+          <div class="editor">
+            <div class="ln">1<br>2<br>3<br>4<br>5<br>6<br>7</div>
+            <div class="safe-line"></div>
+            <div class="editor-text">Hey, what's up? I'm Aritra and this is nox — a tiny app that lives in your MacBook notch. I built it because that black cutout has been doing nothing since 2021.</div>
+          </div>
+          <div class="rack">
+            <div class="module"><div class="mod-label">Speed</div><div class="mod-val">150 wpm</div></div>
+            <div class="module"><div class="mod-label">Font</div><div class="mod-val">14 pt</div></div>
+            <div class="module"><div class="mod-label">Mirror</div><div class="mod-val">Off</div></div>
+            <div class="module"><div class="mod-label">Countdown</div><div class="mod-val">3, 2, 1</div></div>
+            <div class="start-ribbon">▶ Start ⌥⇧S</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3 -->
+  <div class="design d3">
+    <div class="design-head">
+      <div class="design-num">03 / LIBRARY SPINE  <span style="color: var(--accent); font-weight: 600;">(current)</span></div>
+      <div class="design-title">Two-pane mail metaphor</div>
+      <p class="design-philo">Sidebar list, editor right. Familiar from Apple Notes / Mail / Bear. What you have right now.</p>
+      <p class="design-meta">Reference: Apple Notes / Bear · For: 5+ recurring scripts</p>
+    </div>
+    <div class="stage">
+      <div class="slab-head">
+        <div class="brand"><span class="ring"></span> nox</div>
+        <div class="head-actions"><span class="chip">⌥ Space</span><span class="gear">⚙</span></div>
+      </div>
+      <div class="tabs">
+        <span class="tab">live</span><span class="tab">notes</span><span class="tab">images</span><span class="tab">videos</span><span class="tab">files</span><span class="tab active">script</span>
+      </div>
+      <div class="body">
+        <div class="rail">
+          <div class="row active">Demo intro<div class="sub">142 words · ~1m</div></div>
+          <div class="row">TikTok hook<div class="sub">38 words · ~17s</div></div>
+          <div class="row">Investor pitch<div class="sub">312 words · ~2m</div></div>
+        </div>
+        <div class="editor">
+          <div class="title">Demo intro</div>
+          <div style="display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 11px;">
+            <span>Speed</span>
+            <div class="speed-track" style="flex: 1;"><div class="speed-fill"></div><div class="speed-thumb"></div></div>
+            <span style="font-weight: 600; color: var(--fg-soft);">150 WPM</span>
+          </div>
+          <div class="editor-text">Hey, what's up? I'm Aritra and this is nox — a tiny app that lives in your notch.</div>
+          <div class="row-bottom">
+            <span style="color: var(--muted); font-size: 10px;">63 words · ~25s</span>
+            <button class="start-btn">▶ Start</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4 -->
+  <div class="design d4">
+    <div class="design-head">
+      <div class="design-num">04 / CARD DECK</div>
+      <div class="design-title">Tactile cards + speed dial</div>
+      <p class="design-philo">Each script is a card. Hero card opens to editor. Vertical WPM dial on the right.</p>
+      <p class="design-meta">Reference: Apple Stocks / Things 3 · For: visual thinkers</p>
+    </div>
+    <div class="stage">
+      <div class="slab-head">
+        <div class="brand"><span class="ring"></span> nox</div>
+        <div class="head-actions"><span class="chip">⌥ Space</span><span class="gear">⚙</span></div>
+      </div>
+      <div class="tabs">
+        <span class="tab">live</span><span class="tab">notes</span><span class="tab">images</span><span class="tab">videos</span><span class="tab">files</span><span class="tab active">script</span>
+      </div>
+      <div class="body">
+        <div class="deck">
+          <div class="deck-card active"><div class="t">Demo intro</div><div class="first">Hey, what's up? I'm…</div><div class="dur">~25s</div></div>
+          <div class="deck-card"><div class="t">TikTok hook</div><div class="first">Stop scrolling for a…</div><div class="dur">~17s</div></div>
+          <div class="deck-card"><div class="t">Investor pitch</div><div class="first">We're building the…</div><div class="dur">~2m</div></div>
+          <div class="deck-card" style="border-style: dashed; color: var(--accent); display: grid; place-items: center;"><div class="t">＋ New</div></div>
+        </div>
+        <div class="editor-row">
+          <div class="editor">Hey, what's up? I'm Aritra and this is nox — a tiny app that lives in your MacBook notch.</div>
+          <div class="dial-col">
+            <div class="dial">
+              <span class="label">150</span>
+              <span class="lbl-sub">WPM</span>
+            </div>
+            <button class="ds-start">▶ Start</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5 -->
+  <div class="design d5">
+    <div class="design-head">
+      <div class="design-num">05 / PROMPTER PREVIEW</div>
+      <div class="design-title">See it before you record</div>
+      <p class="design-philo">Live mini-teleprompter on top, editor below. WYSIWYG — the user sees the result of their tweaks immediately.</p>
+      <p class="design-meta">Reference: FCP title view + PromptSmart · For: first-time users</p>
+    </div>
+    <div class="stage">
+      <div class="slab-head">
+        <div class="brand"><span class="ring"></span> nox</div>
+        <div class="head-actions"><span class="chip">⌥ Space</span><span class="gear">⚙</span></div>
+      </div>
+      <div class="tabs">
+        <span class="tab">live</span><span class="tab">notes</span><span class="tab">images</span><span class="tab">videos</span><span class="tab">files</span><span class="tab active">script</span>
+      </div>
+      <div class="body">
+        <div class="preview">
+          <div class="lines">
+            <p>Hey, what's up?</p>
+            <p>I'm Aritra and this is nox</p>
+            <p class="cur">— a tiny app that lives in your notch.</p>
+            <p>I built it because that black cutout</p>
+            <p>has been doing nothing since 2021.</p>
+          </div>
+        </div>
+        <div class="params">
+          <span>Speed</span>
+          <div class="speed-track"><div class="speed-fill"></div><div class="speed-thumb"></div></div>
+          <span style="color: var(--fg-soft); font-weight: 600;">150 WPM</span>
+          <span style="margin-left: auto;"><button class="start-btn">▶ Start</button></span>
+        </div>
+        <div class="editor">Hey, what's up? I'm Aritra and this is nox — a tiny app that lives in your MacBook notch…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6 -->
+  <div class="design d6">
+    <div class="design-head">
+      <div class="design-num">06 / TWO-MODE TOGGLE</div>
+      <div class="design-title">Write or Set, never both</div>
+      <p class="design-philo">One panel, two states. A segmented toggle switches between the pure editor and the settings sheet.</p>
+      <p class="design-meta">Reference: Drafts (action mode) · For: minimalists</p>
+    </div>
+    <div class="stage">
+      <div class="slab-head">
+        <div class="brand"><span class="ring"></span> nox</div>
+        <div class="head-actions"><span class="chip">⌥ Space</span><span class="gear">⚙</span></div>
+      </div>
+      <div class="tabs">
+        <span class="tab">live</span><span class="tab">notes</span><span class="tab">images</span><span class="tab">videos</span><span class="tab">files</span><span class="tab active">script</span>
+      </div>
+      <div class="body">
+        <div class="seg" style="margin: 0 auto 12px; display: flex;">
+          <div class="opt active">Write</div>
+          <div class="opt">Set</div>
+        </div>
+        <div class="editor">
+          Hey, what's up? I'm Aritra and this is nox — a tiny app that lives in your MacBook notch. I built it because that black cutout has been doing absolutely nothing since 2021. Move your cursor up there, the notch becomes a hub.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7 -->
+  <div class="design d7">
+    <div class="design-head">
+      <div class="design-num">07 / FOUNTAIN PRO</div>
+      <div class="design-title">For screenwriters</div>
+      <p class="design-philo">Fountain syntax with auto-formatting + scene outline. Pro density, mono font, clickable structure.</p>
+      <p class="design-meta">Reference: Highland 2 / Final Draft · For: filmmakers</p>
+    </div>
+    <div class="stage">
+      <div class="slab-head">
+        <div class="brand"><span class="ring"></span> nox</div>
+        <div class="head-actions"><span class="chip">⌥ Space</span><span class="gear">⚙</span></div>
+      </div>
+      <div class="tabs">
+        <span class="tab">live</span><span class="tab">notes</span><span class="tab">images</span><span class="tab">videos</span><span class="tab">files</span><span class="tab active">script</span>
+      </div>
+      <div class="body">
+        <div class="editor">
+          <div class="slug">INT. STUDIO — DAY</div>
+          <br>
+          <div>Aritra sits at the desk, looks at camera.</div>
+          <br>
+          <div class="ch">ARITRA</div>
+          <div class="paren" style="padding-left: 18px;">(casually)</div>
+          <div style="padding-left: 18px;">Hey, what's up? I'm Aritra and this is nox.</div>
+        </div>
+        <div class="outline">
+          <div class="h">SCENES</div>
+          <div class="item cur">1. Cold open</div>
+          <div class="item">2. Demo</div>
+          <div class="item">3. CTA</div>
+          <div class="strip" style="margin-top: 18px;">
+            <span>150 WPM</span>
+            <button class="start-btn" style="margin-left: auto;">▶</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8 -->
+  <div class="design d8">
+    <div class="design-head">
+      <div class="design-num">08 / CONDUCTOR</div>
+      <div class="design-title">Speed is the hero</div>
+      <p class="design-philo">Giant tempo dial anchors the screen. Drag to set the pace. Script wraps around it.</p>
+      <p class="design-meta">Reference: GarageBand tempo · For: musicians, podcasters, comedians</p>
+    </div>
+    <div class="stage">
+      <div class="slab-head">
+        <div class="brand"><span class="ring"></span> nox</div>
+        <div class="head-actions"><span class="chip">⌥ Space</span><span class="gear">⚙</span></div>
+      </div>
+      <div class="tabs">
+        <span class="tab">live</span><span class="tab">notes</span><span class="tab">images</span><span class="tab">videos</span><span class="tab">files</span><span class="tab active">script</span>
+      </div>
+      <div class="body">
+        <div class="picker">Demo intro ▾</div>
+        <div class="dial-big">
+          <span class="v">150</span>
+          <span class="u">WPM</span>
+        </div>
+        <div class="editor">
+          Hey, what's up? I'm Aritra and this is nox — a tiny app that lives in your MacBook notch.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 9 -->
+  <div class="design d9">
+    <div class="design-head">
+      <div class="design-num">09 / NOTEBOOK TABS</div>
+      <div class="design-title">Browser-style script tabs</div>
+      <p class="design-philo">Each script is a tab across the top. No sidebar — tabs ARE the navigation.</p>
+      <p class="design-meta">Reference: Safari tabs / Cursor · For: 2-4 active scripts</p>
+    </div>
+    <div class="stage">
+      <div class="slab-head">
+        <div class="brand"><span class="ring"></span> nox</div>
+        <div class="head-actions"><span class="chip">⌥ Space</span><span class="gear">⚙</span></div>
+      </div>
+      <div class="tabs">
+        <span class="tab">live</span><span class="tab">notes</span><span class="tab">images</span><span class="tab">videos</span><span class="tab">files</span><span class="tab active">script</span>
+      </div>
+      <div class="body">
+        <div class="nbtabs">
+          <span class="nbtab active">Demo intro</span>
+          <span class="nbtab">TikTok hook</span>
+          <span class="nbtab">Investor pitch</span>
+          <span class="nbtab add">＋</span>
+        </div>
+        <div class="editor">
+          Hey, what's up? I'm Aritra and this is nox — a tiny app that lives in your MacBook notch.
+        </div>
+        <div class="dock">
+          <span>150 WPM</span>
+          <span>·</span>
+          <span>~25s</span>
+          <span style="margin-left: auto;"><button class="start-btn">▶ Start</button></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 10 -->
+  <div class="design d10">
+    <div class="design-head">
+      <div class="design-num">10 / COACH CARD</div>
+      <div class="design-title">Encouraging, conversational</div>
+      <p class="design-philo">Feels like a rehearsal partner. "Slow / Natural / Fast" pacing chips instead of a number slider. Pulsing Start.</p>
+      <p class="design-meta">Reference: Speechify / Apple Fitness coaching · For: public speaking practice</p>
+    </div>
+    <div class="stage">
+      <div class="slab-head">
+        <div class="brand"><span class="ring"></span> nox</div>
+        <div class="head-actions"><span class="chip">⌥ Space</span><span class="gear">⚙</span></div>
+      </div>
+      <div class="tabs">
+        <span class="tab">live</span><span class="tab">notes</span><span class="tab">images</span><span class="tab">videos</span><span class="tab">files</span><span class="tab active">script</span>
+      </div>
+      <div class="body">
+        <div class="greet">Ready to rehearse?</div>
+        <div class="glass-card">Hey, what's up? I'm Aritra and this is nox — a tiny app that lives in your MacBook notch. I built it because that black cutout has been doing nothing since 2021.</div>
+        <div class="pace">
+          <div class="opt">Slow</div>
+          <div class="opt active">Natural</div>
+          <div class="opt">Fast</div>
+        </div>
+        <div class="recents">3 rehearsals today · last on demo intro 4m ago</div>
+        <button class="pulse-pill">▶ Start rehearsing</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="footer">10 directions. Pick one (or a combo of two), and I'll build the editor accordingly.</p>
+
+</body>
+</html>

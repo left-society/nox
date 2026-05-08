@@ -15,6 +15,7 @@ final class AppEnvironment: ObservableObject {
     let imageStore: ImageStore
     let videoStore: VideoStore
     let fileStore: FileStore
+    let scriptStore: ScriptStore
     let retentionService: RetentionService
     let linkPreviewService: LinkPreviewService
     let bluetoothDeviceService: BluetoothDeviceService
@@ -31,6 +32,7 @@ final class AppEnvironment: ObservableObject {
         self.imageStore = try ImageStore(db: database)
         self.videoStore = try VideoStore(db: database)
         self.fileStore = FileStore()
+        self.scriptStore = ScriptStore(db: database)
         let imageRoot = try AppEnvironment.applicationSupportDirectory()
         self.retentionService = RetentionService(db: database, imageRoot: imageRoot)
         self.linkPreviewService = LinkPreviewService()

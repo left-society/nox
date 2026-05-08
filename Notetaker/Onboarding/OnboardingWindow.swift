@@ -49,8 +49,16 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
 
         super.init(window: window)
 
+        // Onboarding redesign 2026-05-08 — switched from the
+        // 6-page wizard (`OnboardingView`) to the 3-page grouped-
+        // card flow (`CleanOnboardingView`) to match the user's
+        // SuperIsland reference frames saved in
+        // `~/Library/Application Support/nox/images/`. Single
+        // visual language, left-aligned titles, one grouped card
+        // per page. The legacy `OnboardingView` remains in the
+        // codebase for now in case we need to A/B compare.
         let host = NSHostingController(
-            rootView: OnboardingView(onComplete: { [weak self] in
+            rootView: CleanOnboardingView(onComplete: { [weak self] in
                 self?.completeOnboarding()
             })
         )

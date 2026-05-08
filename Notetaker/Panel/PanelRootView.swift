@@ -42,7 +42,7 @@ enum PanelTab: String, CaseIterable, Identifiable {
     /// tabs (Notes, Images, Videos, Files) lazy-mount only when the
     /// user explicitly switches to them — by which point the panel
     /// is already at rest and the mount hitch is far less perceptible.
-    case music, notes, images, videos, files
+    case music, notes, images, videos, files, script
 
     var id: String { rawValue }
 
@@ -58,6 +58,7 @@ enum PanelTab: String, CaseIterable, Identifiable {
         case .images: return "Images"
         case .videos: return "Videos"
         case .files: return "Files"
+        case .script: return "Script"
         }
     }
 
@@ -87,12 +88,99 @@ enum PanelTab: String, CaseIterable, Identifiable {
         case .images: return "photo"
         case .videos: return "play.rectangle"
         case .files: return "folder"
+        // Script — `text.alignleft` reads as "lines of text aligned
+        // left" which fits both the editor surface AND the scrolling
+        // teleprompter view. `doc.text` was the alternative but it
+        // looks like "document" which is too note-adjacent and
+        // dilutes the Notes tab's identity.
+        case .script: return "text.alignleft"
         }
     }
 }
 
 struct PanelRootView: View {
     @EnvironmentObject var presenter: PanelPresenter
+
+    /// Mirrors the dashboard's @AppStorage so the resting pill's
+    /// `focusPillContent` switches in/out the moment the user
+    /// flips Focus mode from the dashboard. Without this @AppStorage
+    /// binding, the inline `pillContentOverlay` switch wouldn't see
+    /// UserDefaults changes at SwiftUI invalidation time.
+    @AppStorage(SettingsKey.noxFocusMode) private var noxFocusMode: Bool = false
+
+    /// Sibling to `noxFocusMode` for the Study mode pill route.
+    /// Study uses the same pill-content shape (single indicator
+    /// + timer or alongside-music pair); only the icon and the
+    /// timer source differ. Either flag fires the small-pill
+    /// study-or-focus branch in `pillContentOverlay`.
+    @AppStorage(SettingsKey.noxStudyMode) private var noxStudyMode: Bool = false
+
+    /// Drives `pillContentOverlay`'s focus-pill case. Active iff
+    /// nox's own Focus mode is on (the only case where there's no
+    /// other pill content already taking the slot — music always
+    /// wins, and the macOS-Focus-only path doesn't have a session
+    /// timer to display anyway since `FocusSessionTracker` resets
+    /// when our own mode flips).
+    @ObservedObject private var focusTracker = FocusSessionTracker.shared
+
+    /// Sibling tracker for Study mode. Same shape as `focusTracker`
+    /// (publishes `sessionStartDate` on rising edge, clears on
+    /// falling edge) so the pill / dashboard timer can read either
+    /// tracker via the same code path. Persistent — `minutesByDay`
+    /// drives the Study dashboard's stats grid (today, this week,
+    /// 7-day bar chart) and survives app restarts.
+    @ObservedObject private var studyTracker = StudySessionTracker.shared
+
+    /// True when the resting pill should swap to the focus
+    /// pill content (aura + timer). Fires for EITHER source:
+    ///   • `noxFocusMode` — nox's own toggle
+    ///   • `presenter.isFocused` — macOS Focus (auto-synced via
+    ///     respectFocusMode default-true)
+    /// Music takes priority — when `nowPlaying != nil`, the
+    /// music pill keeps the slot. The tracker's `sessionStartDate`
+    /// is NOT required here (timer falls back to a "Focus" label
+    /// if it's briefly nil during a race) — without this fix,
+    /// the small pill silently fell through to the old
+    /// inline moon+timer block in `musicPillContent` whenever
+    /// macOS Focus alone (without nox's own toggle) was the
+    /// trigger.
+    /// True when Focus mode is on AND no music is playing. In that
+    /// case the dedicated focus pill (anime character + timer)
+    /// replaces all other pill content. When music is also active,
+    /// `combinedPillVisible` (below) takes over instead so both
+    /// indicators are shown side-by-side in a wider pill.
+    private var focusPillVisible: Bool {
+        (noxFocusMode || noxStudyMode || presenter.isFocused)
+            && presenter.nowPlaying == nil
+    }
+
+    /// True when BOTH Focus/Study AND music are active. Triggers
+    /// the hybrid layout: artwork + waveform on the left, mode
+    /// indicator + timer on the right. The pill's panel.frame
+    /// also widens by `focusPillExtraWidth` (65pt) to fit both
+    /// blocks (see PanelWindowController.closedPillFrame).
+    /// 2026-05-09 user feedback: "when music and focus mode are
+    /// togather let's get back the long pill like before." Study
+    /// uses the same hybrid surface — different icon + timer,
+    /// same width and layout.
+    private var combinedPillVisible: Bool {
+        (noxFocusMode || noxStudyMode || presenter.isFocused)
+            && presenter.nowPlaying != nil
+    }
+
+    /// Which mode owns the active pill indicator. Drives the
+    /// icon/timer pair across `focusPillContent` and
+    /// `combinedPillContent` so the same surfaces render
+    /// "Focus" vs. "Study" with one branch instead of duplicated
+    /// view bodies.
+    private enum ActivePillMode { case focus, study }
+    private var activePillMode: ActivePillMode {
+        // Study takes priority when both are on — it's the more
+        // recently introduced explicit mode, so a user with both
+        // toggled would have flipped study most recently.
+        if noxStudyMode { return .study }
+        return .focus
+    }
 
     /// Cached on first appear so body re-evals don't poke
     /// NSScreen.main / safeAreaInsets every time. The morph itself
@@ -267,6 +355,32 @@ struct PanelRootView: View {
     /// Two sides for the chevron overlay. Left chevron means
     /// "swiping left to commit previous"; right chevron means
     /// "swiping right to commit next."
+    /// Format the duration since `start` as a tight pill-friendly
+    /// label. Below an hour: `1m`, `12m`, `59m`. At/above an hour:
+    /// `1h`, `1h 23m`, `12h 5m`. Ticks at minute granularity (driven
+    /// by a 30s TimelineView so updates are at most ~30s late, which
+    /// is fine for human-scale duration).
+    ///
+    /// `0m` for the first 60 seconds — shows `1m` only after the
+    /// minute mark. Reads better than `0m` flickering for a half
+    /// minute on first show.
+    fileprivate func focusElapsedLabel(since start: Date, now: Date) -> String {
+        let totalSeconds = max(0, Int(now.timeIntervalSince(start)))
+        let totalMinutes = totalSeconds / 60
+        if totalMinutes < 1 {
+            return "1m"
+        }
+        if totalMinutes < 60 {
+            return "\(totalMinutes)m"
+        }
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        if minutes == 0 {
+            return "\(hours)h"
+        }
+        return "\(hours)h \(minutes)m"
+    }
+
     private enum SwipeSide { case left, right }
 
     /// Chevron opacity ramps with how far the user has dragged
@@ -1545,6 +1659,68 @@ struct PanelRootView: View {
                         )
                     )
                     .id("dictation")
+            } else if presenter.teleprompterPillVisible {
+                // Teleprompter mode — the user hit "Start reading" on
+                // a script. The pill morphs to the wider/taller
+                // teleprompter geometry (driven by
+                // PanelWindowController.showTeleprompterPill) and
+                // this content fills it with scrolling text.
+                //
+                // GATED on `teleprompterPillVisible` (NOT on
+                // `teleprompterScript != nil`) so the content mounts
+                // in lockstep with the frame morph. The controller
+                // flips the flag true at the moment
+                // `morphIntoTeleprompterFrame` starts — earlier
+                // versions rendered during the slab-close phase at
+                // the wrong (smaller) geometry, producing visible
+                // glitches.
+                TeleprompterPillBody(
+                    presenter: presenter,
+                    notchOverlap: notchOverlap
+                )
+                .transition(
+                    .asymmetric(
+                        insertion: .opacity.animation(
+                            .timingCurve(0.32, 0.72, 0, 1, duration: 0.22)
+                                .delay(0.06)
+                        ),
+                        removal: .opacity.animation(
+                            .timingCurve(0.32, 0.72, 0, 1, duration: 0.18)
+                        )
+                    )
+                )
+                .id("teleprompter-pill")
+            } else if combinedPillVisible {
+                // Hybrid: both music AND focus active. Wider pill
+                // (panel.frame adds focusPillExtraWidth) showing
+                // artwork + waveform on the LEFT WING and focus
+                // aura + timer on the RIGHT WING.
+                combinedPillContent
+                    .transition(
+                        .asymmetric(
+                            insertion: .softMusicEntrance.animation(
+                                .timingCurve(0.32, 0.72, 0, 1,
+                                             duration: 0.20).delay(0.20)
+                            ),
+                            removal: .opacity
+                        )
+                    )
+                    .id("combined-pill")
+            } else if focusPillVisible {
+                // Focus mode active and no music. Standard-width
+                // pill, focus content (aura on left, timer on right)
+                // replaces everything else.
+                focusPillContent
+                    .transition(
+                        .asymmetric(
+                            insertion: .softMusicEntrance.animation(
+                                .timingCurve(0.32, 0.72, 0, 1,
+                                             duration: 0.20).delay(0.20)
+                            ),
+                            removal: .opacity
+                        )
+                    )
+                    .id("focus-pill")
             } else {
                 musicPillContent
                     // STAGGERED INSERTION — music pill fades in
@@ -2165,6 +2341,249 @@ struct PanelRootView: View {
         return "play.fill"
     }
 
+    /// Resting-pill content for nox Focus mode (no music playing).
+    /// Layout matches the user's brief (2026-05-09): "in right it
+    /// would show timer, and in the left it would show the gif of
+    /// lock in." Aura on the left (the same `FocusAuraHero`
+    /// pulsing-rings indicator the dashboard uses, scaled down
+    /// for the pill), live HH:MM:SS-style duration on the right.
+    /// Both are vertically centered in the notch overlap zone.
+    ///
+    /// Timer ticks once per second via `TimelineView(.periodic)`.
+    /// Source = `FocusSessionTracker.shared.sessionStartDate`,
+    /// which got pushed by AppDelegate's `recomputeQuietState`
+    /// the moment the user flipped Focus mode on.
+    @ViewBuilder
+    private var focusPillContent: some View {
+        // CRITICAL LAYOUT NOTE: the small resting pill is
+        // ~280pt wide but the macOS notch hardware (~185pt)
+        // physically occludes the CENTER of the menu-bar zone.
+        // Only the LEFT and RIGHT wings — ~47pt each side of
+        // the notch — render visibly to the user. Content
+        // packed tight in the middle is invisible.
+        //
+        // 2026-05-09 fix: my earlier `HStack(spacing: 8) {
+        // aura; timer }` had no Spacer, so SwiftUI packed
+        // them tightly and centered the cluster under the
+        // notch — invisible. Music pill uses
+        // `Spacer(minLength: 0)` between artwork (left wing)
+        // and waveform (right wing) for exactly this reason.
+        // Same recipe here: aura on the left wing, Spacer
+        // pushing the timer to the right wing.
+        HStack(spacing: 0) {
+            // Mode-driven indicator: Focus → anime working
+            // character; Study → book glyph. Same 18pt size,
+            // same left-wing position, just different content.
+            Group {
+                switch activePillMode {
+                case .focus:
+                    FocusWorkingHero(active: true)
+                case .study:
+                    StudyHero(active: true)
+                }
+            }
+            .frame(width: 18, height: 18)
+
+            Spacer(minLength: 0)
+
+            // Effective session start picks the right tracker
+            // based on which mode is active so the pill timer
+            // always reflects "this mode's session", not a stale
+            // counter from the other mode.
+            let effectiveStart: Date? = {
+                switch activePillMode {
+                case .focus:
+                    return focusTracker.sessionStartDate
+                        ?? presenter.focusSessionStartedAt
+                case .study:
+                    return studyTracker.sessionStartDate
+                        ?? presenter.studySessionStartedAt
+                }
+            }()
+            let modeLabel: String = activePillMode == .study ? "Study" : "Focus"
+
+            TimelineView(.periodic(from: .now, by: 1.0)) { context in
+                if let start = effectiveStart {
+                    Text(formatPillFocusDuration(
+                        context.date.timeIntervalSince(start)
+                    ))
+                    .font(.system(size: 11.5, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                } else {
+                    Text(modeLabel)
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .lineLimit(1)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: notchOverlap)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Hybrid pill content: music + focus active simultaneously.
+    /// 2026-05-09 v3 layout per user spec: "We need exact rotating
+    /// and note showing when lock in mode is turn on (with that
+    /// side timer)."
+    ///
+    ///   • Left wing: VINYL-style rotating circular artwork —
+    ///     continuous slow rotation conveys "music is on, locked
+    ///     in." Square artwork is clipped to a circle so the
+    ///     rotation reads as a record spinning rather than a
+    ///     square tumbling.
+    ///   • Right wing: small music.note glyph + live focus timer.
+    ///     The note glyph is the "music name showing" indicator
+    ///     (we don't have horizontal room for a title/artist
+    ///     string in the wings, but the note conveys "music is
+    ///     happening here").
+    @ViewBuilder
+    private var combinedPillContent: some View {
+        let info = presenter.nowPlaying
+        let waveformIsPlaying: Bool = info?.isPlaying ?? presenter.isAudioFlowing
+        // Pick tracker matching the active mode so the timer in the
+        // hybrid music-and-mode pill reads the right session start.
+        // Same fall-through to the presenter's *SessionStartedAt
+        // mirror as the focus-only pill — covers the brief race
+        // window between AppDelegate's recompute and the tracker's
+        // @Published push.
+        let effectiveStart: Date? = {
+            switch activePillMode {
+            case .focus:
+                return focusTracker.sessionStartDate
+                    ?? presenter.focusSessionStartedAt
+            case .study:
+                return studyTracker.sessionStartDate
+                    ?? presenter.studySessionStartedAt
+            }
+        }()
+        let modeLabel: String = activePillMode == .study ? "Study" : "Focus"
+
+        HStack(spacing: 5) {
+            // Left wing: static album artwork (rotation removed
+            // earlier per spec — the 3D card-flip on track change
+            // carries all the music-moving-forward motion).
+            pillArtwork
+
+            Spacer(minLength: 0)
+
+            // Right-wing cluster: visualizer + lock-in indicator
+            // + timer. Tight fit but the wider pill (closedPillWidth
+            // + focusPillExtraWidth = 343pt total → ~79pt right
+            // wing past the notch hardware) just accommodates it.
+            WaveformView(
+                isPlaying: waveformIsPlaying,
+                width: 18,
+                height: 14,
+                lineWidth: 2.4,
+                tint: ArtworkColor.dominant(from: info?.artworkData) ?? .white,
+                opacity: 0.95,
+                pattern: WaveformPattern.deterministic(for: trackKey)
+            )
+            .scaleEffect(x: waveformPulse, y: 1, anchor: .trailing)
+            .transition(.opacity)
+
+            // Animated lock-in indicator — Focus uses
+            // FocusWorkingHero (anime character at a laptop),
+            // Study uses StudyHero (open-book + writing hand).
+            // Same motif as the focus-only / study-only pill and
+            // their dashboard heroes, so the indicator reads
+            // consistently across the app for whichever mode is on.
+            Group {
+                switch activePillMode {
+                case .focus:
+                    FocusWorkingHero(active: true)
+                case .study:
+                    StudyHero(active: true)
+                }
+            }
+            .frame(width: 14, height: 14)
+
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                if let start = effectiveStart {
+                    Text(focusElapsedLabel(since: start, now: context.date))
+                        .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.92))
+                        .lineLimit(1)
+                        .fixedSize()
+                } else {
+                    Text(modeLabel)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: notchOverlap)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Artwork-decode lifecycle. Mirrors the equivalent hooks
+        // on `musicPillContent` so the pill's cached artwork stays
+        // fresh while the COMBINED pill is the visible content.
+        //
+        // 2026-05-09 v2 — track-change handoff fix:
+        // Earlier I had `.onChange(of: presenter.nowPlaying)` that
+        // immediately reseated `displayedNowPlaying` whenever a new
+        // track landed. Result: the small pill's artwork swapped
+        // BEFORE the track-change banner ran its 3D card flip —
+        // the banner showed old→new but the pill underneath had
+        // already advanced to "new", which read as the artwork
+        // jumping ahead of the animation.
+        //
+        // Fix: drop the eager .onChange and use the same
+        // `.onReceive(presenter.$trackChangedFiring)` pattern that
+        // `musicPillContent` uses. `displayedNowPlaying` is now
+        // ONLY updated when `trackChangedFiring` flips back to
+        // false (i.e. banner finished). During the banner's
+        // ~1.85s lifetime the pill stays pinned to the OLD track,
+        // so when the banner retracts the visual handoff is
+        // seamless: banner ends with new artwork → pill is
+        // already showing new artwork by the time it's revealed.
+        .onAppear {
+            if !hasEverDisplayedTrack && displayedNowPlaying == nil {
+                displayedNowPlaying = presenter.nowPlaying
+                displayedTrackKey = trackKey
+                if presenter.nowPlaying != nil {
+                    hasEverDisplayedTrack = true
+                }
+            }
+            refreshPillArtworkImage()
+        }
+        .onReceive(presenter.$trackChangedFiring) { firing in
+            // Only sync after the banner's done flipping — same
+            // handoff pattern as musicPillContent.
+            if !firing, let cur = presenter.nowPlaying {
+                var snap = Transaction()
+                snap.disablesAnimations = true
+                withTransaction(snap) {
+                    displayedNowPlaying = cur
+                    displayedTrackKey = "\(cur.title)|\(cur.artist)"
+                }
+                refreshPillArtworkImage()
+            }
+        }
+        .onChange(of: displayedNowPlaying) { _ in
+            refreshPillArtworkImage()
+        }
+    }
+
+    /// Compact duration formatter for the pill timer. Matches the
+    /// dashboard's hero formatter logic but with shorter unit
+    /// labels because the pill has limited width (closedPillFrame
+    /// = ~280pt). Drops higher-order zeros so a 5-minute session
+    /// reads "5m", not "0h 05m".
+    private func formatPillFocusDuration(_ seconds: TimeInterval) -> String {
+        let total = Int(max(0, seconds))
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 { return String(format: "%dh %02dm", h, m) }
+        if m > 0 { return "\(m)m \(String(format: "%02d", s))s" }
+        return "\(s)s"
+    }
+
     @ViewBuilder
     private var musicPillContent: some View {
         // 2026-04-29 fix v2: bundle-ID allow-list for the
@@ -2208,7 +2627,58 @@ struct PanelRootView: View {
         // freezes naturally.
         let info = presenter.nowPlaying
         let hasAnyAudio = info != nil || presenter.isAudioFlowing
+        // Phase A — standalone Focus pill mode. When Focus is on but
+        // no music is playing AND no audio is flowing, the panel
+        // geometry shrinks to focusOnlyPillFrame (200pt × bump) via
+        // enterRestingMode's three-way frame choice. The HStack
+        // below detects this case and lays out a centered moon +
+        // "Focus" cluster — no artwork, no waveform, no extra
+        // separators. Same outer modifier chain as the music
+        // path so swipe-to-skip etc continue to work seamlessly.
+        // 2026-05-09: hard-disabled the inline focus-only render
+        // path (was: `presenter.isFocused && info == nil && !
+        // presenter.isAudioFlowing`). The new `focusPillContent`
+        // route in `pillContentOverlay` (gated on `focusPillVisible`)
+        // owns ALL focus-mode pill rendering — both nox's own
+        // `noxFocusMode` and macOS-Focus paths. Keeping the old
+        // branch around as a no-op so the rest of the HStack
+        // structure (`if/else`) doesn't have to be rewritten.
+        let isFocusOnlyMode = false
         return HStack(spacing: 6) {
+            if isFocusOnlyMode {
+                Spacer(minLength: 0)
+                Image(systemName: "moon.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.78))
+                // Live duration timer. TimelineView ticks at most
+                // once per minute (we only display M / Hh Mm). The
+                // start time comes from FocusStatusService via
+                // PanelPresenter.focusSessionStartedAt; if it's
+                // nil for any reason we fall back to "Focus"
+                // without a timer rather than showing 0m forever.
+                if let started = presenter.focusSessionStartedAt {
+                    TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                        Text(focusElapsedLabel(since: started, now: ctx.date))
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.92))
+                            .kerning(0.2)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .monospacedDigit()
+                    }
+                    .accessibilityLabel("Focused for \(focusElapsedLabel(since: started, now: Date()))")
+                } else {
+                    Text("Focus")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .kerning(0.2)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .accessibilityLabel("Focus mode is on")
+                        .accessibilityHint("Non-essential pings are paused")
+                }
+                Spacer(minLength: 0)
+            } else {
             pillArtwork
             Spacer(minLength: 0)
             // 2026-05-01 evidence-based fix. /tmp/notetaker-mra.log
@@ -2266,27 +2736,24 @@ struct PanelRootView: View {
             // so this content has room without crowding the waveform.
             // Fade-in/out via the .animation(value: presenter.isFocused)
             // modifier below — synced with the panel.frame morph.
-            if presenter.isFocused {
-                // Vertical hairline divider, separates "current
-                // playback" content from "Focus status" content.
-                Rectangle()
-                    .fill(.white.opacity(0.18))
-                    .frame(width: 1, height: 12)
-                    .transition(.opacity)
-                Image(systemName: "moon.fill")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.78))
-                    .transition(.opacity)
-                Text("Focus")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.78))
-                    .kerning(0.2)
-                    .lineLimit(1)
-                    .fixedSize()
-                    .transition(.opacity)
-                    .accessibilityLabel("Focus mode is on")
-                    .accessibilityHint("Non-essential pings are paused")
+            // 2026-05-09: hard-disabled the inline "Focus indicator
+            // alongside music" cluster (was: divider + moon.fill +
+            // focusElapsedLabel timer). Diagnostic logging revealed
+            // this was firing whenever Spotify had a paused track
+            // (nowPlaying != nil → musicPillContent path → this
+            // cluster). User saw it as the OLD "1m + moon" pill
+            // even after focusPillVisible was supposed to take over.
+            //
+            // Now `pillContentOverlay`'s `else if focusPillVisible`
+            // branch (which doesn't gate on nowPlaying anymore)
+            // owns ALL focus-mode pill rendering: aura + live
+            // session timer in place of the music pill, regardless
+            // of whether music is paused/playing in the background.
+            if false {
+                EmptyView()
             }
+            } // closes the `else` branch of isFocusOnlyMode opened
+              // up at the top of the HStack body
         }
         .animation(.easeInOut(duration: 0.20), value: hasAnyAudio)
         // Match PanelWindowController.morphRestingFrameForFocusChange's
@@ -3306,6 +3773,8 @@ struct PanelRootView: View {
                 VideosGridView()
             case .files:
                 FilesGridView()
+            case .script:
+                ScriptsView()
             }
         }
         .id(presenter.activeTab)
@@ -3470,6 +3939,46 @@ struct PanelRootView: View {
 /// the rendered frame.
 ///
 /// Animatable via `.trim(from:to:)` for the draw-on stroke effect.
+/// Wraps any artwork view in a vinyl-record presentation:
+/// circular clip + continuous slow rotation + a tiny dark hole
+/// at the dead center (the spindle hole) so the rotation reads
+/// as a record on a turntable rather than a confused square
+/// tumbling.
+///
+/// 12s per revolution — close to a real 33⅓ rpm vinyl's perceived
+/// speed at this scale; fast enough to read as "moving" within a
+/// glance but slow enough to never be distracting in peripheral
+/// vision. Pure CADisplayLink-like animation via SwiftUI's
+/// `TimelineView(.animation)` so the rotation doesn't depend on
+/// a `withAnimation` block somewhere up the tree.
+private struct VinylArtwork<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    private let revolutionSeconds: Double = 12.0
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+            let t = context.date
+                .timeIntervalSinceReferenceDate
+                .truncatingRemainder(dividingBy: revolutionSeconds)
+                / revolutionSeconds
+            ZStack {
+                content()
+                    .rotationEffect(.degrees(t * 360))
+                    .clipShape(Circle())
+                // Spindle hole — a tiny black dot at center sells
+                // the "record" metaphor without taking real
+                // pixels from the artwork. Skipped at very small
+                // sizes where it'd be a single pixel.
+                Circle()
+                    .fill(Color.black)
+                    .frame(width: 3, height: 3)
+                Circle()
+                    .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+            }
+        }
+    }
+}
+
 /// `variant` is NOT animatable — switching variants snaps the path
 /// shape, which is the desired behavior (each new selection draws
 /// a fresh mark from scratch).

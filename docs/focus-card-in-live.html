@@ -1,0 +1,836 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>nox · Focus card in Live section</title>
+<style>
+  :root {
+    --bg: #0e0c14;
+    --panel-bg: #0a0810;
+    --panel-bg-soft: #14101c;
+    --fg: #f5f3fa;
+    --fg-soft: rgba(245,243,250,0.78);
+    --muted: rgba(245,243,250,0.50);
+    --dim: rgba(245,243,250,0.30);
+    --line: rgba(245,243,250,0.10);
+    --line-soft: rgba(245,243,250,0.06);
+    --accent: #c5a3ff;
+    --accent-soft: rgba(197,163,255,0.55);
+    --accent-faint: rgba(197,163,255,0.16);
+    --card: rgba(255,255,255,0.055);
+    --card-edge: rgba(255,255,255,0.10);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font: 14.5px/1.55 -apple-system, "SF Pro Text", system-ui, sans-serif;
+    color: var(--fg);
+    background:
+      radial-gradient(ellipse 70% 50% at 50% 0%,
+        rgba(197,163,255,0.18) 0%,
+        rgba(168,130,232,0.06) 40%,
+        transparent 75%),
+      var(--bg);
+    background-attachment: fixed;
+    min-height: 100vh;
+    padding: 56px 28px 80px;
+  }
+  header {
+    max-width: 1080px;
+    margin: 0 auto 36px;
+  }
+  h1 {
+    font-family: "SF Pro Display", system-ui, sans-serif;
+    font-size: 32px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0 0 8px;
+  }
+  .lede {
+    color: var(--fg-soft);
+    max-width: 70ch;
+    margin: 0 0 16px;
+  }
+  .toolbar {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.03);
+    backdrop-filter: blur(8px);
+  }
+  .toolbar label { color: var(--muted); font-size: 13px; }
+  .toolbar input[type="checkbox"] { accent-color: var(--accent); transform: scale(1.1); }
+
+  .stack {
+    max-width: 1080px;
+    margin: 0 auto;
+    display: grid;
+    gap: 28px;
+  }
+  .frame {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: linear-gradient(180deg,
+      rgba(255,255,255,0.04),
+      rgba(255,255,255,0.02));
+    padding: 26px 26px 24px;
+    backdrop-filter: blur(10px);
+  }
+  .frame-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .frame-title {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--fg);
+    margin: 0;
+  }
+  .frame-num { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .tradeoff {
+    color: var(--fg-soft);
+    font-size: 13px;
+    line-height: 1.55;
+    margin: 14px 0 0;
+  }
+  .pros { display: inline-block; color: rgba(99,222,153,0.9); margin-right: 14px; }
+  .cons { display: inline-block; color: rgba(255,160,140,0.9); }
+
+  /* ── Slab (the actual nox panel) ────────────────────────── */
+  .slab {
+    background: var(--panel-bg);
+    border-radius: 22px;
+    padding: 22px 24px;
+    margin: 0 auto;
+    max-width: 760px;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.05),
+      0 30px 60px -20px rgba(0,0,0,0.6);
+  }
+  .slab-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--fg);
+    font-weight: 600;
+    font-size: 16px;
+  }
+  .brand .ring {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    position: relative;
+  }
+  .brand .ring::before {
+    content: "";
+    position: absolute;
+    top: -2px; left: 50%;
+    transform: translateX(-50%);
+    width: 6px; height: 4px;
+    background: var(--panel-bg);
+    border-radius: 0 0 3px 3px;
+  }
+  .header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .chip {
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 7px;
+    padding: 4px 8px;
+    font-size: 11px;
+    color: var(--fg-soft);
+    font-weight: 500;
+  }
+  .gear {
+    width: 24px; height: 24px;
+    background: rgba(255,255,255,0.07);
+    border-radius: 6px;
+    display: grid;
+    place-items: center;
+    color: var(--fg-soft);
+    font-size: 13px;
+  }
+  .tabs {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 28px;
+    margin-bottom: 22px;
+    color: var(--dim);
+    font-weight: 500;
+    font-size: 14px;
+  }
+  .tabs .tab.active {
+    color: var(--fg);
+    position: relative;
+  }
+  .tabs .tab.active::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: -8px;
+    height: 2px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+
+  /* ── Music card (matches nox's actual layout) ───────────── */
+  .live-grid {
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    gap: 18px;
+  }
+  .music-card {
+    background: var(--card);
+    border: 1px solid var(--card-edge);
+    border-radius: 14px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .music-row {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+  }
+  .album {
+    width: 78px; height: 78px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #ddd 0%, #a8a 60%, #555 100%);
+    flex: 0 0 auto;
+    background-image: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(255,200,200,0.5)),
+                      repeating-linear-gradient(45deg, transparent 0 4px, rgba(0,0,0,0.05) 4px 5px);
+  }
+  .track-meta { flex: 1; min-width: 0; }
+  .track-title { font: 600 18px/1.2 -apple-system, "SF Pro Display", sans-serif; color: var(--fg); margin-bottom: 4px; }
+  .track-artist { font-size: 14px; color: var(--fg-soft); margin-bottom: 2px; }
+  .track-album { font-size: 12px; color: var(--muted); }
+  .progress-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .progress {
+    height: 3px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    width: 88%;
+    background: linear-gradient(90deg, rgba(197,163,255,0.6), rgba(255,255,255,0.85));
+    border-radius: 2px;
+  }
+  .timestamps {
+    display: flex;
+    justify-content: space-between;
+    font: 600 11px -apple-system, sans-serif;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .transport {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    padding-top: 6px;
+  }
+  .transport .btn {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    color: var(--fg);
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+  }
+  .transport .btn.play {
+    width: 38px; height: 38px;
+    background: rgba(255,255,255,0.92);
+    color: var(--panel-bg);
+    font-size: 14px;
+  }
+
+  /* Calendar card */
+  .cal-card {
+    background: var(--card);
+    border: 1px solid var(--card-edge);
+    border-radius: 14px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .cal-day-label { font: 600 11px -apple-system, sans-serif; color: #ff5e5e; letter-spacing: 0.04em; }
+  .cal-day { font: 600 36px/1 -apple-system, "SF Pro Display"; color: var(--fg); margin: 4px 0 8px; }
+  .cal-divider { height: 1px; background: var(--line); margin: 4px 0; }
+  .cal-prompt-title { font: 600 14px -apple-system, sans-serif; color: var(--fg); margin-top: 8px; }
+  .cal-prompt-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  /* ── A — Focus chip in slab header ─────────────────────── */
+  .focus-chip-header {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--accent-faint);
+    color: var(--accent);
+    border: 1px solid rgba(197,163,255,0.30);
+    border-radius: 999px;
+    padding: 5px 11px;
+    font: 600 11.5px -apple-system, sans-serif;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+  }
+  .focus-chip-header.off { display: none; }
+
+  /* ── B — Focus card as third column in live-grid ─────── */
+  .live-grid.with-focus {
+    grid-template-columns: 1.4fr 1fr 0.7fr;
+    gap: 14px;
+  }
+  .focus-tile {
+    background: var(--card);
+    border: 1px solid var(--card-edge);
+    border-radius: 14px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.15s ease;
+  }
+  .focus-tile:hover {
+    background: rgba(255,255,255,0.08);
+    transform: translateY(-1px);
+  }
+  .focus-tile-icon-wrap {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--accent-faint);
+    display: grid;
+    place-items: center;
+    color: var(--accent);
+  }
+  .focus-tile-status { font: 600 13px -apple-system, sans-serif; color: var(--fg); }
+  .focus-tile-name { font: 500 11px -apple-system, sans-serif; color: var(--muted); }
+
+  /* ── C — Status row above music + calendar ────────────── */
+  .status-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--card);
+    border: 1px solid var(--card-edge);
+    border-radius: 12px;
+    padding: 9px 13px;
+    cursor: pointer;
+    color: var(--fg-soft);
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 0.15s ease;
+  }
+  .status-pill:hover { background: rgba(255,255,255,0.08); }
+  .status-pill .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-faint);
+  }
+  .status-pill .moon { color: var(--accent); display: inline-flex; }
+
+  /* ── D — Wide focus banner above the cards ────────────── */
+  .focus-banner {
+    background: linear-gradient(90deg,
+      rgba(197,163,255,0.16) 0%,
+      rgba(168,130,232,0.06) 100%);
+    border: 1px solid rgba(197,163,255,0.20);
+    border-radius: 12px;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 18px;
+    cursor: pointer;
+  }
+  .focus-banner-left { display: flex; align-items: center; gap: 12px; }
+  .focus-banner-icon {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: var(--accent-faint);
+    display: grid; place-items: center;
+    color: var(--accent);
+  }
+  .focus-banner-title { font: 600 14px -apple-system, sans-serif; color: var(--fg); }
+  .focus-banner-sub { font: 500 12px -apple-system, sans-serif; color: var(--muted); margin-top: 1px; }
+  .focus-banner-arrow { color: var(--muted); }
+
+  /* ── E — Expanded panel (the click destination) ────────── */
+  .expanded-frame {
+    background: var(--panel-bg);
+    border-radius: 22px;
+    padding: 22px 24px;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.05),
+      0 30px 60px -20px rgba(0,0,0,0.6);
+  }
+  .expanded-back {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--accent);
+    font: 500 13px -apple-system, sans-serif;
+    margin-bottom: 18px;
+    cursor: pointer;
+  }
+  .expanded-hero {
+    display: flex; align-items: center; gap: 18px;
+    margin-bottom: 22px;
+  }
+  .expanded-hero-icon {
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    background: var(--accent-faint);
+    display: grid; place-items: center;
+    color: var(--accent);
+    font-size: 28px;
+  }
+  .expanded-hero-title { font: 600 22px -apple-system, "SF Pro Display"; color: var(--fg); margin-bottom: 4px; }
+  .expanded-hero-sub { font-size: 14px; color: var(--fg-soft); }
+  .expanded-hero-state { color: var(--accent); font-weight: 600; }
+  .expanded-section {
+    margin-top: 22px;
+  }
+  .expanded-section-title { font: 600 11px -apple-system, sans-serif; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 12px; }
+  .toggle-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px;
+    background: var(--card);
+    border-radius: 10px;
+    margin-bottom: 8px;
+  }
+  .toggle-label { font: 500 14px -apple-system, sans-serif; color: var(--fg); }
+  .toggle-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .toggle-switch {
+    width: 38px; height: 22px;
+    background: var(--accent);
+    border-radius: 999px;
+    position: relative;
+  }
+  .toggle-switch::after {
+    content: "";
+    position: absolute;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: white;
+    top: 2px; right: 2px;
+  }
+  .pill-list {
+    display: flex; flex-wrap: wrap; gap: 8px;
+  }
+  .pill-list .item {
+    background: var(--card);
+    border: 1px solid var(--card-edge);
+    border-radius: 8px;
+    padding: 7px 11px;
+    font-size: 12px;
+    color: var(--fg-soft);
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .pill-list .item .x {
+    color: rgba(255,160,140,0.9); font-size: 11px;
+  }
+  .pill-list .item .dot { color: var(--accent); }
+
+  body:not(.focus-on) .focus-only { display: none !important; }
+  body:not(.focus-on) .focus-only-flex { display: none !important; }
+  body:not(.focus-on) .focus-banner { display: none; }
+  body:not(.focus-on) .live-grid.with-focus { grid-template-columns: 1.6fr 1fr; }
+  body:not(.focus-on) .live-grid.with-focus .focus-tile { display: none; }
+
+  /* SVGs */
+  svg.moon { width: 16px; height: 16px; display: inline-block; }
+
+  .footnote {
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+    margin-top: 20px;
+  }
+</style>
+</head>
+<body class="focus-on">
+
+<header>
+  <h1>Focus card in Live section — 4 placements + 1 expanded panel</h1>
+  <p class="lede">
+    Each frame shows where the Focus card could live <em>inside</em> the Live tab. The bottom frame shows what opens when you click any of them. Toggle "Focus on" to see how each looks when Focus is off.
+  </p>
+  <div class="toolbar">
+    <input type="checkbox" id="focus-toggle" checked>
+    <label for="focus-toggle">Focus on</label>
+  </div>
+</header>
+
+<div class="stack">
+
+  <!-- A ─────────────────────────────────────────── -->
+  <div class="frame">
+    <div class="frame-head">
+      <h2 class="frame-title">A · Header chip</h2>
+      <span class="frame-num">A</span>
+    </div>
+    <div class="slab">
+      <div class="slab-header">
+        <div class="brand"><span class="ring"></span> nox</div>
+        <div class="header-actions">
+          <span class="focus-chip-header focus-only">
+            <svg class="moon" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            Focus on
+          </span>
+          <span class="chip">⌥</span>
+          <span class="chip">Space</span>
+          <span class="gear">⚙</span>
+        </div>
+      </div>
+      <div class="tabs">
+        <span class="tab active">live</span>
+        <span class="tab">notes</span>
+        <span class="tab">images</span>
+        <span class="tab">videos</span>
+        <span class="tab">files</span>
+      </div>
+      <div class="live-grid">
+        <div class="music-card">
+          <div class="music-row">
+            <div class="album"></div>
+            <div class="track-meta">
+              <div class="track-title">Impostor Sy…</div>
+              <div class="track-artist">Sidney Gish</div>
+              <div class="track-album">No Dogs Allowed</div>
+            </div>
+          </div>
+          <div class="progress-row">
+            <div class="progress"><div class="progress-fill"></div></div>
+            <div class="timestamps"><span>4:37</span><span>-0:16</span></div>
+          </div>
+          <div class="transport">
+            <div class="btn">⏮</div>
+            <div class="btn play">▶</div>
+            <div class="btn">⏭</div>
+          </div>
+        </div>
+        <div class="cal-card">
+          <div class="cal-day-label">FRI</div>
+          <div class="cal-day">8</div>
+          <div class="cal-divider"></div>
+          <div class="cal-prompt-title">Connect Calendar</div>
+          <div class="cal-prompt-sub">See today's events</div>
+        </div>
+      </div>
+    </div>
+    <p class="tradeoff">
+      <span class="pros">+ tiny visual footprint, doesn't crowd music+calendar</span>
+      <span class="cons">– chip near gear/keyboard hint area is busy; click target small</span>
+    </p>
+  </div>
+
+  <!-- B ─────────────────────────────────────────── -->
+  <div class="frame">
+    <div class="frame-head">
+      <h2 class="frame-title">B · Third column tile (alongside music + calendar)</h2>
+      <span class="frame-num">B</span>
+    </div>
+    <div class="slab">
+      <div class="slab-header">
+        <div class="brand"><span class="ring"></span> nox</div>
+        <div class="header-actions">
+          <span class="chip">⌥</span>
+          <span class="chip">Space</span>
+          <span class="gear">⚙</span>
+        </div>
+      </div>
+      <div class="tabs">
+        <span class="tab active">live</span>
+        <span class="tab">notes</span>
+        <span class="tab">images</span>
+        <span class="tab">videos</span>
+        <span class="tab">files</span>
+      </div>
+      <div class="live-grid with-focus">
+        <div class="music-card">
+          <div class="music-row">
+            <div class="album"></div>
+            <div class="track-meta">
+              <div class="track-title">Impostor Sy…</div>
+              <div class="track-artist">Sidney Gish</div>
+              <div class="track-album">No Dogs Allowed</div>
+            </div>
+          </div>
+          <div class="progress-row">
+            <div class="progress"><div class="progress-fill"></div></div>
+            <div class="timestamps"><span>4:37</span><span>-0:16</span></div>
+          </div>
+          <div class="transport">
+            <div class="btn">⏮</div>
+            <div class="btn play">▶</div>
+            <div class="btn">⏭</div>
+          </div>
+        </div>
+        <div class="cal-card">
+          <div class="cal-day-label">FRI</div>
+          <div class="cal-day">8</div>
+          <div class="cal-divider"></div>
+          <div class="cal-prompt-title">Connect Calendar</div>
+          <div class="cal-prompt-sub">See today's events</div>
+        </div>
+        <div class="focus-tile focus-only">
+          <div class="focus-tile-icon-wrap">
+            <svg class="moon" viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </div>
+          <div class="focus-tile-status">Focus on</div>
+          <div class="focus-tile-name">Personal</div>
+        </div>
+      </div>
+    </div>
+    <p class="tradeoff">
+      <span class="pros">+ scales naturally as more status modules arrive (Battery, Weather, etc); good click target</span>
+      <span class="cons">– the music card narrows to fit; transport gets tighter; vanishes when Focus is off, leaving a 2-col layout</span>
+    </p>
+  </div>
+
+  <!-- C ─────────────────────────────────────────── -->
+  <div class="frame">
+    <div class="frame-head">
+      <h2 class="frame-title">C · Status row above the cards</h2>
+      <span class="frame-num">C</span>
+    </div>
+    <div class="slab">
+      <div class="slab-header">
+        <div class="brand"><span class="ring"></span> nox</div>
+        <div class="header-actions">
+          <span class="chip">⌥</span>
+          <span class="chip">Space</span>
+          <span class="gear">⚙</span>
+        </div>
+      </div>
+      <div class="tabs">
+        <span class="tab active">live</span>
+        <span class="tab">notes</span>
+        <span class="tab">images</span>
+        <span class="tab">videos</span>
+        <span class="tab">files</span>
+      </div>
+      <div class="status-row focus-only-flex">
+        <div class="status-pill">
+          <span class="moon">
+            <svg class="moon" viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </span>
+          Focus · Personal
+        </div>
+        <!-- room for future status pills here -->
+      </div>
+      <div class="live-grid">
+        <div class="music-card">
+          <div class="music-row">
+            <div class="album"></div>
+            <div class="track-meta">
+              <div class="track-title">Impostor Sy…</div>
+              <div class="track-artist">Sidney Gish</div>
+              <div class="track-album">No Dogs Allowed</div>
+            </div>
+          </div>
+          <div class="progress-row">
+            <div class="progress"><div class="progress-fill"></div></div>
+            <div class="timestamps"><span>4:37</span><span>-0:16</span></div>
+          </div>
+          <div class="transport">
+            <div class="btn">⏮</div>
+            <div class="btn play">▶</div>
+            <div class="btn">⏭</div>
+          </div>
+        </div>
+        <div class="cal-card">
+          <div class="cal-day-label">FRI</div>
+          <div class="cal-day">8</div>
+          <div class="cal-divider"></div>
+          <div class="cal-prompt-title">Connect Calendar</div>
+          <div class="cal-prompt-sub">See today's events</div>
+        </div>
+      </div>
+    </div>
+    <p class="tradeoff">
+      <span class="pros">+ leaves music+calendar untouched; clean home for ALL future status (battery, weather, wifi)</span>
+      <span class="cons">– adds vertical height to the slab; row sits empty when Focus is off (unless other status fills it)</span>
+    </p>
+  </div>
+
+  <!-- D ─────────────────────────────────────────── -->
+  <div class="frame">
+    <div class="frame-head">
+      <h2 class="frame-title">D · Full-width banner above the cards</h2>
+      <span class="frame-num">D</span>
+    </div>
+    <div class="slab">
+      <div class="slab-header">
+        <div class="brand"><span class="ring"></span> nox</div>
+        <div class="header-actions">
+          <span class="chip">⌥</span>
+          <span class="chip">Space</span>
+          <span class="gear">⚙</span>
+        </div>
+      </div>
+      <div class="tabs">
+        <span class="tab active">live</span>
+        <span class="tab">notes</span>
+        <span class="tab">images</span>
+        <span class="tab">videos</span>
+        <span class="tab">files</span>
+      </div>
+      <div class="focus-banner focus-only">
+        <div class="focus-banner-left">
+          <div class="focus-banner-icon">
+            <svg class="moon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </div>
+          <div>
+            <div class="focus-banner-title">Focus is on · Personal</div>
+            <div class="focus-banner-sub">Charger, screenshot, and Bluetooth pings paused</div>
+          </div>
+        </div>
+        <div class="focus-banner-arrow">›</div>
+      </div>
+      <div class="live-grid">
+        <div class="music-card">
+          <div class="music-row">
+            <div class="album"></div>
+            <div class="track-meta">
+              <div class="track-title">Impostor Sy…</div>
+              <div class="track-artist">Sidney Gish</div>
+              <div class="track-album">No Dogs Allowed</div>
+            </div>
+          </div>
+          <div class="progress-row">
+            <div class="progress"><div class="progress-fill"></div></div>
+            <div class="timestamps"><span>4:37</span><span>-0:16</span></div>
+          </div>
+          <div class="transport">
+            <div class="btn">⏮</div>
+            <div class="btn play">▶</div>
+            <div class="btn">⏭</div>
+          </div>
+        </div>
+        <div class="cal-card">
+          <div class="cal-day-label">FRI</div>
+          <div class="cal-day">8</div>
+          <div class="cal-divider"></div>
+          <div class="cal-prompt-title">Connect Calendar</div>
+          <div class="cal-prompt-sub">See today's events</div>
+        </div>
+      </div>
+    </div>
+    <p class="tradeoff">
+      <span class="pros">+ clearest signal; tells the user WHY (which pings are muted); biggest click target</span>
+      <span class="cons">– a banner above the main content steals visual hierarchy from music; one-purpose only</span>
+    </p>
+  </div>
+
+  <!-- E — The expanded panel (click destination) ─── -->
+  <div class="frame">
+    <div class="frame-head">
+      <h2 class="frame-title">E · Expanded Focus panel (what opens when you click any of A–D)</h2>
+      <span class="frame-num">E</span>
+    </div>
+    <div class="expanded-frame slab">
+      <div class="expanded-back">‹ Live</div>
+      <div class="expanded-hero">
+        <div class="expanded-hero-icon">
+          <svg class="moon" viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </div>
+        <div>
+          <div class="expanded-hero-title">Focus mode</div>
+          <div class="expanded-hero-sub">
+            <span class="expanded-hero-state">On · Personal</span>
+            · Active since 7:42 PM
+          </div>
+        </div>
+      </div>
+
+      <div class="expanded-section">
+        <div class="expanded-section-title">Behavior</div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Auto-hide pills during Focus</div>
+            <div class="toggle-sub">Suppress charger, screenshot, AirDrop, Bluetooth pings</div>
+          </div>
+          <div class="toggle-switch"></div>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Suppress voice transcription overlay</div>
+            <div class="toggle-sub">Don't surface dictation toasts in Focus</div>
+          </div>
+          <div class="toggle-switch" style="background: rgba(255,255,255,0.18);"></div>
+        </div>
+      </div>
+
+      <div class="expanded-section">
+        <div class="expanded-section-title">Currently muted</div>
+        <div class="pill-list">
+          <span class="item"><span class="x">⊘</span> Charger</span>
+          <span class="item"><span class="x">⊘</span> Screenshot saved</span>
+          <span class="item"><span class="x">⊘</span> AirDrop received</span>
+          <span class="item"><span class="x">⊘</span> Bluetooth connect</span>
+          <span class="item"><span class="x">⊘</span> Download progress</span>
+        </div>
+      </div>
+
+      <div class="expanded-section">
+        <div class="expanded-section-title">Allowed through</div>
+        <div class="pill-list">
+          <span class="item"><span class="dot">●</span> Calendar reminders</span>
+          <span class="item"><span class="dot">●</span> Timer alarms</span>
+          <span class="item"><span class="dot">●</span> AirDrop sent (you initiated)</span>
+        </div>
+      </div>
+    </div>
+    <p class="tradeoff">
+      <span class="pros">+ Live → Focus card → this panel is a real "drill into status" pattern; templates well for Battery/Weather/etc later</span>
+      <span class="cons">– needs a "back to Live" path; two of three sections aren't yet implementable (we don't track Focus name / start-time without Apple's INFocusStatusCenter exposing that)</span>
+    </p>
+  </div>
+
+</div>
+
+<p class="footnote">Toggle "Focus on" in the header to see each variant in both states.</p>
+
+<script>
+  const toggle = document.getElementById('focus-toggle');
+  toggle.addEventListener('change', (e) => {
+    document.body.classList.toggle('focus-on', e.target.checked);
+  });
+</script>
+
+</body>
+</html>

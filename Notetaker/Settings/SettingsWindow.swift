@@ -127,6 +127,30 @@ enum SettingsKey {
     /// prompt (see `FocusStatusService.requestAuthorization`).
     static let respectFocusMode = "respectFocusMode"
 
+    /// nox's own "I'm locked in" Focus toggle, independent of
+    /// macOS Focus. When ON, ambient pills (charger / screenshot
+    /// / AirDrop / Bluetooth / track-change) get swallowed by
+    /// the same suppression gate that handles macOS Focus — so
+    /// the user gets a one-tap "I'm focused, stop interrupting"
+    /// without depending on macOS Focus mode (which third-party
+    /// apps can't toggle silently). Default false. Lives in the
+    /// Live > Focus dashboard's primary toggle.
+    ///
+    /// Naming note (2026-05-08): originally `noxQuietMode`. User
+    /// feedback: "It should be focus not quite — it should be
+    /// for the person who is locked in." Renamed to make the
+    /// feature's intent clearer ("focus / locked in" reads
+    /// aspirationally vs. "quiet" reading passively).
+    static let noxFocusMode = "noxFocusMode"
+
+    /// Sibling to `noxFocusMode` — user's own "I'm in a study
+    /// session" toggle. Same shape as Focus (resting pill widens to
+    /// show a book glyph + live session timer; Live tab gets a
+    /// matching status pill). Mutually exclusive with Focus: turning
+    /// one on flips the other off, since both read as "deep work
+    /// mode" and stacking them would be confusing.
+    static let noxStudyMode = "noxStudyMode"
+
     /// Hide the notch HUD from screen recordings (`NSWindow.sharingType
     /// = .none`). Default false (visible). Inspired by SuperIsland.
     static let hideFromScreenRecordings = "hideFromScreenRecordings"
@@ -249,19 +273,23 @@ struct SettingsView: View {
             sidebar
                 .frame(width: 220)
                 .background(SettingsTheme.sidebarBackground)
-            Divider()
+            // Hairline separator instead of the system Divider —
+            // matches the onboarding's flat black aesthetic.
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(width: 0.5)
             ScrollView(showsIndicators: false) {
                 detail
-                    // Trimmed 28/24 → 22/18 so each settings page
-                    // reads as content-first rather than a small
-                    // island of controls floating in a wide margin.
-                    .padding(.horizontal, 22)
-                    .padding(.vertical, 18)
+                    // 28/24 horizontal/vertical gives the new big
+                    // page header room to breathe and stops cards
+                    // from hugging the divider.
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 24)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .background(SettingsTheme.detailBackground)
         }
-        .frame(minWidth: 760, idealWidth: 820, minHeight: 540, idealHeight: 600)
+        .frame(minWidth: 800, idealWidth: 860, minHeight: 560, idealHeight: 620)
     }
 
     // MARK: - Sidebar
@@ -336,16 +364,31 @@ struct SettingsView: View {
 
 // MARK: - Theme
 
+/// Settings visual tokens. Aligned with the onboarding redesign
+/// (CleanOnboardingView) so the two surfaces share one language:
+/// near-black backgrounds, brand-purple as the lone accent, white
+/// 0.04 grouped cards with white 0.07 hairline strokes. The rainbow
+/// per-category sidebar tints are gone (Apple System Settings does
+/// them, but they read as visual noise on top of the dark surface).
+/// Brand purple matches `NoxBrand.purple` from CleanOnboardingView
+/// (`#C5A3FF`) — kept literal here so we don't have to bridge two
+/// private namespaces.
 private enum SettingsTheme {
-    static let sidebarBackground = Color(red: 0.10, green: 0.10, blue: 0.11)
-    static let detailBackground = Color(red: 0.13, green: 0.13, blue: 0.14)
-    static let cardBackground = Color.white.opacity(0.04)
-    static let cardStroke = Color.white.opacity(0.06)
-    static let rowDivider = Color.white.opacity(0.05)
+    static let sidebarBackground = Color(red: 0.04, green: 0.04, blue: 0.05)
+    static let detailBackground  = Color(red: 0.06, green: 0.06, blue: 0.07)
+    static let cardBackground    = Color.white.opacity(0.04)
+    static let cardStroke        = Color.white.opacity(0.07)
+    static let rowDivider        = Color.white.opacity(0.06)
+    static let accent            = Color(red: 0.773, green: 0.640, blue: 1.000)
+    static let accentSoft        = Color(red: 0.773, green: 0.640, blue: 1.000).opacity(0.16)
 }
 
 // MARK: - Sidebar row
 
+/// Sidebar nav row. Mono SF-Symbol icon (no rainbow tile), with
+/// the brand purple reserved for the SELECTED state — both the
+/// background fill and the icon tint switch on. Hover gets a
+/// quiet white-tint lift. Matches the SuperIsland reference.
 private struct SidebarRow: View {
     let category: SettingsCategory
     let isSelected: Bool
@@ -353,84 +396,119 @@ private struct SidebarRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(category.iconTint.opacity(0.85))
-                Image(systemName: category.icon)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 20, height: 20)
+            Image(systemName: category.icon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(
+                    isSelected
+                        ? SettingsTheme.accent
+                        : .white.opacity(0.55)
+                )
+                .frame(width: 20, height: 20)
 
             Text(category.title)
-                .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
-                .foregroundStyle(.white.opacity(isSelected ? 0.95 : 0.78))
-            Spacer()
+                .font(.system(size: 13,
+                              weight: isSelected ? .semibold : .regular))
+                .foregroundStyle(.white.opacity(isSelected ? 0.95 : 0.72))
+
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
         .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(isSelected ? Color.white.opacity(0.10)
-                      : (isHovered ? Color.white.opacity(0.05) : Color.clear))
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(
+                    isSelected
+                        ? SettingsTheme.accentSoft
+                        : (isHovered ? Color.white.opacity(0.04) : Color.clear)
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .strokeBorder(
+                    isSelected ? SettingsTheme.accent.opacity(0.22) : .clear,
+                    lineWidth: 0.6
+                )
         )
         .padding(.horizontal, 8)
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
+        .animation(.easeInOut(duration: 0.14), value: isSelected)
+        .animation(.easeInOut(duration: 0.14), value: isHovered)
     }
 }
 
 // MARK: - Section building blocks
 
+/// Big page header at the top of each settings detail view.
+///
+/// 2026-05-08 redesign: dropped the saturated rainbow-tile icon
+/// in favor of a clean text-only h1. The user already knows what
+/// section they're in from the sidebar — duplicating the icon
+/// here was visual noise that crowded the page above the cards.
+/// Matches the SuperIsland onboarding's left-aligned title +
+/// subtitle pattern.
+///
+/// The legacy `init(icon:tint:title:)` is kept so the 13 existing
+/// call sites compile unchanged — icon and tint are simply
+/// ignored. The new `init(title:subtitle:)` is the one to use
+/// when adding new pages.
 private struct SectionHeader: View {
-    let icon: String
-    let tint: Color
     let title: String
+    let subtitle: String?
+
+    init(title: String, subtitle: String? = nil) {
+        self.title = title
+        self.subtitle = subtitle
+    }
+
+    /// Back-compat shim — old call sites pass icon+tint, we
+    /// silently drop them (the new design is text-only).
+    init(icon: String, tint: Color, title: String) {
+        self.title = title
+        self.subtitle = nil
+    }
 
     var body: some View {
-        // 2026-05-03 typography pass per user feedback "some sentences
-        // are too big and spacing not correct." Title shrunk
-        // 18 → 14 (matches macOS System Settings' section-header
-        // weight); icon container 26 → 20 to keep visual balance with
-        // the smaller title; bottom padding 16 → 10 so the card
-        // hugs its header instead of floating loose.
-        HStack(spacing: 8) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(tint)
-                Image(systemName: icon)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 20, height: 20)
+        VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(.white)
+            if let subtitle {
+                Text(subtitle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.55))
+            }
         }
-        .padding(.bottom, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 16)
     }
 }
 
+/// Grouped card surface for a stack of `SettingsRow`s. Matches the
+/// onboarding's `GroupedCard`: 14pt continuous corners, white-0.04
+/// fill, white-0.07 hairline stroke, 16pt bottom margin between
+/// stacked cards.
 private struct SettingsCard<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         VStack(spacing: 0) { content }
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(SettingsTheme.cardBackground)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(SettingsTheme.cardStroke, lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(SettingsTheme.cardStroke, lineWidth: 0.6)
             )
-            // Trimmed 16 → 12: the previous gap between cards read
-            // as a hard break, fragmenting the page into isolated
-            // boxes. 12pt is enough breathing room without the
-            // "stack of receipts" feel.
-            .padding(.bottom, 12)
+            .padding(.bottom, 16)
     }
 }
 
+/// One row inside a `SettingsCard`. Title + optional subtitle on
+/// the leading edge, control on the trailing edge, hairline
+/// divider between rows (suppressed on the last row via
+/// `divider: false`). Matches the onboarding's permission-row
+/// rhythm.
 private struct SettingsRow<Control: View>: View {
     let title: String
     let subtitle: String?
@@ -439,45 +517,46 @@ private struct SettingsRow<Control: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .center, spacing: 14) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.system(size: 12.5, weight: .regular))
-                        .foregroundStyle(.white.opacity(0.92))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.94))
                     if let subtitle {
                         Text(subtitle)
-                            .font(.system(size: 10.5, weight: .regular))
-                            .foregroundStyle(.white.opacity(0.5))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white.opacity(0.50))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                Spacer()
+                Spacer(minLength: 12)
                 control
             }
-            // Vertical 10 → 8 tightens the row rhythm so a card
-            // with 4-5 rows reads as ONE block of related controls
-            // instead of looking like five separate items stacked.
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
             if divider {
                 Rectangle()
                     .fill(SettingsTheme.rowDivider)
                     .frame(height: 0.5)
-                    .padding(.leading, 14)
+                    .padding(.leading, 16)
             }
         }
     }
 }
 
+/// Sub-section label that sits between two `SettingsCard`s within
+/// a single page (e.g. "Hover" / "Behaviour" inside General).
+/// Tiny uppercased small-caps, dimmed white — same treatment as
+/// the sidebar group headers for visual consistency.
 private struct GroupTitle: View {
     let title: String
     var body: some View {
         Text(title.uppercased())
-            .font(.system(size: 10, weight: .semibold))
+            .font(.system(size: 10.5, weight: .semibold))
             .tracking(0.7)
-            .foregroundStyle(.white.opacity(0.45))
-            .padding(.bottom, 8)
-            .padding(.top, 4)
+            .foregroundStyle(.white.opacity(0.42))
+            .padding(.top, 6)
+            .padding(.bottom, 10)
     }
 }
 

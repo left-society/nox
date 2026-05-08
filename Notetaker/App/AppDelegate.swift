@@ -67,6 +67,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Focus" toggle is what triggers the system prompt the first
     /// time, so users who don't want the feature never see it.
     var focusStatusService: FocusStatusService?
+
+    /// Menu-bar `NSStatusItem` showing the live Focus duration
+    /// (`🌙 23m`) at the top of the screen, flanking the notch
+    /// where macOS's own DND indicator also lives. Initialized
+    /// once in `applicationDidFinishLaunching` and bound to the
+    /// presenter; manages its own visibility based on
+    /// `presenter.isFocused`.
+    var focusStatusBarItem: FocusStatusBarItem?
     /// Calendar / EventKit poller. Every 30s checks for an event
     /// starting within the lead-time window and pushes a
     /// `.calendarUpcoming` pill. Authorization is opt-in via
@@ -105,6 +113,125 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `isFocused` into the panel presenter. Held here so its
     /// lifetime ties to the AppDelegate.
     private var focusCancellable: AnyCancellable?
+
+    /// UserDefaults observer for the `noxQuietMode` /
+    /// `respectFocusMode` keys. When the user flips either toggle
+    /// from the Live > Focus dashboard or Settings, we recompute
+    /// the combined quiet state and feed it to FocusSessionTracker.
+    /// Strong ref so the observer outlives the closure local scope.
+    private var quietStateDefaultsObservers: [NSObjectProtocol] = []
+
+    /// Shared helper: does the resting pill have ANY anchor right
+    /// now? True if music is playing/paused OR Focus mode is on
+    /// (either nox's own toggle, or macOS Focus with respect-Focus
+    /// enabled). Used by every code path that would otherwise
+    /// `exitRestingMode()` based on "no music alone" — without
+    /// this check, transient-pill cleanup and audio-off debounce
+    /// would tear down the resting pill while Focus is still
+    /// running, killing the persistent focus indicator.
+    @MainActor
+    func pillHasAnyAnchor() -> Bool {
+        guard let panel = panelController else { return false }
+        if panel.presenter.nowPlaying != nil { return true }
+        if UserDefaults.standard.bool(forKey: SettingsKey.noxFocusMode) {
+            return true
+        }
+        // Study mode mirrors Focus as a pill anchor — when the user
+        // is in a study session, keep the resting pill alive as a
+        // persistent "I'm studying" reminder, same as Focus does.
+        if UserDefaults.standard.bool(forKey: SettingsKey.noxStudyMode) {
+            return true
+        }
+        if panel.presenter.isFocused {
+            // Mirror PanelPresenter.setPendingSystemEvent's
+            // respect-Focus default-true gating.
+            if UserDefaults.standard.object(forKey: SettingsKey.respectFocusMode) == nil {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: SettingsKey.respectFocusMode)
+        }
+        return false
+    }
+
+    /// Recompute the combined quiet state — true if either nox's
+    /// own quiet toggle is on OR macOS Focus is active with
+    /// respect-Focus enabled — and drive every dependent system:
+    ///   1. `FocusSessionTracker` (dashboard hero timer + stats).
+    ///   2. The resting pill's lifecycle: when quiet is active and
+    ///      no music is anchoring the pill, enter resting mode so
+    ///      the user sees a persistent "I'm in quiet mode" pill.
+    ///      When quiet flips off and nothing else is anchored,
+    ///      tear down.
+    ///   3. The resting pill's frame — `morphRestingFrameForFocus
+    ///      Change` already reads both `isFocused` and the
+    ///      `noxQuietMode` defaults, so calling it here picks
+    ///      whichever geometry is correct for the new combined
+    ///      state.
+    ///
+    /// Called from:
+    ///   • The macOS Focus distributed notification observer (via
+    ///     `focusCancellable` above) — fires on every system Focus
+    ///     transition.
+    ///   • The UserDefaults observer (registered below) — fires
+    ///     when the user flips the dashboard's Quiet-mode toggle
+    ///     or the Settings → respect-Focus toggle.
+    /// Idempotent: tracker / enter / exit / morph all early-return
+    /// when there's nothing to do.
+    @MainActor
+    func recomputeQuietState() {
+        let muteByQuiet: Bool = UserDefaults.standard.bool(forKey: "noxFocusMode")
+        let muteByStudy: Bool = UserDefaults.standard.bool(forKey: "noxStudyMode")
+        let muteByFocus: Bool = {
+            guard panelController?.presenter.isFocused == true else { return false }
+            if UserDefaults.standard.object(forKey: "respectFocusMode") == nil { return true }
+            return UserDefaults.standard.bool(forKey: "respectFocusMode")
+        }()
+        // 2026-05-09: include study in `active` so the resting
+        // pill grows / stays visible whenever ANY mute anchor is
+        // on (focus or study). Without this, flipping noxStudyMode
+        // alone (no music, no Focus) wouldn't enter resting mode
+        // — defeating the persistent "I'm studying" indicator.
+        let active = muteByQuiet || muteByStudy || muteByFocus
+        FocusSessionTracker.shared.handleQuietStateChanged(active: muteByQuiet || muteByFocus)
+
+        // Pump study-session timer alongside the quiet recompute.
+        // The pill timer needs a wall-clock anchor; we set it the
+        // moment noxStudyMode flips true, clear it on flip-back to
+        // false. Same lifecycle as focusSessionStartedAt above.
+        let studyOn = UserDefaults.standard.bool(forKey: SettingsKey.noxStudyMode)
+        if let panel = panelController {
+            if studyOn && panel.presenter.studySessionStartedAt == nil {
+                panel.presenter.studySessionStartedAt = Date()
+            } else if !studyOn && panel.presenter.studySessionStartedAt != nil {
+                panel.presenter.studySessionStartedAt = nil
+            }
+        }
+        // Drive the StudySessionTracker so the Live → Study detail
+        // panel's stats grid (today total, last 60 min, sparkline)
+        // has data to render. Idempotent — repeated true/false calls
+        // without an intervening transition are no-ops.
+        StudySessionTracker.shared.handleStudyStateChanged(active: studyOn)
+
+        // Resting-pill lifecycle. When quiet is active and there's
+        // no music to anchor a pill, our quiet-mode state IS the
+        // anchor — so the pill stays visible as a persistent
+        // reminder. When quiet falls off and nothing else holds
+        // the pill open (i.e. no anchors at all), tear it down.
+        // Using `pillHasAnyAnchor()` keeps the lifecycle decision
+        // identical to the transient-event-cleared and audio-off
+        // paths.
+        guard let panel = panelController else { return }
+        if active && !panel.presenter.isResting {
+            panel.enterRestingMode()
+        } else if !pillHasAnyAnchor() && panel.presenter.isResting {
+            panel.exitRestingMode()
+        }
+        // Re-pick the resting silhouette geometry — quiet mode +
+        // music + Focus all map onto the same closed-pill width
+        // currently, but `morphRestingFrameForFocusChange` is the
+        // one place that knows the exact target so let it decide.
+        panel.morphRestingFrameForFocusChange()
+    }
     /// Combine subscriptions for the timer service. Keeping them
     /// here ties their lifetime to AppDelegate's, which lives the
     /// entire app session — so the sink stays alive for the full
@@ -520,23 +647,92 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // remains false. Either way the gate fails open.
             let focus = FocusStatusService()
             focus.start()
+            // 1.9.10 visual review override. Set this UserDefaults
+            // key to true via `defaults write app.trynox
+            // noxDebugFocusForceOn -bool true` to bypass the
+            // INFocusStatusCenter auth gate during local testing
+            // — useful for seeing the Live status row + Focus
+            // detail panel before the user has gone through the
+            // Settings toggle that pops the auth dialog.
+            // REMOVE before shipping a public 1.9.10.
+            let debugForceFocus = UserDefaults.standard.bool(
+                forKey: "noxDebugFocusForceOn"
+            )
             focusCancellable = focus.$isFocused
                 .removeDuplicates()
                 .sink { [weak self] isFocused in
-                    self?.panelController?.presenter.isFocused = isFocused
-                    // Re-morph the resting pill to its current
-                    // closedPillFrame width so the panel grows /
-                    // shrinks alongside the SwiftUI Focus cluster
-                    // appearing / disappearing inside it. No-op if
-                    // the panel isn't currently at resting (slab
-                    // open / transient banner showing).
-                    self?.panelController?.morphRestingFrameForFocusChange()
+                    let effective = isFocused || debugForceFocus
+                    guard let self, let panel = self.panelController else { return }
+                    panel.presenter.isFocused = effective
+                    // Recompute the combined quiet state (nox's own
+                    // toggle OR macOS Focus with respect-Focus on)
+                    // and drive the dashboard tracker. See
+                    // `recomputeQuietState()` for the OR.
+                    self.recomputeQuietState()
+                    // Pump the session-start time. When the debug
+                    // override forces effective=true but the real
+                    // FSS hasn't started a session, fabricate one
+                    // here so the pill timer has something to tick.
+                    if effective {
+                        panel.presenter.focusSessionStartedAt =
+                            focus.focusSessionStartedAt ?? Date()
+                    } else {
+                        panel.presenter.focusSessionStartedAt = nil
+                    }
+                    // NOTE: enter/exit-resting and morph were
+                    // previously inlined here. Both now live in
+                    // `recomputeQuietState()` (called above) so the
+                    // pill lifecycle responds the same way whether
+                    // the trigger is macOS Focus or nox's own
+                    // quiet-mode toggle. Single code path =
+                    // single-source-of-truth for "should the pill
+                    // be visible right now and at which width."
                 }
             // If we already have authorization from a prior session,
             // sync the initial state into the presenter so the very
             // first event after launch respects it.
-            panelController?.presenter.isFocused = focus.isFocused
+            panelController?.presenter.isFocused = focus.isFocused || debugForceFocus
             focusStatusService = focus
+
+            // Observe nox's own quiet-mode toggle + the macOS-Focus
+            // auto-sync preference. Either flip recomputes the
+            // combined quiet state and pushes it to the dashboard
+            // tracker. UserDefaults posts `didChangeNotification` on
+            // every write; cheap to filter ourselves vs. setting up
+            // KVO with @objc dynamic properties. Run on main since
+            // the recompute touches the panel presenter.
+            let defaultsObserver = NotificationCenter.default
+                .addObserver(
+                    forName: UserDefaults.didChangeNotification,
+                    object: UserDefaults.standard,
+                    queue: .main
+                ) { [weak self] _ in
+                    Task { @MainActor in self?.recomputeQuietState() }
+                }
+            quietStateDefaultsObservers.append(defaultsObserver)
+
+            // Initial reconcile — picks up whatever state the
+            // UserDefaults already hold at launch.
+            recomputeQuietState()
+
+            // Menu-bar status item disabled — user feedback
+            // 2026-05-08: macOS's auto-placement put it where the
+            // hardware notch obscured the timer. Per direction,
+            // the duration label lives inside nox's own pill (where
+            // we control geometry) instead. The FocusStatusBarItem
+            // service file is kept around for a possible later
+            // opt-in toggle, but we don't attach it on launch.
+            // To re-enable for testing:
+            //   defaults write app.trynox noxShowMenuBarFocusTimer -bool true
+            if UserDefaults.standard.bool(forKey: "noxShowMenuBarFocusTimer"),
+               let presenter = panelController?.presenter {
+                let bar = FocusStatusBarItem()
+                bar.onClick = { [weak self] in
+                    self?.openSlabIntoFocusDetail()
+                }
+                bar.attach(presenter: presenter)
+                self.focusStatusBarItem = bar
+            }
 
             // Calendar / EventKit upcoming-meeting service. Mirrors
             // the Focus model: lazy authorization, fail-open. Even
@@ -1030,13 +1226,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Transient-pill cleanup. When a charging / Bluetooth /
         // timer / AirDrop pill expires through its auto-dismiss
-        // timeout AND there's no music to anchor the resting pill,
+        // timeout AND nothing else is anchoring the resting pill,
         // we exit resting mode so the empty silhouette doesn't camp
-        // on screen. With music, we stay resting because the pill
-        // body falls back to the now-playing artwork+waveform.
+        // on screen. Anchors include music OR Focus mode (either
+        // nox's own toggle or macOS Focus with respect-Focus on).
+        // 2026-05-09: was `nowPlaying == nil` only, which closed
+        // the pill mid-Focus-session whenever a transient fired.
+        // `pillHasAnyAnchor()` consolidates the check.
         panelController?.presenter.onTransientEventCleared = { [weak self] in
-            guard let panel = self?.panelController else { return }
-            if panel.presenter.nowPlaying == nil {
+            guard let self, let panel = self.panelController else { return }
+            if !self.pillHasAnyAnchor() {
                 panel.exitRestingMode()
             }
         }
@@ -1423,6 +1622,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Re-runs the onboarding flow on demand (Settings → "Show
     /// onboarding again" button). Kept alongside `openSettings`
     /// since the trigger lives in the Settings UI.
+    /// Open the slab into the Live tab. Called from the menu-bar
+    /// `FocusStatusBarItem` when the user clicks it. Routing
+    /// straight INTO the Focus detail panel (bypassing Live's
+    /// home view) requires lifting MusicPanelView's
+    /// `expandedLivePanel` @State up to PanelPresenter — deferred
+    /// to the next iteration. For now, this opens to Live and the
+    /// user clicks the Focus chip there.
+    func openSlabIntoFocusDetail() {
+        panelController?.showOnTab(.music)
+    }
+
     func presentOnboarding() {
         onboardingManager.present()
     }
@@ -1550,12 +1760,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Transient stuff (ad jingles, error chimes < 5s) doesn't
             // pollute the sticky cache and doesn't trigger pill bloom.
             if !isTransientMedia(info) {
+                // Focus-mode suppression check — must mirror
+                // `PanelPresenter.setPendingSystemEvent`'s own
+                // Focus gate so the panel.frame morph and the
+                // SwiftUI content stay in lockstep.
+                //
+                // 2026-05-08 fix: without this gate, every track
+                // change during macOS Focus produced a visible
+                // 2-second "pill expands to banner geometry, but
+                // empty (no announcement rendered)" glitch. The
+                // SwiftUI announcement WAS being suppressed —
+                // PanelPresenter's own check at line 550 swallows
+                // `setPendingSystemEvent(.trackChanged…)` when
+                // `isFocused && respectFocusMode`. But AppDelegate
+                // was ALSO calling `panel.showTrackBanner()`
+                // (which morphs the panel.frame regardless of
+                // pendingSystemEvent) and setting
+                // `trackChangedFiring = true` /
+                // `bannerFromArtwork`. So the silhouette ballooned
+                // into banner geometry while no content rendered
+                // → visible empty-pill expand-collapse cycle on
+                // every song boundary.
+                // (Removed `isFocusSuppressed` local — track-change
+                // banner now fires regardless of Focus state per
+                // user spec 2026-05-09.)
+
                 // Predict whether this update will fire a track-change
                 // banner BEFORE we update presenter.nowPlaying. If yes,
                 // set the flag so PanelRootView's .onChange Branch 4
                 // skips the music-pill swap animation — otherwise the
                 // 250ms pre-show window flickers as the music pill
                 // animates underneath the (not-yet-visible) banner.
+                // 2026-05-09: dropped the `!isFocusSuppressed`
+                // clause. User feedback: "we need 3d title there
+                // when changing the music — just as the other
+                // places — and show the song name and artist name
+                // just like with no focus mode." The focus-suppress
+                // path was muting the trackChanged banner during
+                // Focus, leaving the user blind to song changes.
+                // Banner now fires regardless of Focus.
                 let predictedTrackKey = "\(info.title)|\(info.artist)"
                 let willFireBanner = !info.title.isEmpty
                     && predictedTrackKey != lastAnnouncedTrackKey
@@ -1613,28 +1856,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // the banner doesn't fight an open slab or a tease
                 // in flight.
                 let trackKey = "\(info.title)|\(info.artist)"
-                if !info.title.isEmpty,
-                   trackKey != lastAnnouncedTrackKey,
-                   info.isPlaying,
-                   panel.presenter.isResting,
-                   !panel.presenter.isShown {
+                let shouldAnnounce = !info.title.isEmpty
+                    && trackKey != lastAnnouncedTrackKey
+                    && info.isPlaying
+                    && panel.presenter.isResting
+                    && !panel.presenter.isShown
+                if shouldAnnounce {
+                    // Update the dedup key + cached artwork BEFORE
+                    // the Focus check. We want this to advance even
+                    // when Focus is suppressing the banner, so that
+                    // when Focus later switches off, we don't fire
+                    // a stale banner for a track that already played
+                    // silently during the Focus window. The user
+                    // would otherwise see the very-next nowPlaying
+                    // emission post-Focus trigger an "announcement"
+                    // for a song they've been listening to for
+                    // minutes — felt like a delayed bug.
                     lastAnnouncedTrackKey = trackKey
                     panel.presenter.lastAnnouncedTrackArtwork = info.artworkData
+
+                    // 2026-05-09: removed the `if !isFocusSuppressed`
+                    // wrapper. Track-change banner now fires
+                    // regardless of Focus state — see comment on
+                    // willFireBanner above and isMutedByFocus's
+                    // .trackChanged case in PanelPresenter.
+                    //
                     // Alcove timing (measured from supplied recording):
                     //   • Track changes → ~100ms beat → banner appears
                     //   • Banner sustains ~1500ms
                     //   • Banner dismisses ~250ms
                     //   • Total visible: ~1850ms
-                    // User feedback: "alcove one is coming late going
-                    // sooner than ours". Prior 3.5s sustain was 2x
-                    // too long.
-                    //
-                    // 250ms pre-show delay — Alcove user feedback
-                    // 2026-05-07: "it should be expending few mili
-                    // seconds late please just like alcove". Earlier
-                    // 100ms wasn't enough of a beat; 250ms gives the
-                    // user a clear pause to register the track change
-                    // before the banner appears.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak panel] in
                         guard let panel = panel,
                               panel.presenter.isResting,
@@ -1644,20 +1895,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             .trackChanged(title: info.title, artist: info.artist)
                         )
                     }
-                    // Dismiss after total ~2000ms from track-change
-                    // emission (250ms delay + 1500ms sustain + 250ms
-                    // dismiss spring). PanelPresenter's auto-clear at
-                    // 3.0s is the safety net; this dispatched closure
-                    // is the source of truth in the normal case.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak panel] in
                         guard let panel = panel else { return }
                         panel.presenter.trackChangedFiring = false
                         panel.dismissTrackBanner {
-                            // animated: false is the banner→pill handoff —
-                            // the banner already showed the new artwork
-                            // inside the flip, so animating the music
-                            // pill in again with .softMusicEntrance reads
-                            // as a duplicate fade-in glitch. Snap-swap.
                             panel.presenter.clearPendingSystemEvent(animated: false)
                         }
                     }
@@ -1798,10 +2039,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             // 1.5s debounce so brief gaps (track changes, scrubs)
             // don't flicker the pill. After 1.5s of no effective
-            // playback the pill collapses to the notch silhouette.
+            // playback the pill collapses to the notch silhouette
+            // — UNLESS Focus mode is anchoring the pill (in which
+            // case we keep the focus session indicator visible
+            // even with no audio).
             let work = DispatchWorkItem { [weak self] in
-                self?.panelController?.exitRestingMode()
-                self?.audioFlowingRetractWork = nil
+                guard let self else { return }
+                if !self.pillHasAnyAnchor() {
+                    self.panelController?.exitRestingMode()
+                }
+                self.audioFlowingRetractWork = nil
             }
             audioFlowingRetractWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)

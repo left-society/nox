@@ -26,7 +26,25 @@ final class FocusStatusService: ObservableObject {
     /// True iff a Focus or DND mode is active right now AND we have
     /// authorization to read Focus status. Default false; flips on
     /// the first observed transition after `start()`.
-    @Published private(set) var isFocused: Bool = false
+    @Published private(set) var isFocused: Bool = false {
+        didSet {
+            // Track the start of each Focus session for the in-pill
+            // timer. Set on false→true; clear on true→false. The
+            // SwiftUI side reads this with a TimelineView ticking
+            // each minute so the displayed duration stays current.
+            if isFocused && !oldValue {
+                focusSessionStartedAt = Date()
+            } else if !isFocused && oldValue {
+                focusSessionStartedAt = nil
+            }
+        }
+    }
+
+    /// When the current Focus session began. nil while Focus is off.
+    /// Driven by the didSet on isFocused above. Read by the resting
+    /// pill's timer label and the Focus detail panel's "On — 23 min"
+    /// subtitle.
+    @Published private(set) var focusSessionStartedAt: Date? = nil
 
     /// Whether the Intents authorization prompt has been answered.
     /// `.notDetermined` means we should ask before assuming gating

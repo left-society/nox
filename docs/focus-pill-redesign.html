@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>nox · Focus pill redesign — outside-the-notch + timer</title>
+<style>
+  :root {
+    --bg-deep: #060509;
+    --menu-bar-bg: rgba(20, 18, 28, 0.62);
+    --menu-bar-fg: rgba(255,255,255,0.78);
+    --notch: #000;
+    --pill: #000;
+    --pill-edge: rgba(255,255,255,0.10);
+    --fg: #f5f3fa;
+    --fg-soft: rgba(245,243,250,0.78);
+    --muted: rgba(245,243,250,0.50);
+    --line: rgba(245,243,250,0.10);
+    --accent: #c5a3ff;
+    --accent-soft: rgba(197,163,255,0.55);
+    --accent-glow: rgba(197,163,255,0.45);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font: 14.5px/1.55 -apple-system, "SF Pro Text", system-ui, sans-serif;
+    color: var(--fg);
+    background: var(--bg-deep);
+    min-height: 100vh;
+    padding: 56px 28px 80px;
+  }
+  header {
+    max-width: 1080px;
+    margin: 0 auto 36px;
+  }
+  h1 {
+    font-family: "SF Pro Display", system-ui, sans-serif;
+    font-size: 30px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0 0 8px;
+  }
+  .lede { color: var(--fg-soft); max-width: 70ch; margin: 0 0 18px; }
+
+  .stack { max-width: 1080px; margin: 0 auto; display: grid; gap: 28px; }
+  .frame {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 0;
+    overflow: hidden;
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+  }
+  .frame-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 20px 24px 0;
+    margin-bottom: 12px;
+  }
+  .frame-title { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+  .frame-sub { color: var(--muted); font-size: 12px; }
+  .frame-body { padding: 0 24px 22px; }
+
+  /* Mock screen — represents the top portion of a MacBook screen */
+  .screen {
+    height: 220px;
+    background: linear-gradient(180deg, #1a1322 0%, #2a1f38 60%, #1f1830 100%);
+    border-radius: 12px;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 14px;
+  }
+  /* Menu bar */
+  .menu-bar {
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 32px;
+    background: var(--menu-bar-bg);
+    backdrop-filter: blur(20px);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 14px;
+    color: var(--menu-bar-fg);
+    font-size: 12px;
+    z-index: 2;
+  }
+  .menu-bar .apple { font-size: 13px; }
+  .menu-bar .right {
+    margin-left: auto;
+    display: flex; gap: 12px; align-items: center;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Hardware notch */
+  .notch {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 195px;
+    height: 32px;
+    background: var(--notch);
+    border-radius: 0 0 18px 18px;
+    z-index: 3;
+  }
+
+  /* ──────────────── PILL VARIANTS ──────────────── */
+
+  /* Variant A — current: notch-attached (top behind notch, bump below) */
+  .pill-attached {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 200px;
+    height: 40px; /* notchOverlap (32) + visibleBump (8) */
+    background: var(--pill);
+    border-radius: 0 0 14px 14px; /* flares from notch */
+    z-index: 4;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding-bottom: 6px;
+    color: var(--fg);
+    font-size: 11px;
+    font-weight: 500;
+    box-shadow: 0 6px 18px -4px rgba(0,0,0,0.6);
+  }
+  .pill-attached .moon {
+    color: var(--accent);
+    font-size: 10px;
+    margin-right: 6px;
+  }
+
+  /* Variant B — free-floating below the notch (your ask) */
+  .pill-floating {
+    position: absolute;
+    top: 42px;            /* menu bar height (32) + 10pt margin */
+    left: 50%;
+    transform: translateX(-50%);
+    height: 26px;
+    padding: 0 14px;
+    background: var(--pill);
+    border-radius: 13px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    z-index: 4;
+    box-shadow:
+      0 0 0 1px var(--pill-edge),
+      0 8px 22px -6px rgba(0,0,0,0.7),
+      0 0 24px -6px var(--accent-glow);
+    color: var(--fg);
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .pill-floating .moon {
+    color: var(--accent);
+    font-size: 11px;
+    display: inline-flex;
+  }
+  .pill-floating .timer {
+    color: var(--fg);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .pill-floating .timer .unit { font-weight: 500; opacity: 0.55; margin-left: 1px; font-size: 10px; }
+
+  /* Variant C — like B but with subtle accent ring */
+  .pill-floating.ringed {
+    background: linear-gradient(180deg, #110a1f, #0a0613);
+    box-shadow:
+      0 0 0 1px rgba(197,163,255,0.30),
+      0 8px 22px -6px rgba(0,0,0,0.7),
+      0 0 28px -6px var(--accent-glow);
+  }
+
+  /* Variant D — wider with star counter (Phase C preview) */
+  .pill-floating.with-stars {
+    padding-right: 6px;
+  }
+  .pill-floating.with-stars .stars-chip {
+    background: rgba(197,163,255,0.14);
+    border: 1px solid rgba(197,163,255,0.26);
+    color: var(--accent);
+    border-radius: 8px;
+    padding: 2px 7px;
+    font-size: 10px;
+    font-weight: 700;
+    margin-left: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  /* Annotation arrow */
+  .label {
+    position: absolute;
+    color: var(--accent-soft);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    z-index: 5;
+  }
+  .arrow {
+    position: absolute;
+    z-index: 5;
+  }
+  .tradeoff {
+    color: var(--fg-soft);
+    font-size: 13px;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .pros { color: rgba(99,222,153,0.9); margin-right: 14px; }
+  .cons { color: rgba(255,160,140,0.9); }
+
+  /* SVGs */
+  svg.moon-svg { width: 11px; height: 11px; display: inline-block; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Focus pill redesign — outside the notch + timer</h1>
+  <p class="lede">
+    Three placement options + the same pill at three timer states (just-started → mid-session → over an hour). Pick a placement and a timer format.
+  </p>
+</header>
+
+<div class="stack">
+
+  <!-- BEFORE: current notch-attached -->
+  <div class="frame">
+    <div class="frame-head">
+      <h2 class="frame-title">A · Current — notch-attached (200pt × 8pt bump)</h2>
+      <span class="frame-sub">For reference</span>
+    </div>
+    <div class="frame-body">
+      <div class="screen">
+        <div class="menu-bar">
+          <span class="apple"></span>
+          <span>Finder</span>
+          <span style="opacity:0.6">File</span>
+          <span style="opacity:0.6">Edit</span>
+          <span class="right"><span>100%</span><span>Fri 22:30</span></span>
+        </div>
+        <div class="notch"></div>
+        <div class="pill-attached">
+          <span class="moon">
+            <svg class="moon-svg" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </span>
+          Focus
+        </div>
+      </div>
+      <p class="tradeoff">
+        <span class="pros">+ silhouette merges with notch hardware (consistent with music pill)</span>
+        <span class="cons">– most of the pill is BEHIND the notch, only an 8pt bump visible. No room for a timer.</span>
+      </p>
+    </div>
+  </div>
+
+  <!-- B: floating below, subtle -->
+  <div class="frame">
+    <div class="frame-head">
+      <h2 class="frame-title">B · Floating below the notch (subtle)</h2>
+      <span class="frame-sub">Your ask, minimum chrome</span>
+    </div>
+    <div class="frame-body">
+      <div class="screen">
+        <div class="menu-bar">
+          <span class="apple"></span>
+          <span>Finder</span>
+          <span style="opacity:0.6">File</span>
+          <span style="opacity:0.6">Edit</span>
+          <span class="right"><span>100%</span><span>Fri 22:30</span></span>
+        </div>
+        <div class="notch"></div>
+        <div class="pill-floating">
+          <span class="moon">
+            <svg class="moon-svg" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </span>
+          <span class="timer">0:23</span>
+        </div>
+      </div>
+      <p class="tradeoff">
+        <span class="pros">+ fully visible, doesn't fight the notch hardware. Timer fits cleanly.</span>
+        <span class="cons">– new visual language vs. the music pill (different silhouette). Might feel like a different surface.</span>
+      </p>
+    </div>
+  </div>
+
+  <!-- C: floating below, with accent ring -->
+  <div class="frame">
+    <div class="frame-head">
+      <h2 class="frame-title">C · Floating with lavender accent ring</h2>
+      <span class="frame-sub">Slightly more "lit" feel</span>
+    </div>
+    <div class="frame-body">
+      <div class="screen">
+        <div class="menu-bar">
+          <span class="apple"></span>
+          <span>Finder</span>
+          <span style="opacity:0.6">File</span>
+          <span style="opacity:0.6">Edit</span>
+          <span class="right"><span>100%</span><span>Fri 22:30</span></span>
+        </div>
+        <div class="notch"></div>
+        <div class="pill-floating ringed">
+          <span class="moon">
+            <svg class="moon-svg" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </span>
+          <span class="timer">12:43</span>
+        </div>
+      </div>
+      <p class="tradeoff">
+        <span class="pros">+ lavender ring + glow says "this is a Focus mode signal." Brand-aligned.</span>
+        <span class="cons">– slightly attention-grabbing for a pill that's supposed to mean "be calm."</span>
+      </p>
+    </div>
+  </div>
+
+  <!-- D: with star counter for Phase C -->
+  <div class="frame">
+    <div class="frame-head">
+      <h2 class="frame-title">D · Floating + ⭐ counter (preview of Phase C reward system)</h2>
+      <span class="frame-sub">What it looks like once you've earned stars</span>
+    </div>
+    <div class="frame-body">
+      <div class="screen">
+        <div class="menu-bar">
+          <span class="apple"></span>
+          <span>Finder</span>
+          <span style="opacity:0.6">File</span>
+          <span style="opacity:0.6">Edit</span>
+          <span class="right"><span>100%</span><span>Fri 22:30</span></span>
+        </div>
+        <div class="notch"></div>
+        <div class="pill-floating with-stars">
+          <span class="moon">
+            <svg class="moon-svg" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </span>
+          <span class="timer">1<span class="unit">h</span> 23<span class="unit">m</span></span>
+          <span class="stars-chip">⭐ 2</span>
+        </div>
+      </div>
+      <p class="tradeoff">
+        <span class="pros">+ the star counter rewards long sessions, completes the loop. Always glanceable.</span>
+        <span class="cons">– pill widens significantly. May not fit on smaller displays.</span>
+      </p>
+    </div>
+  </div>
+
+  <!-- Timer format options -->
+  <div class="frame">
+    <div class="frame-head">
+      <h2 class="frame-title">Timer format options (which one?)</h2>
+      <span class="frame-sub">Pick one</span>
+    </div>
+    <div class="frame-body">
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+        <!-- Format 1: M:SS -->
+        <div style="text-align: center; padding: 24px 0; background: rgba(255,255,255,0.025); border-radius: 12px;">
+          <div style="font: 600 22px -apple-system, sans-serif; color: var(--fg); font-variant-numeric: tabular-nums; margin-bottom: 6px;">0:23</div>
+          <div style="color: var(--muted); font-size: 11px;">M:SS · ticks every second</div>
+        </div>
+        <!-- Format 2: 23m / 1h 23m -->
+        <div style="text-align: center; padding: 24px 0; background: rgba(255,255,255,0.025); border-radius: 12px;">
+          <div style="font: 600 22px -apple-system, sans-serif; color: var(--fg); font-variant-numeric: tabular-nums; margin-bottom: 6px;">23m</div>
+          <div style="color: var(--muted); font-size: 11px;">M / Hh Mm · ticks every minute</div>
+        </div>
+        <!-- Format 3: progress -->
+        <div style="text-align: center; padding: 24px 0; background: rgba(255,255,255,0.025); border-radius: 12px;">
+          <div style="font: 600 22px -apple-system, sans-serif; color: var(--fg); font-variant-numeric: tabular-nums; margin-bottom: 6px;">0:23:14</div>
+          <div style="color: var(--muted); font-size: 11px;">H:MM:SS · ticks every second</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

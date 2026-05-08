@@ -35,6 +35,16 @@ import AppKit
 /// - `presenter.onMediaCommand`: closure to dispatch play/pause/skip.
 ///   Owned by NotchOrchestrator's MediaRemoteService; wired in once
 ///   at launch.
+/// Tagged enum for which "drill-into-status" detail panel is open
+/// inside the Live tab. Top-level so future modules (Battery,
+/// Weather, Wi-Fi) can add cases here without rebuilding
+/// MusicPanelView's local state.
+enum LiveExpandedPanel: Hashable {
+    case focus
+    case study
+    // case battery, case weather, case wifi  — add as built
+}
+
 struct MusicPanelView: View {
     @EnvironmentObject var presenter: PanelPresenter
 
@@ -61,6 +71,33 @@ struct MusicPanelView: View {
     /// Settings-driven gate. Default true for first-launch users
     /// so the visualizer is on out-of-the-box.
     @AppStorage("sphereVisualizerEnabled") private var sphereEnabled: Bool = true
+
+    /// Mirrors the dashboard's @AppStorage so the Focus pill on
+    /// the home screen re-renders the moment the user flips
+    /// `noxFocusMode` from the dashboard. Without this binding,
+    /// `liveFocusPillActive` (which reads UserDefaults inline)
+    /// wouldn't trigger a SwiftUI invalidation when the
+    /// dashboard's toggle flips, so the pill would stay grey
+    /// until the next unrelated state change forced a redraw.
+    @AppStorage(SettingsKey.noxFocusMode) private var noxFocusMode: Bool = false
+
+    /// Sibling to `noxFocusMode` — user's Study mode toggle. Same
+    /// AppStorage shape so the Study pill in `liveStatusRow` re-
+    /// renders when the bool flips elsewhere (mutex with Focus, or
+    /// future surfaces). Mirrored intentionally so future status
+    /// pills (battery, weather) can follow the same pattern.
+    @AppStorage(SettingsKey.noxStudyMode) private var noxStudyMode: Bool = false
+
+    /// Which expanded "drill-into-status" panel is currently open
+    /// inside the Live tab. nil = home (the music + calendar
+    /// HStack). Set by tapping a pill in `liveStatusRow`; cleared
+    /// by the panel's own back button.
+    ///
+    /// Designed as a tagged enum (rather than a Bool) so the same
+    /// surface can host future Battery / Weather / Wi-Fi panels —
+    /// each gets a case here, a row pill in `liveStatusRow`, and
+    /// a switch arm in body.
+    @State private var expandedLivePanel: LiveExpandedPanel? = nil
 
     /// 3D-tilt swap phase for the artwork. -1 = exiting (tilted away
     /// from viewer + faded), 0 = at rest, +1 = entering (tilted
@@ -150,19 +187,118 @@ struct MusicPanelView: View {
         }
     }
 
+    /// Should the status row above the music+calendar grid render
+    /// at all? True iff at least one status pill should be on
+    /// screen. The Focus pill is now ALWAYS rendered (so users
+    /// have a discoverable way IN to the Focus detail panel even
+    /// when macOS Focus is off — user feedback 2026-05-08:
+    /// "focus thing is gone it should be always there so people
+    /// can turn it on"). Future Battery / Weather / Wi-Fi pills
+    /// will OR into this — they'll be conditionally visible
+    /// based on their own data, but Focus is the always-on
+    /// anchor of the row.
+    private var shouldShowLiveStatusRow: Bool {
+        true
+    }
+
+    /// Active state for the Focus status pill. True when EITHER
+    /// nox's own Focus mode is on (`noxFocusMode` @AppStorage —
+    /// triggers SwiftUI re-render on flip) or macOS Focus is
+    /// active (`presenter.isFocused` Combine-published — same).
+    /// Mirrors `LiveFocusDetailPanel.isInFocusState` so the pill
+    /// on the home screen and the dashboard hero never disagree.
+    private var liveFocusPillActive: Bool {
+        noxFocusMode || presenter.isFocused
+    }
+
     var body: some View {
+        // Top-level switch: either we're showing the home view
+        // (status row + music + calendar) or we've drilled into a
+        // detail panel (Focus / future Battery / Weather).
+        //
+        // The switch is wrapped in a Group so the .transition +
+        // .animation modifiers cleanly cross-fade between states
+        // without identity collisions.
+        Group {
+            if let panel = expandedLivePanel {
+                switch panel {
+                case .focus:
+                    LiveFocusDetailPanel(
+                        onBack: {
+                            withAnimation(.easeOut(duration: 0.22)) {
+                                expandedLivePanel = nil
+                            }
+                        }
+                    )
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .offset(x: 24)),
+                        removal: .opacity.combined(with: .offset(x: 24))
+                    ))
+                case .study:
+                    LiveStudyDetailPanel(
+                        onBack: {
+                            withAnimation(.easeOut(duration: 0.22)) {
+                                expandedLivePanel = nil
+                            }
+                        }
+                    )
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .offset(x: 24)),
+                        removal: .opacity.combined(with: .offset(x: 24))
+                    ))
+                }
+            } else {
+                liveHomeView
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .offset(x: -24)),
+                        removal: .opacity.combined(with: .offset(x: -24))
+                    ))
+            }
+        }
+        .animation(.easeOut(duration: 0.22), value: expandedLivePanel)
+        // When the user toggles Focus off while already inside the
+        // Focus detail panel, kick them back to home automatically
+        // — leaving them stranded on a "Focus is off" detail page
+        // with no live data feels broken. The .onChange fires after
+        // presenter.isFocused flips false so we get the smooth
+        // cross-fade for free.
+        .onChange(of: presenter.isFocused) { newValue in
+            if !newValue && expandedLivePanel == .focus {
+                withAnimation(.easeOut(duration: 0.22)) {
+                    expandedLivePanel = nil
+                }
+            }
+        }
+        // Same auto-pop for Study — when the user flips noxStudyMode
+        // off via the toggle inside LiveStudyDetailPanel, kick them
+        // back to home rather than stranding them on a "Study is off"
+        // detail page with no live data.
+        .onChange(of: noxStudyMode) { newValue in
+            if !newValue && expandedLivePanel == .study {
+                withAnimation(.easeOut(duration: 0.22)) {
+                    expandedLivePanel = nil
+                }
+            }
+        }
+    }
+
+    /// The default Live view: status row (when relevant) above the
+    /// music + calendar HStack. Extracted so the body's switch can
+    /// transition between this and the detail panels cleanly.
+    private var liveHomeView: some View {
         // Gradient lives at PanelRootView level now (so it covers
         // the actual TOP of the panel, behind the header / tabs)
         // — see `artworkTopGradient` there. This view just lays
         // out the music HUD content on top of the panel-level tint.
         //
-        // Composition: the now-playing block (artwork + title/
-        // artist/album + waveform visualizer) is wrapped in an
-        // inset rounded card to give the "what's playing"
-        // identity a defined surface — pattern Apple uses on the
-        // Sonoma+ Music app's mini player and Settings detail
-        // cards. Progress / transport / volume stay flat on the
-        // slab below for the airy Apple Music transport-row look.
+        // Composition: optional status row at top, then the
+        // now-playing block (artwork + title/artist/album +
+        // waveform visualizer) wrapped in an inset rounded card
+        // to give the "what's playing" identity a defined surface —
+        // pattern Apple uses on the Sonoma+ Music app's mini
+        // player and Settings detail cards. Progress / transport /
+        // volume stay flat on the slab below for the airy Apple
+        // Music transport-row look.
         // 2026-04-29 layout: transport (prev/play/next) + volume
         // moved INTO the now-playing card's right wing — see
         // `inlineControlsCluster`. The bottom transport row is
@@ -176,6 +312,24 @@ struct MusicPanelView: View {
         // pane connects to real Apple Calendar via the existing
         // EventKit-backed `CalendarMonitorService` instance owned
         // by AppDelegate.
+        //
+        // 1.9.10 (idea: "everything starts from the live section"
+        // borrowed from SuperIsland's HomeScreenView pattern): an
+        // optional status row sits above the music + calendar
+        // grid. Each pill in the row is a clickable entry point
+        // for a "drill into status" detail panel — Focus first,
+        // future Battery / Weather / Wi-Fi modules slot into the
+        // same row. The row hides itself when nothing has data
+        // worth showing so the music + calendar layout stays
+        // unchanged for users without active status.
+        VStack(alignment: .leading, spacing: shouldShowLiveStatusRow ? 14 : 0) {
+        if shouldShowLiveStatusRow {
+            liveStatusRow
+                .blur(radius: presenter.cascadeReady ? 0 : 10)
+                .opacity(presenter.cascadeReady ? 1 : 0)
+                .offset(y: presenter.cascadeReady ? 0 : -16)
+                .animation(cascadeAnimation, value: presenter.cascadeReady)
+        }
         HStack(spacing: 0) {
         VStack(alignment: .leading, spacing: 12) {
             // PER-ELEMENT MATERIALIZATION (Alcove-inspired). User
@@ -265,6 +419,8 @@ struct MusicPanelView: View {
                 .animation(cascadeAnimation.delay(0.10), value: presenter.cascadeReady)
         }
         }
+        }   // closes the outer VStack(alignment: .leading) opened
+            // above shouldShowLiveStatusRow / liveStatusRow
         // .compositingGroup() — same GPU-friendly batching as on
         // renderableContent. Preserves transport button hit testing
         // while letting Metal compose the staggered blur cascade in
@@ -280,6 +436,158 @@ struct MusicPanelView: View {
         // the 11pt-tall labels a comfortable 3pt safe area below.
         .padding(.bottom, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    // ── Live status row ─────────────────────────────────────
+    //
+    // Horizontal strip of clickable pills above the music + calendar
+    // grid. Each pill is an entry point into a "drill into status"
+    // detail panel. For now: just Focus. Future: Battery, Weather,
+    // Wi-Fi, etc. — each adds a pill here + a case in
+    // LiveExpandedPanel + a switch arm in body.
+    //
+    // The row is rendered only when `shouldShowLiveStatusRow` is
+    // true (currently: presenter.isFocused). When all status pills
+    // are inactive the row collapses entirely so the music+calendar
+    // layout looks unchanged.
+    private var liveStatusRow: some View {
+        HStack(spacing: 8) {
+            // Focus pill — split into TWO tap zones per user spec
+            // (2026-05-09):
+            //   • Left (icon + "Focus" label) → toggle nox Focus
+            //     directly. Quick "I'm locked in" / "I'm done"
+            //     without leaving the home screen.
+            //   • Right (chevron) → drill into the Focus detail
+            //     dashboard for stats + settings.
+            // Active = nox's own Focus mode OR macOS Focus
+            // (mirroring LiveFocusDetailPanel.isInFocusState) so
+            // the pill lights up regardless of which path turned
+            // Focus on.
+            statusPill(
+                label: "Focus",
+                systemImage: liveFocusPillActive ? "moon.fill" : "moon",
+                isActive: liveFocusPillActive,
+                onToggle: {
+                    withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                        // Mutex with Study — turning Focus on flips
+                        // Study off so we never have two "deep work"
+                        // pills lit simultaneously.
+                        if !noxFocusMode {
+                            noxStudyMode = false
+                        }
+                        noxFocusMode.toggle()
+                    }
+                },
+                onDrillIn: {
+                    withAnimation(.easeOut(duration: 0.22)) {
+                        expandedLivePanel = .focus
+                    }
+                }
+            )
+            // Study pill — sits right beside Focus per user spec
+            // (2026-05-09): "see the focus one? it should be just
+            // beside it." Same split-action chip shape as Focus:
+            // left zone toggles `noxStudyMode`, right zone drills
+            // into the Study detail panel. Mutex with Focus on the
+            // toggle path.
+            statusPill(
+                label: "Study",
+                systemImage: noxStudyMode ? "book.closed.fill" : "book.closed",
+                isActive: noxStudyMode,
+                onToggle: {
+                    withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                        if !noxStudyMode {
+                            noxFocusMode = false
+                        }
+                        noxStudyMode.toggle()
+                    }
+                },
+                onDrillIn: {
+                    withAnimation(.easeOut(duration: 0.22)) {
+                        expandedLivePanel = .study
+                    }
+                }
+            )
+            // Future status pills slot in here.
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// Split-action status pill. Two tap zones share one chip
+    /// background:
+    ///   • LEFT  (icon + label) → `onToggle` — primary action.
+    ///   • RIGHT (chevron)      → `onDrillIn` — open the detail
+    ///                             dashboard for that module.
+    ///                             Optional — pass nil for modules
+    ///                             that don't have a detail panel
+    ///                             yet (Study V1 does this) and the
+    ///                             chevron + divider are omitted,
+    ///                             leaving a single-zone toggle pill.
+    /// A 0.5pt vertical hairline between them telegraphs that
+    /// they're independent zones, while the shared rounded
+    /// background keeps the whole thing reading as one chip.
+    private func statusPill(label: String, systemImage: String,
+                            isActive: Bool,
+                            onToggle: @escaping () -> Void,
+                            onDrillIn: (() -> Void)? = nil) -> some View {
+        HStack(spacing: 0) {
+            // Left zone — toggle.
+            Button(action: onToggle) {
+                HStack(spacing: 8) {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(
+                            isActive ? DS.Color.accent : .white.opacity(0.55)
+                        )
+                    Text(label)
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(.white.opacity(isActive ? 0.92 : 0.70))
+                        .kerning(0.2)
+                        .lineLimit(1)
+                }
+                .padding(.leading, 11)
+                .padding(.trailing, onDrillIn == nil ? 11 : 9)
+                .padding(.vertical, 7)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isActive
+                ? "Turn \(label) off"
+                : "Turn \(label) on")
+
+            if let onDrillIn = onDrillIn {
+                // Hairline divider between the two zones.
+                Rectangle()
+                    .fill(.white.opacity(isActive ? 0.16 : 0.10))
+                    .frame(width: 0.5, height: 14)
+
+                // Right zone — drill into details.
+                Button(action: onDrillIn) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .heavy))
+                        .foregroundStyle(.white.opacity(isActive ? 0.70 : 0.50))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 7)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open \(label) details")
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(.white.opacity(isActive ? 0.075 : 0.045))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .strokeBorder(
+                            isActive
+                                ? DS.Color.accent.opacity(0.32)
+                                : .white.opacity(0.10),
+                            lineWidth: 0.5
+                        )
+                )
+        )
+        .animation(.easeInOut(duration: 0.18), value: isActive)
     }
 
     /// Inset card wrapping the artwork + metadata + waveform row.
@@ -2123,6 +2431,1544 @@ private struct MusicControlButton: View {
                     }
                 }
         )
+    }
+}
+
+// MARK: - Live → Focus detail panel
+
+/// What opens when the user taps the Focus pill in the Live tab's
+/// status row. Translates layout option E from
+/// `docs/focus-card-in-live.html` into SwiftUI.
+///
+/// Sections shipped in v1 (everything else from the mockup is
+/// gated on data we don't have yet):
+///   • Hero — moon icon + "Focus mode" title + "On" / "Off" state
+///   • Behavior — the existing `respectFocusMode` toggle, surfaced
+///     here so the user can flip it without leaving the Live tab
+///   • Currently muted — static list of pill types we suppress
+///     while Focus is on, derived from PanelPresenter.isMutedByFocus
+///   • Allowed through — the inverse: pill types that pass the
+///     gate even during Focus
+///
+/// Deliberately deferred for v1 (would need data we can't read
+/// from INFocusStatusCenter): active Focus name (Personal / Work),
+/// timestamp Focus turned on, voice-transcription suppression
+/// toggle.
+struct LiveFocusDetailPanel: View {
+    @EnvironmentObject var presenter: PanelPresenter
+    @AppStorage(SettingsKey.respectFocusMode) private var respectFocusMode: Bool = true
+    /// Closure invoked when the user taps the "‹ Live" back arrow
+    /// at the top. MusicPanelView passes a closure that clears its
+    /// `expandedLivePanel` state.
+    let onBack: () -> Void
+
+    @ObservedObject private var tracker = FocusSessionTracker.shared
+    /// nox's own quiet-mode flag. Independent of macOS Focus —
+    /// flipping this from the panel suppresses ambient pills
+    /// (charger / screenshot / AirDrop / Bluetooth / track-change)
+    /// without depending on Apple's Focus mode being active.
+    /// User feedback 2026-05-08: "Let's do it in our own instade
+    /// of apple" — exactly this. The dashboard hero, session
+    /// timer, and stats are now driven by the COMBINED state
+    /// (nox quiet OR macOS Focus with respect-Focus on), but
+    /// the primary toggle on this card flips this flag directly.
+    @AppStorage(SettingsKey.noxFocusMode) private var noxFocusMode: Bool = false
+
+    var body: some View {
+        // 2026-05-08 redesign: replaced the static "moon hero +
+        // grouped controls" layout with the live-session
+        // dashboard chosen from the HTML mockup review (variant
+        // A). Hero shows a running HH:MM session timer; two stat
+        // tiles show "pills muted this session" (with type
+        // breakdown chips) + a 60-min sparkline; toggles tucked
+        // at the bottom. Every visible piece binds to data that
+        // `FocusSessionTracker` actually emits, so this is a
+        // truthful "what is Focus doing for me right now" view.
+        VStack(alignment: .leading, spacing: 8) {
+            backRow
+            heroCard
+            statsGrid
+            controlsCard
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, DS.Spacing.md)
+        .padding(.top, 4)
+        .padding(.bottom, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Opens System Settings → Focus pane via the public URL scheme.
+    /// This is the only HONEST way to drive macOS Focus from a
+    /// third-party app — Apple doesn't expose a programmatic toggle,
+    /// `INFocusStatusCenter` is read-only, and the private
+    /// `DoNotDisturbKit.framework` is sealed behind stripped binaries
+    /// on macOS 26 (verified — the symbols Apple used historically
+    /// like `setMode:` are no longer reachable via dlopen).
+    ///
+    /// Earlier iterations tried UI-scripting Control Centre via
+    /// AppleScript and AXIdentifier walks. Functional on the test
+    /// machine, but unacceptable in practice because:
+    ///   • Opening Control Centre takes over the user's screen,
+    ///     which the user explicitly called out as disruptive.
+    ///   • Control Centre stealing focus dismissed the nox panel
+    ///     mid-tap, so the toggle felt broken.
+    ///   • Across locales / future macOS revisions, the AX
+    ///     identifiers shift and the script breaks silently.
+    private func openFocusSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Focus-Settings.extension") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private var backRow: some View {
+        Button(action: onBack) {
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Live")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .foregroundStyle(DS.Color.accent)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Back to Live")
+    }
+
+    /// Live-running hero card — animated moon, "FOCUS ON" label,
+    /// HH:MM since session start, and the wall-clock instant the
+    /// session began on the right. Re-renders every 1s via
+    /// `TimelineView` so the duration ticks without a manual
+    /// timer. When Focus is off, the gradient fill dims and the
+    /// hero shows a "tap toggle below" prompt instead of the
+    /// timer.
+    private var heroCard: some View {
+        TimelineView(.periodic(from: .now, by: 1.0)) { context in
+            heroContent(now: context.date)
+        }
+    }
+
+    /// True if EITHER nox's own Focus mode is on, OR macOS Focus
+    /// is on AND the user has the auto-sync toggle enabled. This
+    /// is what the dashboard hero / timer / stats reflect — the
+    /// session counts time spent in any focus condition,
+    /// regardless of how it got there.
+    private var isInFocusState: Bool {
+        if noxFocusMode { return true }
+        if presenter.isFocused {
+            // Mirror the same default-true gating that
+            // PanelPresenter.setPendingSystemEvent uses so the
+            // hero state never disagrees with the suppression
+            // gate.
+            if UserDefaults.standard.object(forKey: SettingsKey.respectFocusMode) == nil {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: SettingsKey.respectFocusMode)
+        }
+        return false
+    }
+
+    @ViewBuilder
+    private func heroContent(now: Date) -> some View {
+        HStack(spacing: 12) {
+            // 2026-05-09: replaced the FocusAuraHero with
+            // FocusWorkingHero — a tiny anime-style character at
+            // a laptop. User feedback: pulse rings were too
+            // abstract; "Should be something like this" + showed
+            // anime working GIFs. Custom SwiftUI illustration
+            // captures the studying / locked-in vibe at any size.
+            FocusWorkingHero(active: isInFocusState)
+                .frame(width: 50, height: 50)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(isInFocusState ? "Focus on" : "Focus off")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundStyle(DS.Color.accent)
+                    .textCase(.uppercase)
+                    .contentTransition(.opacity)
+
+                // Asymmetric transitions: timer slides up + fades
+                // in when activating; "tap to start" copy slides
+                // down + fades out. Eyes always have something to
+                // track so the card never reads as collapsing.
+                if let start = tracker.sessionStartDate, isInFocusState {
+                    Text(formatSessionDuration(now.timeIntervalSince(start)))
+                        .font(.system(size: 22, weight: .bold).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .offset(y: 4)),
+                            removal: .opacity
+                        ))
+                } else {
+                    Text("Tap toggle below to start")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.58))
+                        .transition(.asymmetric(
+                            insertion: .opacity,
+                            removal: .opacity.combined(with: .offset(y: -4))
+                        ))
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            // SINCE column slides in from the right when a quiet
+            // session opens, slides out when it ends. Matches the
+            // hero's physical "things appear when active" rhythm.
+            if let start = tracker.sessionStartDate, isInFocusState {
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text("SINCE")
+                        .font(.system(size: 8.5, weight: .bold))
+                        .tracking(0.7)
+                        .foregroundStyle(.white.opacity(0.45))
+                    Text(formatTimeOfDay(start))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .offset(x: 8)),
+                    removal: .opacity.combined(with: .offset(x: 4))
+                ))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            DS.Color.accent.opacity(isInFocusState ? 0.18 : 0.06),
+                            DS.Color.accent.opacity(0.02)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(
+                    DS.Color.accent.opacity(isInFocusState ? 0.28 : 0.10),
+                    lineWidth: 0.6
+                )
+        )
+        // Belt-and-braces: even if the state change comes from a
+        // path that didn't wrap in `withAnimation` (e.g. macOS
+        // Focus turning on while the panel is open), the gradient
+        // / stroke / child transitions still animate cleanly.
+        .animation(.spring(response: 0.34, dampingFraction: 0.78),
+                   value: isInFocusState)
+    }
+
+    /// Two-tile stats grid — TOTAL · TODAY (left) and THIS WEEK
+    /// (right with a 7-bar daily sparkline). Mirror of the Study
+    /// detail panel's grid so both panels speak the same metric
+    /// vocabulary. Persisted across app restarts via UserDefaults
+    /// (see `FocusSessionTracker.minutesByDay`).
+    private var statsGrid: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { ctx in
+            HStack(spacing: 10) {
+                statTileTotalToday(now: ctx.date)
+                statTileThisWeek(now: ctx.date)
+            }
+        }
+    }
+
+    private func statTileTotalToday(now: Date) -> some View {
+        let total = tracker.totalMinutesToday(now: now)
+        let active = tracker.isSessionActive
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("TOTAL · TODAY")
+                .font(.system(size: 9, weight: .bold))
+                .tracking(0.6)
+                .foregroundStyle(.white.opacity(0.45))
+
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("\(total)")
+                    .font(.system(size: 22, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.white)
+                Text("min")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.45))
+            }
+
+            if active {
+                Text("Session in progress")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(DS.Color.accent.opacity(0.85))
+            } else if total > 0 {
+                Text("Nice work")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.white.opacity(0.55))
+            } else {
+                Text("Tap Focus mode below to start")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.white.opacity(0.45))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(.white.opacity(0.07), lineWidth: 0.6)
+        )
+    }
+
+    private func statTileThisWeek(now: Date) -> some View {
+        let mins = tracker.totalMinutesThisWeek(now: now)
+        let buckets = tracker.weekBuckets(now: now)
+        let maxBucket = max(1, buckets.max() ?? 1)
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("THIS WEEK")
+                .font(.system(size: 9, weight: .bold))
+                .tracking(0.6)
+                .foregroundStyle(.white.opacity(0.45))
+
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("\(mins)")
+                    .font(.system(size: 22, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.white)
+                Text("min")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.45))
+            }
+
+            HStack(alignment: .bottom, spacing: 5) {
+                ForEach(Array(buckets.enumerated()), id: \.offset) { idx, value in
+                    let isToday = idx == buckets.count - 1
+                    Capsule(style: .continuous)
+                        .fill(weekBarColor(value: value, isToday: isToday))
+                        .frame(width: 6, height: weekBarHeight(value: value, max: maxBucket))
+                }
+            }
+            .frame(height: 20, alignment: .bottom)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(.white.opacity(0.07), lineWidth: 0.6)
+        )
+    }
+
+    private func weekBarHeight(value: Int, max: Int) -> CGFloat {
+        let pct = CGFloat(value) / CGFloat(max)
+        return 2 + 18 * pct
+    }
+
+    private func weekBarColor(value: Int, isToday: Bool) -> Color {
+        if value == 0 { return .white.opacity(0.10) }
+        return isToday ? DS.Color.accent : DS.Color.accent.opacity(0.55)
+    }
+
+    /// Format a session duration as "1h 23m" / "23m" / "45s".
+    /// Drops higher-order zeros so a 5-minute session reads as
+    /// "5m", not "0h 05m".
+    private func formatSessionDuration(_ seconds: TimeInterval) -> String {
+        let total = Int(max(0, seconds))
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 { return String(format: "%dh %02dm", h, m) }
+        if m > 0 { return "\(m)m" }
+        return "\(s)s"
+    }
+
+    /// Locale-aware short time of day for the SINCE column
+    /// ("12:00 PM" in en-US, "12:00" in en-GB / 24h locales).
+    private func formatTimeOfDay(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        f.dateStyle = .none
+        return f.string(from: date)
+    }
+
+    /// Focus-mode toggle row. Drives nox's OWN `noxFocusMode`
+    /// `@AppStorage` — independent of macOS Focus, no Apple
+    /// Shortcuts setup required. Tap anywhere on the row to flip
+    /// (whole row is the hit target; the visible Toggle inside
+    /// has `allowsHitTesting(false)` so it's purely a visual
+    /// indicator).
+    ///
+    /// Suppression effect: when on, ambient pills (charger /
+    /// screenshot / AirDrop / Bluetooth / track-change) get
+    /// swallowed by `PanelPresenter.setPendingSystemEvent`'s
+    /// focus-mode early return — same gate that already handled
+    /// macOS-Focus suppression, just OR'd with this flag now.
+    ///
+    /// Voice: this row is for "I'm locked in, stop interrupting
+    /// me." Subtitle copy reflects that mental model — "Locked
+    /// in. Pings paused." when active, "Tap to lock in." when
+    /// not.
+    ///
+    /// Animation contract:
+    ///   • Tap fires `withAnimation(.spring(...))` so the toggle
+    ///     thumb glides AND every dependent view (hero gradient,
+    ///     moon hero, label color, timer appearance) animates in
+    ///     lockstep.
+    ///   • The moon icon swap (`moon` ↔ `moon.fill`) uses SF
+    ///     Symbol's `.symbolEffect(.replace)` for a clean morph
+    ///     on macOS 14+; older systems fall back to the implicit
+    ///     opacity crossfade SwiftUI does for any Image swap.
+    ///   • The icon-tile fill brightens slightly when on
+    ///     (0.16 → 0.22) so the row "lights up" beyond just
+    ///     the toggle itself moving.
+    private var quietModeRow: some View {
+        HStack(alignment: .center, spacing: 11) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(DS.Color.accent.opacity(noxFocusMode ? 0.22 : 0.16))
+                Image(systemName: noxFocusMode ? "moon.fill" : "moon")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(DS.Color.accent)
+                    .modifier(IconReplaceEffect(value: noxFocusMode))
+            }
+            .frame(width: 26, height: 26)
+
+            // 2026-05-09: subtitle removed per user spec ("remove
+            // that small words from there please"). Just the title
+            // — the toggle's on/off state is the descriptor.
+            Text("Focus mode")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+
+            Spacer(minLength: 12)
+
+            Toggle("", isOn: $noxFocusMode)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .tint(DS.Color.accent)
+                .allowsHitTesting(false)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            // Wrap the binding flip in a spring so the toggle
+            // thumb AND the hero gradient / timer / moon hero
+            // animate together. Without this the assignment is
+            // synchronous and SwiftUI snaps the toggle to its
+            // new position with no transition.
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                noxFocusMode.toggle()
+            }
+        }
+    }
+
+    /// Two-row card. Top row is the Focus toggle (Shortcuts-CLI-
+    /// driven) or its setup CTA. Bottom row is the working
+    /// "Auto-hide pills" toggle. Same chrome as the onboarding
+    /// `GroupedCard` — 14pt corners, white-0.04 fill, hairline
+    /// divider between rows.
+    private var controlsCard: some View {
+        VStack(spacing: 0) {
+            // Row 1 — nox's own quiet-mode toggle. Replaces the
+            // earlier macOS-Focus-driven row (which required Apple
+            // Shortcuts setup, or AppleScript-Control-Centre that
+            // hijacked the screen). User feedback 2026-05-08:
+            // "Let's do it in our own instade of apple."
+            // Tap anywhere on the row → `noxFocusMode` flips →
+            // suppression takes effect immediately.
+            quietModeRow
+
+            // Hairline divider — same treatment as the onboarding's
+            // GroupedCard rows.
+            Rectangle()
+                .fill(.white.opacity(0.06))
+                .frame(height: 0.5)
+                .padding(.leading, 64)
+                .padding(.trailing, 16)
+
+            // Row 2 — app-level "respect Focus" preference.
+            // Drives the count above (every suppressed pill goes
+            // through this gate).
+            //
+            // 2026-05-08 fix v2: switched from Button-wrapped row
+            // to `.onTapGesture` directly. Buttons inside an
+            // NSPanel-hosted SwiftUI tree can have flaky hit
+            // detection when other Buttons sit beside them in
+            // the same VStack — sometimes only the first Button
+            // receives taps. `.onTapGesture` is more permissive
+            // and reliably fires regardless of sibling Buttons.
+            // The inner Toggle stays `.allowsHitTesting(false)`
+            // so the row tap is the single hit target — no
+            // double-fire when clicking the switch directly.
+            HStack(alignment: .center, spacing: 11) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(DS.Color.accent.opacity(0.10))
+                    Image(systemName: "bell.slash.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(DS.Color.accent.opacity(0.85))
+                }
+                .frame(width: 26, height: 26)
+
+                // Subtitle removed per user spec 2026-05-09 — the
+                // title is enough to describe the toggle's purpose.
+                Text("Auto-hide pills during Focus")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+
+                Spacer(minLength: 12)
+
+                Toggle("", isOn: $respectFocusMode)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .tint(DS.Color.accent)
+                    .allowsHitTesting(false)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                NSLog("nox: Auto-hide row tapped, respectFocusMode \(respectFocusMode) -> \(!respectFocusMode)")
+                respectFocusMode.toggle()
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(.white.opacity(0.07), lineWidth: 0.6)
+        )
+    }
+}
+
+// MARK: - Live → Study detail panel
+
+/// Sibling to `LiveFocusDetailPanel` — same shape, study branding.
+/// Opens when the user taps the chevron on the Study status pill.
+///
+/// Lean version of the Focus dashboard:
+///   • Hero — book icon + "Study mode" title + "ON/OFF" + live
+///     session timer (HH:MM since `studySessionStartedAt`).
+///   • Controls — single toggle row that flips `noxStudyMode`.
+///
+/// Skipped (vs. Focus): the stats grid (pills muted, sparkline) —
+/// those rely on `FocusSessionTracker` which is Focus-specific. We
+/// can wire a SessionTracker for Study later if the user wants
+/// productivity stats; for V1 the timer alone is the value.
+struct LiveStudyDetailPanel: View {
+    @EnvironmentObject var presenter: PanelPresenter
+    @AppStorage(SettingsKey.noxStudyMode) private var noxStudyMode: Bool = false
+    @AppStorage(SettingsKey.noxFocusMode) private var noxFocusMode: Bool = false
+    @ObservedObject private var tracker = StudySessionTracker.shared
+
+    /// Closure invoked when the user taps the "‹ Live" back arrow.
+    let onBack: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            backRow
+            heroCard
+            statsGrid
+            controlsCard
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, DS.Spacing.md)
+        .padding(.top, 4)
+        .padding(.bottom, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var backRow: some View {
+        Button(action: onBack) {
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Live")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .foregroundStyle(DS.Color.accent)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Back to Live")
+    }
+
+    private var heroCard: some View {
+        TimelineView(.periodic(from: .now, by: 1.0)) { context in
+            heroContent(now: context.date)
+        }
+    }
+
+    @ViewBuilder
+    private func heroContent(now: Date) -> some View {
+        HStack(spacing: 12) {
+            // Book glyph in a soft tile — same visual weight as the
+            // Focus hero's character but a single SF Symbol so we
+            // don't need a custom illustration. Lights up when
+            // Study is on.
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(DS.Color.accent.opacity(noxStudyMode ? 0.20 : 0.08))
+                Image(systemName: noxStudyMode ? "book.closed.fill" : "book.closed")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(
+                        noxStudyMode
+                            ? DS.Color.accent
+                            : Color.white.opacity(0.55)
+                    )
+            }
+            .frame(width: 50, height: 50)
+            .animation(.easeInOut(duration: 0.22), value: noxStudyMode)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(noxStudyMode ? "Study on" : "Study off")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundStyle(DS.Color.accent)
+                    .textCase(.uppercase)
+                    .contentTransition(.opacity)
+
+                if let start = presenter.studySessionStartedAt, noxStudyMode {
+                    Text(formatSessionDuration(now.timeIntervalSince(start)))
+                        .font(.system(size: 22, weight: .bold).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .offset(y: 4)),
+                            removal: .opacity
+                        ))
+                } else {
+                    Text("Tap toggle below to start")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.58))
+                        .transition(.asymmetric(
+                            insertion: .opacity,
+                            removal: .opacity.combined(with: .offset(y: -4))
+                        ))
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            if let start = presenter.studySessionStartedAt, noxStudyMode {
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text("SINCE")
+                        .font(.system(size: 8.5, weight: .bold))
+                        .tracking(0.7)
+                        .foregroundStyle(.white.opacity(0.45))
+                    Text(formatTimeOfDay(start))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .offset(x: 8)),
+                    removal: .opacity.combined(with: .offset(x: 4))
+                ))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            DS.Color.accent.opacity(noxStudyMode ? 0.18 : 0.06),
+                            DS.Color.accent.opacity(0.02)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(
+                    DS.Color.accent.opacity(noxStudyMode ? 0.28 : 0.10),
+                    lineWidth: 0.6
+                )
+        )
+        .animation(.spring(response: 0.34, dampingFraction: 0.78),
+                   value: noxStudyMode)
+    }
+
+    // MARK: - Stats grid
+
+    /// Two-tile stats grid driven by `StudySessionTracker`. Same
+    /// layout vocabulary as the Focus dashboard (left tile = hero
+    /// number + subtext, right tile = hero number + sparkline) but
+    /// with study-relevant metrics: total minutes today and minutes
+    /// in the last 60 minutes.
+    private var statsGrid: some View {
+        // TimelineView re-renders the grid every 30s so the live
+        // session's contribution to today's bucket and the week
+        // total stays current.
+        TimelineView(.periodic(from: .now, by: 30)) { ctx in
+            HStack(spacing: 10) {
+                statTileTotalToday(now: ctx.date)
+                statTileThisWeek(now: ctx.date)
+            }
+        }
+    }
+
+    private func statTileTotalToday(now: Date) -> some View {
+        let total = tracker.totalMinutesToday(now: now)
+        let active = tracker.isSessionActive
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("TOTAL · TODAY")
+                .font(.system(size: 9, weight: .bold))
+                .tracking(0.6)
+                .foregroundStyle(.white.opacity(0.45))
+
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("\(total)")
+                    .font(.system(size: 22, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.white)
+                Text("min")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.45))
+            }
+
+            if active {
+                Text("Session in progress")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(DS.Color.accent.opacity(0.85))
+            } else if total > 0 {
+                Text("Nice work")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.white.opacity(0.55))
+            } else {
+                Text("Tap toggle below to start")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.white.opacity(0.45))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(.white.opacity(0.07), lineWidth: 0.6)
+        )
+    }
+
+    /// Second stat tile — minutes studied across the last 7 days
+    /// with a 7-bar daily sparkline (one bar per day, today on the
+    /// right). Bars scale to the highest bucket in the week so a
+    /// busy Monday still shows distinct relative heights.
+    private func statTileThisWeek(now: Date) -> some View {
+        let mins = tracker.totalMinutesThisWeek(now: now)
+        let buckets = tracker.weekBuckets(now: now)
+        let maxBucket = max(1, buckets.max() ?? 1)
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("THIS WEEK")
+                .font(.system(size: 9, weight: .bold))
+                .tracking(0.6)
+                .foregroundStyle(.white.opacity(0.45))
+
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("\(mins)")
+                    .font(.system(size: 22, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.white)
+                Text("min")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.45))
+            }
+
+            HStack(alignment: .bottom, spacing: 5) {
+                ForEach(Array(buckets.enumerated()), id: \.offset) { idx, value in
+                    let isToday = idx == buckets.count - 1
+                    Capsule(style: .continuous)
+                        .fill(barColor(value: value, isToday: isToday))
+                        .frame(width: 6, height: barHeight(value: value, max: maxBucket))
+                }
+            }
+            .frame(height: 20, alignment: .bottom)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(.white.opacity(0.07), lineWidth: 0.6)
+        )
+    }
+
+    private func barHeight(value: Int, max: Int) -> CGFloat {
+        // Min 2pt so empty days read as a row of muted dots rather
+        // than disappearing. Max 20pt — slightly taller than the
+        // hourly sparkline since week-bars carry more information
+        // density per bar.
+        let pct = CGFloat(value) / CGFloat(max)
+        return 2 + 18 * pct
+    }
+
+    private func barColor(value: Int, isToday: Bool) -> Color {
+        if value == 0 {
+            return .white.opacity(0.10)
+        }
+        return isToday
+            ? DS.Color.accent
+            : DS.Color.accent.opacity(0.55)
+    }
+
+    // MARK: - Controls
+
+    /// Single-toggle controls card. Mirrors the row treatment used
+    /// in Focus's controlsCard — whole row is the hit target so the
+    /// user doesn't have to pixel-aim the Toggle thumb.
+    private var controlsCard: some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                    if !noxStudyMode {
+                        // Mutex with Focus.
+                        noxFocusMode = false
+                    }
+                    noxStudyMode.toggle()
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "book.closed.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(
+                            noxStudyMode
+                                ? DS.Color.accent
+                                : Color.white.opacity(0.55)
+                        )
+                        .frame(width: 18)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Study mode")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.white)
+                        Text("Quiet pills + persistent indicator")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { noxStudyMode },
+                        set: { newValue in
+                            withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                                if newValue {
+                                    noxFocusMode = false
+                                }
+                                noxStudyMode = newValue
+                            }
+                        }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .tint(DS.Color.accent)
+                    .scaleEffect(0.78)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(.white.opacity(0.07), lineWidth: 0.6)
+        )
+    }
+
+    private func formatSessionDuration(_ seconds: TimeInterval) -> String {
+        let total = Int(max(0, seconds))
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 { return String(format: "%dh %02dm", h, m) }
+        if m > 0 { return "\(m)m" }
+        return "\(s)s"
+    }
+
+    private func formatTimeOfDay(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        f.dateStyle = .none
+        return f.string(from: date)
+    }
+}
+
+// MARK: - SF Symbol replace effect (with backport fallback)
+
+/// Wraps `.contentTransition(.symbolEffect(.replace))` so a
+/// state-driven SF-Symbol swap morphs in place rather than
+/// snapping. `.contentTransition` is the right API for *state*
+/// driven swaps (vs. `.symbolEffect(.replace, value:)`, which is
+/// for one-shot triggers — the `value:` form needs the value to
+/// conform to `DiscreteSymbolEffect`, which `Bool` doesn't).
+/// macOS 14+ supports the symbol-effect transition; older systems
+/// fall back to SwiftUI's default opacity crossfade.
+///
+/// `value` here exists so `withAnimation` callers re-render the
+/// icon when the bool flips, and any `.animation(value:)` higher
+/// up the tree picks up the change too.
+private struct IconReplaceEffect: ViewModifier {
+    let value: Bool
+
+    func body(content: Content) -> some View {
+        if #available(macOS 14, *) {
+            content
+                .contentTransition(.symbolEffect(.replace))
+        } else {
+            content
+        }
+    }
+}
+
+// MARK: - Focus working hero (anime "locked in at the laptop")
+//
+// Pure-SwiftUI illustration of a tiny character working at a
+// laptop, in the spirit of the anime "studying / working" GIFs
+// the user referenced (Pinterest / Tenor "anime crazy work GIF",
+// "anime typing", "Studio Ghibli laptop"). Captures the aesthetic:
+//   • Round head (cute, anime proportions)
+//   • Two small eye lines — closed/concentrating
+//   • Soft rounded body
+//   • Laptop slab at the bottom
+//   • Hands typing — alternating tiny up/down motion at ~4Hz
+//   • Subtle head bob ±4% (concentration)
+//
+// Scales from the small-pill 18pt up to the dashboard hero 42-56pt.
+// At 18pt every element is a few pixels but the head + laptop +
+// typing motion still read as "someone is working." At 56pt the
+// proportions land like a sticker / pixel-art sprite.
+
+/// Tiny inline focus indicator — used in the hybrid music+focus
+/// resting pill where space is tight (combined right-wing alongside
+/// the timer text). Just a breathing brand-purple disc with a soft
+/// halo. At 8pt the FocusWorkingHero would be unreadable mush; this
+/// is the right resolution for an inline badge.
+struct MiniFocusDot: View {
+    let active: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0,
+                                paused: !active)) { context in
+            let t = context.date
+                .timeIntervalSinceReferenceDate
+                .truncatingRemainder(dividingBy: 1.6) / 1.6
+            let breathe = 1 + 0.18 * sin(t * 2 * .pi)
+            Circle()
+                .fill(DS.Color.accent)
+                .scaleEffect(breathe)
+                .shadow(color: DS.Color.accent.opacity(active ? 0.65 : 0),
+                        radius: 3, x: 0, y: 0)
+                .opacity(active ? 1 : 0.45)
+        }
+    }
+}
+
+struct FocusWorkingHero: View {
+    let active: Bool
+
+    /// Whole-cycle duration. 1.6s = a comfortable typing rhythm
+    /// (slightly slower than a real keystroke cadence so the
+    /// motion reads as deliberate, not frantic). Head bob and
+    /// hand bounce are both phase-locked to this cycle.
+    private let cycleDuration: Double = 1.6
+
+    var body: some View {
+        GeometryReader { geo in
+            let side = min(geo.size.width, geo.size.height)
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0,
+                                    paused: !active)) { context in
+                let t = context.date
+                    .timeIntervalSinceReferenceDate
+                    .truncatingRemainder(dividingBy: cycleDuration)
+                    / cycleDuration
+                ZStack {
+                    softGlow(side: side)
+                    sittingFigure(t: t, side: side)
+                }
+                .frame(width: side, height: side)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    /// Soft brand-purple glow around the figure — gives the
+    /// illustration a "lit-up / focused energy" feel without
+    /// adding visible chrome at small sizes.
+    @ViewBuilder
+    private func softGlow(side: CGFloat) -> some View {
+        Circle()
+            .fill(
+                RadialGradient(
+                    colors: [
+                        DS.Color.accent.opacity(active ? 0.32 : 0),
+                        DS.Color.accent.opacity(0)
+                    ],
+                    center: .center,
+                    startRadius: 0,
+                    endRadius: side * 0.55
+                )
+            )
+    }
+
+    /// The tiny character at a laptop. Drawn as composed Shapes
+    /// with relative coordinates so everything scales cleanly.
+    @ViewBuilder
+    private func sittingFigure(t: Double, side: CGFloat) -> some View {
+        // Head bob ±4% scale on a sine cycle.
+        let bob = 1 + 0.04 * sin(t * 2 * .pi)
+
+        // Hand "typing" alternation: left up while right down,
+        // swap every half cycle. Use sin(2π · 2t) for 2 cycles
+        // per master cycle = 4 keystrokes per 1.6s ≈ 2.5 Hz.
+        let leftHand = sin(t * 4 * .pi)
+        let rightHand = sin(t * 4 * .pi + .pi)  // 180° phase shift
+
+        ZStack {
+            // Laptop slab — wide thin rounded rect at the bottom
+            // 30% of the canvas.
+            RoundedRectangle(cornerRadius: side * 0.04, style: .continuous)
+                .fill(DS.Color.accent.opacity(active ? 0.85 : 0.45))
+                .frame(width: side * 0.78, height: side * 0.06)
+                .offset(y: side * 0.30)
+
+            // Laptop screen — thin slanted rect rising from the
+            // slab. We approximate the open-laptop wedge with a
+            // Trapezoid shape.
+            LaptopScreen()
+                .fill(DS.Color.accent.opacity(active ? 0.55 : 0.30))
+                .frame(width: side * 0.62, height: side * 0.18)
+                .offset(y: side * 0.18)
+
+            // Body — rounded square behind the head, just barely
+            // visible above the laptop. Slightly darker shade.
+            RoundedRectangle(cornerRadius: side * 0.10, style: .continuous)
+                .fill(DS.Color.accent.opacity(active ? 0.95 : 0.50))
+                .frame(width: side * 0.46, height: side * 0.32)
+                .offset(y: side * 0.06)
+
+            // Hands — two small dots over the laptop slab,
+            // bouncing up/down to imply typing.
+            Circle()
+                .fill(Color.white.opacity(active ? 0.92 : 0.55))
+                .frame(width: side * 0.07, height: side * 0.07)
+                .offset(x: -side * 0.16, y: side * 0.27 - leftHand * side * 0.025)
+            Circle()
+                .fill(Color.white.opacity(active ? 0.92 : 0.55))
+                .frame(width: side * 0.07, height: side * 0.07)
+                .offset(x: side * 0.16, y: side * 0.27 - rightHand * side * 0.025)
+
+            // Head — round, brand-purple-tinted off-white so it
+            // pops against the body. Subtle bob.
+            Circle()
+                .fill(Color(red: 1.0, green: 0.96, blue: 1.0))
+                .frame(width: side * 0.42, height: side * 0.42)
+                .scaleEffect(bob)
+                .offset(y: -side * 0.18)
+
+            // Eyes — two short horizontal dashes. Closed-eye
+            // (concentrating) look. Position relative to the
+            // head's bobbed center.
+            HStack(spacing: side * 0.10) {
+                Capsule()
+                    .fill(Color(red: 0.20, green: 0.10, blue: 0.30))
+                    .frame(width: side * 0.06, height: side * 0.012)
+                Capsule()
+                    .fill(Color(red: 0.20, green: 0.10, blue: 0.30))
+                    .frame(width: side * 0.06, height: side * 0.012)
+            }
+            .scaleEffect(bob)
+            .offset(y: -side * 0.18)
+
+            // Cheek blush — single low-opacity pink dot, anime
+            // signature. Skipped at very small sizes (under
+            // ~24pt) since it'd be a single pixel.
+            if side > 24 {
+                Circle()
+                    .fill(Color(red: 1.0, green: 0.65, blue: 0.78).opacity(0.6))
+                    .frame(width: side * 0.06, height: side * 0.06)
+                    .offset(x: -side * 0.10, y: -side * 0.16)
+                    .scaleEffect(bob)
+            }
+        }
+        .opacity(active ? 1 : 0.55)
+    }
+}
+
+/// Sibling indicator to `FocusWorkingHero` for Study mode. Keep
+/// simple per the user's brief ("everything same just the things
+/// will be study related" + "keep things simple") — a closed-book
+/// SF Symbol with a gentle breathing pulse so it reads as alive
+/// without competing with the timer next to it.
+///
+/// Same size + same render contract as FocusWorkingHero so the pill
+/// content's `Group { switch activePillMode }` swaps cleanly without
+/// any layout jiggle.
+struct StudyHero: View {
+    let active: Bool
+
+    /// Whole-cycle duration for the breathing pulse. 2.4s = slower
+    /// than the typing rhythm in FocusWorkingHero so the two modes
+    /// have visibly different cadences (typing = quick + alert;
+    /// study = slow + steady).
+    private let cycleDuration: Double = 2.4
+
+    var body: some View {
+        GeometryReader { geo in
+            let side = min(geo.size.width, geo.size.height)
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0,
+                                    paused: !active)) { context in
+                let t = context.date
+                    .timeIntervalSinceReferenceDate
+                    .truncatingRemainder(dividingBy: cycleDuration)
+                    / cycleDuration
+                // Sine breathing between 0.93x and 1.0x — subtle,
+                // avoids the "throbbing" look of bigger swings.
+                let breath = 0.93 + 0.07 * (0.5 + 0.5 * sin(t * 2 * .pi))
+                ZStack {
+                    softGlow(side: side)
+                    Image(systemName: "book.closed.fill")
+                        .font(.system(size: side * 0.78,
+                                      weight: .semibold))
+                        .foregroundStyle(DS.Color.accent)
+                        .scaleEffect(breath)
+                }
+                .frame(width: side, height: side)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .opacity(active ? 1 : 0.55)
+    }
+
+    /// Soft brand-purple glow behind the book — same recipe as
+    /// FocusWorkingHero's glow so both heroes share the visual
+    /// language. Subtle radial gradient that fades to clear at the
+    /// edges.
+    private func softGlow(side: CGFloat) -> some View {
+        RadialGradient(
+            colors: [
+                DS.Color.accent.opacity(0.32),
+                DS.Color.accent.opacity(0.08),
+                .clear
+            ],
+            center: .center,
+            startRadius: 0,
+            endRadius: side * 0.55
+        )
+        .blendMode(.plusLighter)
+    }
+}
+
+/// Trapezoid-shaped laptop screen. The bottom edge is wider than
+/// the top, mimicking a slightly-tilted-back laptop screen as seen
+/// from a 3/4 angle.
+private struct LaptopScreen: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        // Top edge — narrower
+        let topInset = rect.width * 0.18
+        path.move(to: CGPoint(x: rect.minX + topInset, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - topInset, y: rect.minY))
+        // Bottom edge — full width
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+}
+
+// MARK: - Focus aura hero (LEGACY — still used at small pill sizes)
+//
+// Originally introduced as the "lock-in" indicator on the Focus
+// dashboard. Replaces the SleepingMoonHero on the Focus dashboard. Rationale:
+// the sleeping crescent reads as "DND / sleep", but Focus mode in
+// nox is for the user who's "locked in" — a more active /
+// concentrated state. The aura is concentric brand-purple rings
+// pulsing outward from a solid focal dot — radar / sonar / lock-on
+// language. Pure SwiftUI, no assets, scales cleanly from the small
+// resting pill (18pt) up to the dashboard hero (42pt).
+//
+// Phase-staggered rings give the loop a continuous "always pulsing
+// outward" feel — at any moment one ring is fully expanded /
+// faded, another is mid-expansion, another is just starting. No
+// dead beats. When `active == false` the rings vanish and the dot
+// dims to 35% opacity (same neutral pose as the legacy sleeping
+// moon's "Focus is off" state).
+
+struct FocusAuraHero: View {
+    let active: Bool
+
+    /// Fraction-of-cycle phase for each ring. 3 rings spaced
+    /// 1/3rd of a cycle apart gives a continuous emanation
+    /// without any visual gap.
+    private let ringCount = 3
+    /// Whole cycle duration. A bit slower than a heartbeat so it
+    /// reads as deliberate / meditative, not panicky.
+    private let cycleDuration: Double = 2.4
+
+    var body: some View {
+        // 2026-05-09 simplified design. The previous 3-ring radar
+        // scan was elegant on the 42pt dashboard hero but
+        // disappeared at the 18pt small-pill scale: a 0.81pt
+        // stroke fading from 0.75 opacity is below the legibility
+        // threshold for the dark pill background. User saw it as
+        // a blank pill ("Now it's black") with just the timer
+        // showing.
+        //
+        // New design: ONE bold central disc (60% of frame) +
+        // ONE outer pulse ring expanding outward. Both sized
+        // generously so they're unmistakably present at 18pt
+        // AND scale up cleanly to 42pt for the dashboard hero.
+        //
+        // Behavior:
+        //   • Core disc breathes ±12% in scale over the cycle
+        //     (slow heartbeat).
+        //   • Pulse ring grows 0.7 → 1.6 of frame, fading from
+        //     full opacity to 0. Single ring, low cognitive
+        //     overhead — reads as "this thing is alive" without
+        //     looking like a radar scan.
+        //   • A soft brand-purple glow surrounds the core
+        //     regardless of phase, so even between pulse rings
+        //     the dot has visible aura.
+        GeometryReader { geo in
+            let side = min(geo.size.width, geo.size.height)
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0,
+                                    paused: !active)) { context in
+                let t = context.date
+                    .timeIntervalSinceReferenceDate
+                    .truncatingRemainder(dividingBy: cycleDuration)
+                    / cycleDuration
+                ZStack {
+                    // Single pulse ring — solid stroke with
+                    // generous line width so it reads at small
+                    // sizes. Scale 0.7 → 1.6, opacity 0.7 → 0.
+                    pulseRing(phase: t, side: side)
+
+                    // Central glowing disc — always-visible
+                    // anchor. Size scales with the breath cycle.
+                    coreDisc(t: t, side: side)
+                }
+                .frame(width: side, height: side)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pulseRing(phase p: Double, side: CGFloat) -> some View {
+        let scale = 0.70 + p * 0.90
+        let opacity = active ? max(0, (1 - p) * 0.70) : 0
+        Circle()
+            .stroke(
+                DS.Color.accent,
+                lineWidth: max(1.6, side * 0.085)
+            )
+            .scaleEffect(scale)
+            .opacity(opacity)
+    }
+
+    @ViewBuilder
+    private func coreDisc(t: Double, side: CGFloat) -> some View {
+        let breathe = 1 + 0.12 * sin(t * 2 * .pi)
+        // Outer glow — soft halo that's visible against the
+        // dark pill regardless of pulse-ring phase.
+        Circle()
+            .fill(
+                RadialGradient(
+                    colors: [
+                        DS.Color.accent.opacity(active ? 0.55 : 0),
+                        DS.Color.accent.opacity(0)
+                    ],
+                    center: .center,
+                    startRadius: 0,
+                    endRadius: side * 0.55
+                )
+            )
+            .scaleEffect(breathe)
+        // Solid bright disc at the core — the unmistakable
+        // "something is here" anchor.
+        Circle()
+            .fill(DS.Color.accent)
+            .frame(
+                width: side * 0.55 * breathe,
+                height: side * 0.55 * breathe
+            )
+            .opacity(active ? 1 : 0.45)
+    }
+}
+
+// MARK: - Sleeping moon character
+
+/// Animated cartoon-style crescent moon for the Focus detail
+/// panel hero. Pure SwiftUI — no Lottie / no external asset.
+///
+/// Composition:
+///   1. Soft lavender halo pulse — outermost layer, breathes
+///      slowly so the whole composition feels alive
+///   2. Crescent moon — drawn as a stroke-only Path, brand-tinted,
+///      with a subtle continuous Y bob (gentle floating motion)
+///   3. Sleeping eyes — two short curved arcs ("u u"), closed,
+///      blink occasionally for character (Apple-style micro-detail)
+///   4. Pink blush dot — left cheek, low opacity, kawaii signature
+///   5. Floating "Z" trail — three Zs of decreasing size that rise
+///      and fade in a staggered loop, the universal sleep cue
+///
+/// When `active == false` (Focus is off) the animation freezes
+/// at a neutral pose: crescent visible, eyes closed, no Z's, no
+/// halo pulse. This way the same view fits the Focus-off state
+/// without an awkward "static moon glyph" fallback.
+struct SleepingMoonHero: View {
+    let active: Bool
+
+    /// Continuous animation phase, 0...1 looped over a 3.6s
+    /// cycle. Drives the bob, halo pulse, blink schedule, and
+    /// Z trail timing. Single source of truth so every motion
+    /// element stays musical / synchronized.
+    @State private var phase: Double = 0
+    /// Animation timer task. Held so we can cancel on disappear
+    /// / when active flips false (no point animating an idle
+    /// view — keeps the GPU off the hook on inactive panels).
+    @State private var animTask: Task<Void, Never>? = nil
+
+    private let cycleDuration: Double = 3.6 // seconds per loop
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !active)) { ctx in
+            // Phase 0...1 over cycleDuration, computed off the
+            // timeline date so motion is frame-rate-independent.
+            let t = active
+                ? (ctx.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycleDuration) / cycleDuration)
+                : 0.0
+
+            ZStack {
+                halo(phase: t)
+                moonCrescent(phase: t)
+                if active {
+                    zTrail(phase: t)
+                }
+            }
+            .compositingGroup()
+        }
+    }
+
+    // MARK: pieces
+
+    /// Outer halo — soft radial wash that grows / fades subtly.
+    /// Visual job: makes the hero feel "lit" against the dark
+    /// card, without competing with the crescent inside.
+    private func halo(phase t: Double) -> some View {
+        let pulse = 0.55 + 0.45 * (sin(t * 2 * .pi) * 0.5 + 0.5)
+        let scale = 0.92 + 0.08 * (sin(t * 2 * .pi) * 0.5 + 0.5)
+        return Circle()
+            .fill(
+                RadialGradient(
+                    colors: [
+                        DS.Color.accent.opacity(active ? 0.32 : 0.16),
+                        DS.Color.accent.opacity(0.0)
+                    ],
+                    center: .center,
+                    startRadius: 4,
+                    endRadius: 36
+                )
+            )
+            .scaleEffect(scale)
+            .opacity(active ? pulse : 0.55)
+    }
+
+    /// Stroke-only crescent. Drawn as the difference between two
+    /// circles with a Path, tinted lavender. Bobs gently up and
+    /// down on the same cycle as the halo.
+    private func moonCrescent(phase t: Double) -> some View {
+        let bob = active ? sin(t * 2 * .pi) * 1.6 : 0
+        return ZStack {
+            // Filled crescent body — uses a mask trick: full
+            // disc minus an offset disc gives a crescent shape.
+            Circle()
+                .fill(DS.Color.accent.opacity(0.95))
+                .frame(width: 38, height: 38)
+                .mask(
+                    ZStack {
+                        Circle()
+                        Circle()
+                            .frame(width: 32, height: 32)
+                            .offset(x: 9, y: -3)
+                            .blendMode(.destinationOut)
+                    }
+                    .compositingGroup()
+                )
+                .shadow(color: DS.Color.accent.opacity(0.5),
+                        radius: 6, x: 0, y: 0)
+            // Closed eyes — two short curved arcs. Drawn slightly
+            // INSET from the crescent's left half so they sit on
+            // the visible portion (not the bitten-out half).
+            ClosedEyesShape(spacing: 7)
+                .stroke(.white.opacity(0.92),
+                        style: StrokeStyle(lineWidth: 1.8,
+                                           lineCap: .round,
+                                           lineJoin: .round))
+                .frame(width: 18, height: 6)
+                .offset(x: -3, y: 0)
+            // Pink kawaii blush — soft circle on the lower-left
+            // cheek. Low opacity so it reads as a tint, not a
+            // marking.
+            Circle()
+                .fill(Color(red: 1.0, green: 0.65, blue: 0.78))
+                .opacity(0.45)
+                .frame(width: 6, height: 4)
+                .offset(x: -7, y: 5)
+        }
+        .offset(y: bob)
+    }
+
+    /// Three "Z"s rising in a stagger. Each spawns at a different
+    /// phase offset and animates rise + fade across the cycle, so
+    /// at any given moment one is starting, one is mid-rise, one
+    /// is fading at the top. Continuous parade of sleep cues.
+    private func zTrail(phase t: Double) -> some View {
+        ZStack {
+            zMark(phase: t,           offset: 0.0,  size: 9,  startX: 14)
+            zMark(phase: t,           offset: 0.33, size: 11, startX: 18)
+            zMark(phase: t,           offset: 0.66, size: 13, startX: 22)
+        }
+    }
+
+    private func zMark(phase t: Double, offset: Double,
+                       size: CGFloat, startX: CGFloat) -> some View {
+        // Local phase in 0...1, with the per-Z offset applied.
+        let p = (t + offset).truncatingRemainder(dividingBy: 1.0)
+        // Y rises 0 → -22 over the cycle. Slight curve via easeOut
+        // so the rise decelerates near the top (more graceful).
+        let easeOut = 1.0 - pow(1.0 - p, 2.0)
+        let dy = -22.0 * easeOut
+        // Opacity: ramp in 0…0.15, hold, ramp out 0.7…1.0.
+        let opacity: Double = {
+            if p < 0.15 { return p / 0.15 }
+            if p > 0.70 { return max(0, 1.0 - (p - 0.70) / 0.30) }
+            return 1.0
+        }()
+        // Slight horizontal drift so they don't stack identically.
+        let dx = sin(p * .pi) * 1.5
+
+        return Text("Z")
+            .font(.system(size: size, weight: .heavy, design: .rounded))
+            .foregroundStyle(DS.Color.accent.opacity(0.85))
+            .offset(x: startX + dx, y: -10 + dy)
+            .opacity(opacity)
+    }
+}
+
+/// Two arcs side by side — closed eyes on the moon character.
+/// Drawn as one Path so a single .stroke applies to both.
+private struct ClosedEyesShape: Shape {
+    var spacing: CGFloat = 7
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        // Each eye is a small downward-opening arc (half of a
+        // squashed ellipse), drawn from left-tip to right-tip.
+        // The "spacing" param is the gap between the inner tips
+        // of the two eyes.
+        let eyeWidth = (rect.width - spacing) / 2
+        let centerY = rect.midY
+        // Left eye
+        let leftStart = CGPoint(x: rect.minX, y: centerY)
+        let leftEnd   = CGPoint(x: rect.minX + eyeWidth, y: centerY)
+        path.move(to: leftStart)
+        path.addQuadCurve(
+            to: leftEnd,
+            control: CGPoint(x: leftStart.x + eyeWidth / 2, y: centerY + rect.height)
+        )
+        // Right eye
+        let rightStart = CGPoint(x: rect.maxX - eyeWidth, y: centerY)
+        let rightEnd   = CGPoint(x: rect.maxX, y: centerY)
+        path.move(to: rightStart)
+        path.addQuadCurve(
+            to: rightEnd,
+            control: CGPoint(x: rightStart.x + eyeWidth / 2, y: centerY + rect.height)
+        )
+        return path
+    }
+}
+
+/// Lightweight wrapping flow layout. SwiftUI's HStack overflows
+/// off-canvas; LazyVGrid wants column counts up front. This
+/// computes per-line widths on the fly so chips wrap naturally.
+/// Kept local to MusicPanelView.swift — promote to a shared
+/// utility if we end up using it elsewhere.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+    var lineSpacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        let lines = layout(into: maxWidth, subviews: subviews)
+        let totalHeight = lines.reduce(0) { $0 + $1.height } + max(0, CGFloat(lines.count - 1)) * lineSpacing
+        return CGSize(width: maxWidth, height: totalHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let lines = layout(into: bounds.width, subviews: subviews)
+        var y = bounds.minY
+        for line in lines {
+            var x = bounds.minX
+            for item in line.items {
+                item.view.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(width: item.size.width, height: item.size.height))
+                x += item.size.width + spacing
+            }
+            y += line.height + lineSpacing
+        }
+    }
+
+    private struct LineItem { let view: LayoutSubview; let size: CGSize }
+    private struct Line { let items: [LineItem]; let height: CGFloat }
+
+    private func layout(into maxWidth: CGFloat, subviews: Subviews) -> [Line] {
+        var lines: [Line] = []
+        var currentItems: [LineItem] = []
+        var currentWidth: CGFloat = 0
+        var currentHeight: CGFloat = 0
+
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            let widthIfAdded = currentItems.isEmpty
+                ? size.width
+                : currentWidth + spacing + size.width
+            if widthIfAdded > maxWidth, !currentItems.isEmpty {
+                lines.append(Line(items: currentItems, height: currentHeight))
+                currentItems = []
+                currentWidth = 0
+                currentHeight = 0
+            }
+            currentItems.append(LineItem(view: view, size: size))
+            currentWidth = currentItems.isEmpty
+                ? size.width
+                : currentWidth + (currentItems.count == 1 ? 0 : spacing) + size.width
+            currentHeight = max(currentHeight, size.height)
+        }
+        if !currentItems.isEmpty {
+            lines.append(Line(items: currentItems, height: currentHeight))
+        }
+        return lines
     }
 }
 
