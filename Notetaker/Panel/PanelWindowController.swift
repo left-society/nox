@@ -556,6 +556,12 @@ final class PanelWindowController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hidesOnDeactivate = false
+        // Adopt the user's "Hide from screen recordings" preference
+        // (Settings → General). Default is `.readOnly` (visible to
+        // screencaps / OBS / ScreenCaptureKit). Users who flip the
+        // toggle get `.none` — the panel is gone from recordings
+        // without affecting what they see.
+        ScreenSharingPolicy.apply(to: panel)
         // Disable window-drag-from-background. NSPanel defaults to
         // letting the user drag the entire window by clicking
         // anywhere on a transparent area — and our background IS
@@ -929,6 +935,16 @@ final class PanelWindowController {
         if presenter.isShown {
             // Slab character
             return (22, PanelWindowController.innerCornerRadius)
+        }
+        // Volume HUD banner — matches PanelRootView's panelTopRadius=12
+        // / panelBottomRadius=14 for the .volumeChanged state. Without
+        // this case, any updateShadowPath() call while the volume HUD
+        // is on screen (e.g. nowPlaying changing mid-banner via the
+        // Combine sink) would snap the shadow path to music-pill
+        // radii at the volume banner's larger frame — visible as a
+        // sudden corner reshape on the halo.
+        if case .volumeChanged = presenter.pendingSystemEvent {
+            return (12, 14)
         }
         if presenter.nowPlaying != nil {
             // Music pill character
@@ -3253,17 +3269,35 @@ final class PanelWindowController {
         currentSpring?.cancel()
         currentSpring = nil
         currentSpringTarget = target
-        // HIDE SHADOW during the morph. The CALayer drop shadow
-        // uses a SHAPE PATH (silhouette CGPath) that's only valid
-        // for the CURRENT panel.frame. When the frame morphs, the
-        // shadowPath stays at the OLD shape — visible as a
-        // rectangular black halo around the morphing silhouette
-        // (the user's "black square glitch"). Per-tick
-        // updateShadowPath() would fix it but causes main-thread
-        // lag. Best compromise: shadow fades to 0 at morph start,
-        // updateShadowPath() at completion, then shadow fades
-        // back in.
-        setShadowOpacity(0, duration: 0.10)
+
+        // SHADOW PATH MORPH — animates `shadowPath` on the same
+        // off-thread CA pipeline as the panel.frame animation, with
+        // matching duration and timing function. Earlier iterations
+        // hid the shadow during the morph (`setShadowOpacity 0`) to
+        // dodge a "stale shadowPath" black-square halo, then faded
+        // it back in at the end. That trick worked but read as the
+        // silhouette only gaining substance at the END of the morph
+        // — user feedback 2026-05-08: "the shadow on the main
+        // thing is not animating with the volume thing so it
+        // doesn't look smooth enough." Replacing the fade-out with
+        // an explicit CABasicAnimation makes the halo grow/shrink
+        // in lockstep with the silhouette frame-by-frame.
+        let halo = PanelWindowController.haloPadding
+        let targetSilhouetteRect = CGRect(
+            x: halo,
+            y: halo,
+            width: target.size.width - 2 * halo,
+            height: target.size.height - halo
+        )
+        // Volume banner radii — must match PanelRootView's
+        // panelTopRadius / panelBottomRadius for the
+        // `.volumeChanged` case (12 / 14).
+        let targetShadowPath = Self.silhouetteCGPath(
+            in: targetSilhouetteRect,
+            topFlareRadius: 12,
+            bottomCornerRadius: 14
+        )
+
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.40
             ctx.timingFunction = CAMediaTimingFunction(
@@ -3271,13 +3305,43 @@ final class PanelWindowController {
             )
             ctx.allowsImplicitAnimation = true
             panel.animator().setFrame(target, display: true, animate: true)
+            if let layer = panel.contentView?.layer {
+                // Use the layer's currently-presented path as
+                // fromValue so a rapid show/dismiss interleave (or
+                // any in-flight CA animation) doesn't produce a
+                // visual jump back to the model value at the start
+                // of this morph.
+                let fromPath: CGPath = layer.presentation()?.shadowPath
+                    ?? layer.shadowPath
+                    ?? targetShadowPath
+                let pathAnim = CABasicAnimation(keyPath: "shadowPath")
+                pathAnim.fromValue = fromPath
+                pathAnim.toValue = targetShadowPath
+                pathAnim.duration = 0.40
+                pathAnim.timingFunction = CAMediaTimingFunction(
+                    controlPoints: 0.32, 0.72, 0, 1
+                )
+                layer.removeAnimation(forKey: "volumeBannerShadowPath")
+                layer.add(pathAnim, forKey: "volumeBannerShadowPath")
+                // Set the model value so it survives the animation
+                // removal — the rendered path is driven by the
+                // CABasicAnimation during its 0.40s duration, then
+                // falls back to this model value at completion.
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer.shadowPath = targetShadowPath
+                CATransaction.commit()
+            }
         }, completionHandler: { [weak self] in
             guard let self else { return }
             self.currentSpringTarget = nil
             self.panel.setFrame(target, display: true)
-            self.updateShadowPath()
-            // Shadow fades back in over 0.20s using the new path.
-            self.setShadowOpacity(0.18, duration: 0.20)
+            // Don't call updateShadowPath() — the model value is
+            // already at targetShadowPath and the animation has
+            // played out cleanly. updateShadowPath() would
+            // re-derive radii from currentSilhouetteRadii() and
+            // could snap to a slightly different shape if other
+            // state changed during the morph.
         })
     }
 
@@ -3315,14 +3379,49 @@ final class PanelWindowController {
             return
         }
 
-        // SAME PATTERN as showVolumeBanner. Hide shadow during
-        // the morph (avoids "black square halo" glitch from stale
-        // shadowPath), updateShadowPath at completion, fade
-        // shadow back in over 0.20s.
+        // SAME SHADOW-PATH MORPH as showVolumeBanner. Animates
+        // `shadowPath` in lockstep with the panel.frame
+        // animation so the drop shadow halo follows the
+        // silhouette throughout the close — no fade-out/fade-in
+        // dip. Earlier iterations hid the shadow at morph start
+        // (`setShadowOpacity 0`) to avoid a stale-path "black
+        // square halo," but that read as the shadow detaching
+        // from the silhouette during the close. User feedback
+        // 2026-05-08: "the shadow on the main thing is not
+        // animating with the volume thing so it doesn't look
+        // smooth enough."
         currentSpring?.cancel()
         currentSpring = nil
         currentSpringTarget = target
-        setShadowOpacity(0, duration: 0.10)
+
+        let halo = PanelWindowController.haloPadding
+        let targetSilhouetteRect = CGRect(
+            x: halo,
+            y: halo,
+            width: target.size.width - 2 * halo,
+            height: target.size.height - halo
+        )
+        // Target radii match PanelRootView's panelTopRadius /
+        // panelBottomRadius for the post-volume-banner state:
+        //   • Music playing → music pill character (12 / 8 to
+        //     match `currentSilhouetteRadii()`'s music branch —
+        //     the canonical shadow shape for music resting state).
+        //   • No music → empty resting silhouette (0 / 6).
+        let targetTopR: CGFloat
+        let targetBottomR: CGFloat
+        if presenter.nowPlaying != nil {
+            targetTopR = 12
+            targetBottomR = PanelWindowController.pillCornerRadius
+        } else {
+            targetTopR = 0
+            targetBottomR = 6
+        }
+        let targetShadowPath = Self.silhouetteCGPath(
+            in: targetSilhouetteRect,
+            topFlareRadius: targetTopR,
+            bottomCornerRadius: targetBottomR
+        )
+
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.40
             ctx.timingFunction = CAMediaTimingFunction(
@@ -3330,12 +3429,32 @@ final class PanelWindowController {
             )
             ctx.allowsImplicitAnimation = true
             panel.animator().setFrame(target, display: true, animate: true)
+            if let layer = panel.contentView?.layer {
+                let fromPath: CGPath = layer.presentation()?.shadowPath
+                    ?? layer.shadowPath
+                    ?? targetShadowPath
+                let pathAnim = CABasicAnimation(keyPath: "shadowPath")
+                pathAnim.fromValue = fromPath
+                pathAnim.toValue = targetShadowPath
+                pathAnim.duration = 0.40
+                pathAnim.timingFunction = CAMediaTimingFunction(
+                    controlPoints: 0.32, 0.72, 0, 1
+                )
+                layer.removeAnimation(forKey: "volumeBannerShadowPath")
+                layer.add(pathAnim, forKey: "volumeBannerShadowPath")
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer.shadowPath = targetShadowPath
+                CATransaction.commit()
+            }
         }, completionHandler: { [weak self] in
             guard let self else { return }
             self.currentSpringTarget = nil
             self.panel.setFrame(target, display: true)
-            self.updateShadowPath()
-            self.setShadowOpacity(0.40, duration: 0.20)
+            // Model value already at targetShadowPath; no
+            // updateShadowPath() call (would override with
+            // currentSilhouetteRadii() result, which can briefly
+            // disagree at the AppDelegate-completion handoff).
             completion?()
         })
     }

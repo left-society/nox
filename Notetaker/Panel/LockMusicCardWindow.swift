@@ -107,6 +107,7 @@ final class LockMusicCardWindowController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hidesOnDeactivate = false
+        ScreenSharingPolicy.apply(to: panel)
         // Mouse moved events — required so SwiftUI knows the
         // cursor is over a button before clicking. Default is
         // false on NSPanel; without it, hover state never fires

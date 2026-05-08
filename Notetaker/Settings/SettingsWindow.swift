@@ -127,6 +127,15 @@ enum SettingsKey {
     /// prompt (see `FocusStatusService.requestAuthorization`).
     static let respectFocusMode = "respectFocusMode"
 
+    /// Hide the notch HUD from screen recordings (`NSWindow.sharingType
+    /// = .none`). Default false (visible). Inspired by SuperIsland.
+    static let hideFromScreenRecordings = "hideFromScreenRecordings"
+
+    /// Replace macOS's volume HUD (the white box) with nox's pill
+    /// when the user presses F10/F11/F12. Requires Accessibility.
+    /// Default false (opt-in). Inspired by SuperIsland.
+    static let replaceSystemVolumeHUD = "replaceSystemVolumeHUD"
+
     // Music
     // showRestingPill removed 2026-05-08 (audit H3): the @AppStorage
     // toggle wrote this key but nothing in the project read it.
@@ -477,6 +486,8 @@ private struct GroupTitle: View {
 private struct GeneralSettings: View {
     let env: AppEnvironment
     @AppStorage(SettingsKey.launchAtLogin) private var launchAtLogin: Bool = true
+    @AppStorage(SettingsKey.hideFromScreenRecordings) private var hideFromScreenRecordings: Bool = false
+    @AppStorage(SettingsKey.replaceSystemVolumeHUD) private var replaceSystemVolumeHUD: Bool = false
     // Per BUG-119 fix: removed `hideInFullscreen` and
     // `hideFromScreenCapture` @AppStorage bindings. The UI rows
     // are gone, no consumer ever read these keys. SettingsKey
@@ -512,11 +523,44 @@ private struct GeneralSettings: View {
                 // AppDelegate.presentOnboarding() to give one.
                 SettingsRow(title: "Show onboarding again",
                             subtitle: "Re-open the welcome flow that ran on first launch.",
-                            divider: false) {
+                            divider: true) {
                     Button("Show…") {
                         AppDelegate.shared?.presentOnboarding()
                     }
                     .buttonStyle(.bordered)
+                }
+                // 1.9.9 (idea borrowed from SuperIsland): toggle
+                // `NSWindow.sharingType = .none` on every nox window
+                // so the notch HUD is invisible to screen recorders,
+                // OBS, ScreenCaptureKit feeds, etc. The user still
+                // sees the HUD normally — it just doesn't appear in
+                // the captured frame. Default false (current macOS
+                // behavior). Streamers / demo-recorders LOVE this.
+                SettingsRow(title: "Hide from screen recordings",
+                            subtitle: "Make the notch HUD invisible to screen recorders, OBS, and screencast tools. Doesn't affect what you see.",
+                            divider: true) {
+                    Toggle("", isOn: $hideFromScreenRecordings).labelsHidden()
+                        .onChange(of: hideFromScreenRecordings) { _ in
+                            ScreenSharingPolicy.refreshAll()
+                        }
+                }
+                // 1.9.9 (idea borrowed from SuperIsland): when on,
+                // CGEventTap intercepts F10/F11/F12 (volume mute/
+                // down/up) BEFORE macOS routes them to OSDUIHelper,
+                // mutates volume directly via CoreAudio, and shows
+                // nox's pill instead of Apple's white box.
+                // Requires Accessibility.
+                SettingsRow(title: "Replace system volume HUD",
+                            subtitle: "Show nox's pill when you press the volume keys, instead of macOS's overlay. Requires Accessibility permission.",
+                            divider: false) {
+                    Toggle("", isOn: $replaceSystemVolumeHUD).labelsHidden()
+                        .onChange(of: replaceSystemVolumeHUD) { newValue in
+                            if newValue {
+                                MediaKeyInterceptor.shared.start()
+                            } else {
+                                MediaKeyInterceptor.shared.stop()
+                            }
+                        }
                 }
                 // Per BUG-119 fix: removed "Hide in fullscreen" and
                 // "Hide from screen capture" rows. Both wrote to

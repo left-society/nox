@@ -218,6 +218,7 @@ final class NotchHUDWindowController {
         ]
         panel.isOpaque = false
         panel.backgroundColor = .clear
+        ScreenSharingPolicy.apply(to: panel)
         // System shadow is rectangular — would show as a hard rectangle
         // around our rounded SwiftUI pill. We render our own shadow
         // inside ChargingPillView instead.

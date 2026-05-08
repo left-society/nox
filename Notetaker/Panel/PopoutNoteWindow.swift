@@ -135,6 +135,7 @@ final class PopoutNote {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
+        ScreenSharingPolicy.apply(to: panel)
         // Closing the X tears the window down; clear our reference
         // so the next `show` rebuilds rather than trying to revive a
         // dead window.

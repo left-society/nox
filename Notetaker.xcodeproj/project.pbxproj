@@ -33,6 +33,8 @@
 		APMV001A1B2C3D4E5F00001 /* AppMover.swift in Sources */ = {isa = PBXBuildFile; fileRef = APMV002A1B2C3D4E5F00002 /* AppMover.swift */; };
 		34B5998343653007912A518F /* DictationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B567B38180CCF6671C937237 /* DictationServiceTests.swift */; };
 		35B4A484A4E1D7230530A7D0 /* RetentionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB0296047884620F7222CFC0 /* RetentionService.swift */; };
+		SCRSHARE0001A1B2C3D4E5F0 /* ScreenSharingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCRSHARE0002A1B2C3D4E5F0 /* ScreenSharingPolicy.swift */; };
+		MEDIAKEY0001A1B2C3D4E5F0 /* MediaKeyInterceptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = MEDIAKEY0002A1B2C3D4E5F0 /* MediaKeyInterceptor.swift */; };
 		37378A6ABF6FF0A64E924EB5 /* URLExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12E503C55E4AD3245A630B37 /* URLExtractor.swift */; };
 		3EB8D6E02C178E831BFDF952 /* NotchHUDWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8605292AC765458362A6F424 /* NotchHUDWindowController.swift */; };
 		410D5B9026793F2904738A4B /* QuickPasteRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5497B7A683A649575231482 /* QuickPasteRouterTests.swift */; };
@@ -220,6 +222,8 @@
 		C97BC580878C88D99FE7AB2F /* CelebrateIfRecent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CelebrateIfRecent.swift; sourceTree = "<group>"; };
 		C97CDA86F6ECA5B63928EBC6 /* MarkdownTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextEditor.swift; sourceTree = "<group>"; };
 		CB0296047884620F7222CFC0 /* RetentionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetentionService.swift; sourceTree = "<group>"; };
+		SCRSHARE0002A1B2C3D4E5F0 /* ScreenSharingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenSharingPolicy.swift; sourceTree = "<group>"; };
+		MEDIAKEY0002A1B2C3D4E5F0 /* MediaKeyInterceptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaKeyInterceptor.swift; sourceTree = "<group>"; };
 		D047BF968A9B749E20E50F79 /* MultiFileDragSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiFileDragSource.swift; sourceTree = "<group>"; };
 		D17F08D84C04BB94F7E8254D /* ThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailCache.swift; sourceTree = "<group>"; };
 		D4B1A65817F2DD32A78B84F4 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
@@ -332,6 +336,8 @@
 				DE8C4545B6EB30E073A8D77E /* NoteStore.swift */,
 				0A9EC1A0C0928D65BA1DFF10 /* QuickPasteRouter.swift */,
 				CB0296047884620F7222CFC0 /* RetentionService.swift */,
+				SCRSHARE0002A1B2C3D4E5F0 /* ScreenSharingPolicy.swift */,
+				MEDIAKEY0002A1B2C3D4E5F0 /* MediaKeyInterceptor.swift */,
 				D17F08D84C04BB94F7E8254D /* ThumbnailCache.swift */,
 				105DAC9A68D37183682F6108 /* VideoDownloader.swift */,
 				8773562D010CDF53A5BA5E05 /* VideoDropScanner.swift */,
@@ -687,6 +693,8 @@
 				F7E642499638A8FFFF5DAB75 /* PowerSourceWatcher.swift in Sources */,
 				9BAF5EA26EBA659A88DB9369 /* QuickPasteRouter.swift in Sources */,
 				35B4A484A4E1D7230530A7D0 /* RetentionService.swift in Sources */,
+				SCRSHARE0001A1B2C3D4E5F0 /* ScreenSharingPolicy.swift in Sources */,
+				MEDIAKEY0001A1B2C3D4E5F0 /* MediaKeyInterceptor.swift in Sources */,
 				A9761E0D07D7B9244A40A158 /* SettingsWindow.swift in Sources */,
 				2A3E5F59B43C598866A4D112 /* SystemAudioWatcher.swift in Sources */,
 				AA00CAFE0001SVW000000001 /* SystemVolumeWatcher.swift in Sources */,
@@ -772,14 +780,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 18;
+				CURRENT_PROJECT_VERSION = 19;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = Notetaker/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.9.8;
+				MARKETING_VERSION = 1.9.9;
 				PRODUCT_BUNDLE_IDENTIFIER = app.trynox;
 				PRODUCT_NAME = nox;
 				SDKROOT = macosx;
@@ -810,14 +818,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 18;
+				CURRENT_PROJECT_VERSION = 19;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = Notetaker/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.9.8;
+				MARKETING_VERSION = 1.9.9;
 				PRODUCT_BUNDLE_IDENTIFIER = app.trynox;
 				PRODUCT_NAME = nox;
 				SDKROOT = macosx;

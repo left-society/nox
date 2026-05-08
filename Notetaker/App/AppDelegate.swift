@@ -87,6 +87,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// after the user stops adjusting; held-key tick spam re-pushes
     /// each tick which extends the visible window.
     var systemVolumeWatcher: SystemVolumeWatcher?
+    /// Timestamp of the most recent track change. Set whenever
+    /// `presenter.nowPlaying` is updated with a new title/artist
+    /// pair. Used to suppress the volume HUD for a brief window
+    /// after a track change — Spotify/Apple Music apps often
+    /// briefly dip system audio for crossfade or track-boundary
+    /// transitions, which fires our volume listener and pops the
+    /// HUD when the user just wanted to hear a new track.
+    private var lastTrackChangeTime: Date?
     /// Pending dismiss work-item for the volume banner. Held so a
     /// fresh volume change can cancel an in-flight dismiss and
     /// extend the visible window. Without this, if the user adjusts
@@ -370,6 +378,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.environment = env
             env.retentionService.start()
             env.bluetoothDeviceService.start()
+            // Volume-HUD takeover (idea borrowed from SuperIsland).
+            // Off by default — when the user flips Settings → General →
+            // "Replace system volume HUD", we install a CGEventTap on
+            // F10/F11/F12 that suppresses Apple's white overlay and
+            // mutates volume via CoreAudio. The interceptor handles
+            // the Accessibility-permission retry loop internally, so
+            // it's safe to call start() on every launch.
+            if UserDefaults.standard.bool(forKey: "replaceSystemVolumeHUD") {
+                MediaKeyInterceptor.shared.start()
+            }
             // One-shot retroactive tagging: re-classifies obvious
             // clipboard auto-saves (URLs, pure-digit snippets, short
             // single-token captures) from the legacy data so the
@@ -598,6 +616,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // doesn't draw over an active app surface).
                 if panel.presenter.isShown {
                     SystemVolumeWatcher.log("AppDelegate.onVolumeChange — ABORT slab is shown")
+                    return
+                }
+
+                // Suppress the HUD while the track-change banner is
+                // ACTIVELY SHOWING. The banner runs for ~3.5s and
+                // morphs the panel.frame to trackBannerFrame.
+                // Letting the volume HUD fire during this window
+                // would: (a) overwrite pendingSystemEvent from
+                // .trackChanged → .volumeChanged mid-banner, killing
+                // the banner content; (b) re-target the panel.frame
+                // mid-morph, producing the "glitch" the user sees.
+                //
+                // Two-layer check:
+                //   1. pendingSystemEvent is .trackChanged → banner
+                //      is on screen, suppress
+                //   2. Fallback: lastTrackChangeTime within 0.4s —
+                //      covers the very-brief crossfade dip where
+                //      the banner hasn't fired yet. Window short
+                //      enough that user volume taps right after
+                //      track-change land normally.
+                if case .trackChanged = panel.presenter.pendingSystemEvent {
+                    SystemVolumeWatcher.log("AppDelegate.onVolumeChange — ABORT track banner active")
+                    return
+                }
+                if let lastChange = self.lastTrackChangeTime,
+                   Date().timeIntervalSince(lastChange) < 0.4 {
+                    SystemVolumeWatcher.log("AppDelegate.onVolumeChange — ABORT crossfade dip window")
                     return
                 }
 
@@ -1519,6 +1564,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // artwork when it's changing the music and the
                     // thing expanding".
                     panel.presenter.bannerFromArtwork = panel.presenter.nowPlaying?.artworkData
+                }
+
+                // Detect track CHANGE (title or artist differs from
+                // the existing nowPlaying) so we can mark a suppress
+                // window for the volume HUD. Track boundaries often
+                // produce a brief system-audio dip (Spotify crossfade
+                // / app-driven volume ramp) that fires our volume
+                // listener and pops the HUD spuriously.
+                let prev = panel.presenter.nowPlaying
+                let isTrackChange = prev == nil
+                    || prev?.title != info.title
+                    || prev?.artist != info.artist
+                if isTrackChange {
+                    self.lastTrackChangeTime = Date()
                 }
 
                 panel.presenter.nowPlaying = info

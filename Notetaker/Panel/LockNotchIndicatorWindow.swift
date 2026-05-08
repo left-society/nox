@@ -164,6 +164,7 @@ final class LockNotchIndicatorController {
         panel.backgroundColor = .clear
         panel.hidesOnDeactivate = false
         panel.acceptsMouseMovedEvents = true
+        ScreenSharingPolicy.apply(to: panel)
 
         let host = LockNotchHostingView(
             rootView: LockNotchIndicatorView(hoverState: hoverState)

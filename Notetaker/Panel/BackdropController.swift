@@ -77,6 +77,7 @@ final class BackdropController {
 
         w.contentView = container
         self.window = w
+        ScreenSharingPolicy.apply(to: w)
     }
 
     /// Generation counter — incremented every time `setShown` is
