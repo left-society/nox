@@ -123,6 +123,18 @@ NESTED_BINS=(
   "$APP_PATH/Contents/Resources/bin/ffmpeg"
   "$APP_PATH/Contents/Resources/bin/yt-dlp"
 )
+# Helper-binary entitlements — disables library validation so
+# yt-dlp can dlopen its bundled (upstream-signed) Python.framework
+# at runtime. Without this, the user-reported "video downloading
+# not working on client side" bug from 1.9.10: notarization passed,
+# DMG installed clean, but yt-dlp died the moment it launched
+# because dyld refused to load Python with a different TeamID.
+# See nox-helpers.entitlements for the full backstory.
+HELPERS_ENTITLEMENTS="$ROOT/Notetaker/Resources/nox-helpers.entitlements"
+if [ ! -f "$HELPERS_ENTITLEMENTS" ]; then
+  echo "✗ helper entitlements file missing: $HELPERS_ENTITLEMENTS"
+  exit 1
+fi
 for bin in "${NESTED_BINS[@]}"; do
   if [ -f "$bin" ]; then
     echo "  ↳ sign nested: $(basename "$bin")"
@@ -130,6 +142,7 @@ for bin in "${NESTED_BINS[@]}"; do
       --sign "$SIGN_IDENTITY" \
       --options runtime \
       --timestamp \
+      --entitlements "$HELPERS_ENTITLEMENTS" \
       "$bin"
   fi
 done

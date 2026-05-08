@@ -131,6 +131,15 @@ struct PanelRootView: View {
     /// 7-day bar chart) and survives app restarts.
     @ObservedObject private var studyTracker = StudySessionTracker.shared
 
+    /// Pomodoro-style countdown timer bound to the active Focus
+    /// session. When `isActive`, the resting pill swaps the open-
+    /// ended HH:MM:SS count-up for a MM:SS countdown so the user
+    /// can glance at remaining time without opening the panel.
+    /// Paused state shows the countdown frozen at the remaining
+    /// value. Expired state falls through to the count-up label
+    /// (the celebration card lives inside the dashboard).
+    @ObservedObject private var focusTimer = FocusTimerService.shared
+
     /// True when the resting pill should swap to the focus
     /// pill content (aura + timer). Fires for EITHER source:
     ///   • `noxFocusMode` — nox's own toggle
@@ -2403,24 +2412,76 @@ struct PanelRootView: View {
             let modeLabel: String = activePillMode == .study ? "Study" : "Focus"
 
             TimelineView(.periodic(from: .now, by: 1.0)) { context in
-                if let start = effectiveStart {
-                    Text(formatPillFocusDuration(
-                        context.date.timeIntervalSince(start)
-                    ))
-                    .font(.system(size: 11.5, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                } else {
-                    Text(modeLabel)
-                        .font(.system(size: 11.5, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.92))
-                        .lineLimit(1)
-                }
+                pillTimerLabel(
+                    now: context.date,
+                    sessionStart: effectiveStart,
+                    fallback: modeLabel
+                )
             }
         }
         .padding(.horizontal, 10)
         .frame(height: notchOverlap)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Pill timer text, with priority order:
+    ///   1. **Active countdown timer** (Focus mode only, running or
+    ///      paused) → MM:SS remaining. Pause shows the same digits
+    ///      with a tiny ⏸ glyph + dimmer foreground so the user can
+    ///      tell at a glance whether time is still burning.
+    ///   2. **Open-ended session timer** → HH:MM:SS count-up since
+    ///      `sessionStart`. Default when no countdown is set.
+    ///   3. **Mode label** ("Focus" / "Study") → fallback when
+    ///      neither timer has a wall-clock anchor yet.
+    @ViewBuilder
+    private func pillTimerLabel(
+        now: Date, sessionStart: Date?, fallback: String
+    ) -> some View {
+        // Countdown takes priority over count-up — only Focus mode
+        // ever has a countdown attached (Study uses count-up only,
+        // since the Pomodoro timer is gated on Focus). Expired falls
+        // through to count-up so the celebration is visible only on
+        // the dashboard, not duplicated on the pill.
+        if activePillMode == .focus,
+           focusTimer.state == .running || focusTimer.state == .paused {
+            let remaining = focusTimer.remaining(now: now)
+            HStack(spacing: 3) {
+                if focusTimer.state == .paused {
+                    Image(systemName: "pause.fill")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+                Text(formatPillCountdown(remaining))
+                    .font(.system(size: 11.5, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(
+                        focusTimer.state == .paused
+                            ? .white.opacity(0.55) : .white
+                    )
+                    .lineLimit(1)
+            }
+        } else if let start = sessionStart {
+            Text(formatPillFocusDuration(now.timeIntervalSince(start)))
+                .font(.system(size: 11.5, weight: .semibold).monospacedDigit())
+                .foregroundStyle(.white)
+                .lineLimit(1)
+        } else {
+            Text(fallback)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineLimit(1)
+        }
+    }
+
+    /// MM:SS countdown formatter for the pill. Mirror of the
+    /// dashboard's `formatCountdown` — kept duplicated rather than
+    /// shared because the pill version is read-only (no need for
+    /// the live `LiveFocusDetailPanel` to import a separate
+    /// formatter just for this).
+    private func formatPillCountdown(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(ceil(seconds)))
+        let m = total / 60
+        let s = total % 60
+        return String(format: "%d:%02d", m, s)
     }
 
     /// Hybrid pill content: music + focus active simultaneously.
@@ -2500,8 +2561,40 @@ struct PanelRootView: View {
             }
             .frame(width: 14, height: 14)
 
-            TimelineView(.periodic(from: .now, by: 30)) { context in
-                if let start = effectiveStart {
+            // Tick at 1Hz when a countdown is running so MM:SS
+            // refreshes every second — the legacy 30s cadence was
+            // fine for HH:MM count-up (minutes only), but a
+            // countdown needs to show seconds advancing.
+            let tickInterval: TimeInterval = (
+                activePillMode == .focus
+                && (focusTimer.state == .running
+                    || focusTimer.state == .paused)
+            ) ? 1.0 : 30.0
+            TimelineView(.periodic(from: .now, by: tickInterval)) { context in
+                // Countdown takes priority over the count-up label
+                // so the user can glance at remaining time while
+                // music is playing, without opening the panel.
+                if activePillMode == .focus,
+                   focusTimer.state == .running
+                    || focusTimer.state == .paused {
+                    let remaining = focusTimer.remaining(now: context.date)
+                    HStack(spacing: 3) {
+                        if focusTimer.state == .paused {
+                            Image(systemName: "pause.fill")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.55))
+                        }
+                        Text(formatPillCountdown(remaining))
+                            .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                            .foregroundStyle(
+                                focusTimer.state == .paused
+                                    ? .white.opacity(0.55)
+                                    : .white.opacity(0.92)
+                            )
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                } else if let start = effectiveStart {
                     Text(focusElapsedLabel(since: start, now: context.date))
                         .font(.system(size: 11, weight: .semibold).monospacedDigit())
                         .foregroundStyle(.white.opacity(0.92))

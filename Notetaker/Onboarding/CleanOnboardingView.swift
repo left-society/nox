@@ -727,6 +727,39 @@ private struct PermissionRow: View {
     }
 
     private func requestCalendar() {
+        // Branch on current authorization status — same shape as
+        // requestMic() — so we route correctly when the user has
+        // already answered the system prompt before. Without this
+        // gate, calling `requestFullAccessToEvents` for an already-
+        // denied store returns `false` immediately WITHOUT showing
+        // any UI: from the user's POV the Allow button does
+        // nothing. (User report 2026-05-09: "in the onbording
+        // calander thing is not opening properly.")
+        let cur = EKEventStore.authorizationStatus(for: .event)
+        let alreadyGranted: Bool = {
+            if #available(macOS 14, *) {
+                return cur == .fullAccess || cur == .writeOnly || cur == .authorized
+            }
+            return cur == .authorized
+        }()
+        if alreadyGranted {
+            status = .granted
+            UserDefaults.standard.set(true, forKey: "showNextMeetingPill")
+            return
+        }
+        if cur == .denied || cur == .restricted {
+            // User previously denied — system won't re-prompt. Send
+            // them to the right Privacy pane so they can flip the
+            // toggle for nox manually. `Privacy_Calendars` is the
+            // correct anchor on Sonoma+ (note: plural; singular
+            // `Privacy_Calendar` opens System Settings to the wrong
+            // pane on some macOS revisions).
+            openSettings("Privacy_Calendars")
+            status = .denied
+            return
+        }
+        // .notDetermined — the only state where the system will
+        // actually surface a prompt.
         let store = EKEventStore()
         if #available(macOS 14, *) {
             store.requestFullAccessToEvents { granted, _ in

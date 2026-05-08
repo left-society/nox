@@ -2463,6 +2463,12 @@ struct LiveFocusDetailPanel: View {
     let onBack: () -> Void
 
     @ObservedObject private var tracker = FocusSessionTracker.shared
+    /// Pomodoro-style countdown timer for the active Focus session.
+    /// Drives the timer card between the hero and the stats grid —
+    /// idle state shows duration chips, running state shows the
+    /// big countdown + pause/stop, paused state freezes it,
+    /// expired state celebrates and offers "start another" chips.
+    @ObservedObject private var focusTimer = FocusTimerService.shared
     /// nox's own quiet-mode flag. Independent of macOS Focus —
     /// flipping this from the panel suppresses ambient pills
     /// (charger / screenshot / AirDrop / Bluetooth / track-change)
@@ -2484,9 +2490,15 @@ struct LiveFocusDetailPanel: View {
         // at the bottom. Every visible piece binds to data that
         // `FocusSessionTracker` actually emits, so this is a
         // truthful "what is Focus doing for me right now" view.
-        VStack(alignment: .leading, spacing: 8) {
+        // Outer spacing 7pt — slightly tighter than the 8pt the
+        // panel used pre-timer so the new chip strip + the existing
+        // hero/stats/controls breathe together rather than feeling
+        // stretched out vertically. (Going below 6 starts to feel
+        // crammed at the card padding scales we use.)
+        VStack(alignment: .leading, spacing: 7) {
             backRow
             heroCard
+            timerCard
             statsGrid
             controlsCard
             Spacer(minLength: 0)
@@ -2661,6 +2673,330 @@ struct LiveFocusDetailPanel: View {
         // / stroke / child transitions still animate cleanly.
         .animation(.spring(response: 0.34, dampingFraction: 0.78),
                    value: isInFocusState)
+    }
+
+    /// Pomodoro-style timer card sitting between the hero and the
+    /// stats grid. Four visual states share one card:
+    ///
+    ///   • **Idle** — "Set a timer" header + four duration chips
+    ///     (15/25/45/90 min). Tapping a chip auto-turns Focus on
+    ///     if it's off and starts the countdown.
+    ///   • **Running** — circular progress ring around a big MM:SS
+    ///     countdown, with Pause + Stop circle buttons. The ring
+    ///     fills clockwise from the top as the timer burns down.
+    ///   • **Paused** — same layout, ring/timer dimmed, "Paused"
+    ///     subtext. Pause toggles to Resume (▶ icon).
+    ///   • **Expired** — green check + "Time's up — start another?"
+    ///     header, the same chips for one-tap restart, and a "Done"
+    ///     pill that acknowledges the expiry and clears back to idle.
+    ///
+    /// Re-renders every 1s via `TimelineView` so the countdown ticks
+    /// without a manual setNeedsDisplay loop. The actual expiry
+    /// transition still happens inside `FocusTimerService` (which
+    /// runs its own 1Hz Foundation timer) — the view just reflects
+    /// what the service publishes, never drives state itself.
+    private var timerCard: some View {
+        TimelineView(.periodic(from: .now, by: 1.0)) { ctx in
+            timerCardContent(now: ctx.date)
+        }
+    }
+
+    @ViewBuilder
+    private func timerCardContent(now: Date) -> some View {
+        // Two visual treatments share one slot:
+        //
+        //   • Idle → compact horizontal CHIP STRIP, no card chrome.
+        //     Just a `timer` glyph + four duration chips. Sits in
+        //     the dashboard's flow as one of many rows, doesn't
+        //     dominate the panel before the user has even started
+        //     a timer. Saves ~50pt of vertical space vs the full
+        //     card treatment idle used to get.
+        //
+        //   • Running / paused / expired → full CARD with the
+        //     status badge, ring, controls. The prominent treatment
+        //     is reserved for when there's actually something to
+        //     glance at (countdown, paused state, celebration).
+        //
+        // The transition between strip ↔ card animates via the
+        // outer `.animation` modifier so starting/stopping a timer
+        // morphs gracefully rather than snapping.
+        Group {
+            switch focusTimer.state {
+            case .idle:
+                timerIdleStrip
+            case .running, .paused:
+                timerActiveCard {
+                    timerRunningContent(now: now)
+                }
+            case .expired:
+                timerActiveCard {
+                    timerExpiredContent
+                }
+            }
+        }
+        .animation(.spring(response: 0.34, dampingFraction: 0.78),
+                   value: focusTimer.state)
+    }
+
+    /// Compact idle treatment — a single row of chips with a
+    /// `timer` glyph + "Timer" label as the affordance. Sits inline
+    /// in the dashboard's flow at the same visual weight as the
+    /// controls row below it. Total height ~36pt.
+    ///
+    /// 2026-05-09 visibility pass: earlier values (bg 0.03, stroke
+    /// 0.05, chip-fill 0.22) faded into the dark panel — user
+    /// reported "timer and stuffs are not there" because the strip
+    /// was technically rendering but invisible. Bumped to bg 0.07,
+    /// stroke 0.10, chip-fill 0.38 so the strip reads as an obvious
+    /// UI element without overshooting and competing with the hero
+    /// or the controls card.
+    private var timerIdleStrip: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "timer")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(DS.Color.accent.opacity(0.85))
+            Text("Timer")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.70))
+                .padding(.trailing, 2)
+            ForEach([15, 25, 45, 90], id: \.self) { minutes in
+                durationChip(minutes: minutes)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.white.opacity(0.07))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
+                )
+        )
+    }
+
+    /// Full-card chrome for the active states (running / paused /
+    /// expired). Keeps the prominent treatment so the countdown is
+    /// glanceable from across the screen, but only when there's
+    /// real state to show.
+    @ViewBuilder
+    private func timerActiveCard<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text("TIMER")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundStyle(.white.opacity(0.45))
+                Spacer()
+                timerStatusChip
+            }
+            content()
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.white.opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(.white.opacity(0.06), lineWidth: 0.5)
+                )
+        )
+    }
+
+    /// Tiny status badge in the top-right corner of the card. Hidden
+    /// when idle (the chip row already implies "set a timer"), so
+    /// the badge only shows up when there's something running /
+    /// paused / done to report.
+    @ViewBuilder
+    private var timerStatusChip: some View {
+        switch focusTimer.state {
+        case .idle:
+            EmptyView()
+        case .running:
+            statusBadge(text: "RUNNING", tint: .green)
+        case .paused:
+            statusBadge(text: "PAUSED", tint: .yellow)
+        case .expired:
+            statusBadge(text: "DONE", tint: .green)
+        }
+    }
+
+    private func statusBadge(text: String, tint: Color) -> some View {
+        Text(text)
+            .font(.system(size: 9, weight: .bold))
+            .tracking(0.6)
+            .foregroundStyle(tint)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                Capsule().fill(tint.opacity(0.14))
+            )
+    }
+
+    /// Tap-to-start chip. Used by the idle strip + the expired
+    /// celebration row. Tapping any chip starts (or restarts) the
+    /// timer at that duration. Side effect: if Focus is currently
+    /// OFF, the chip flips it ON — starting a timer implies
+    /// "I'm committing to this block," and forgetting to also
+    /// enable Focus would mean the timer runs but ambient pills
+    /// aren't suppressed.
+    private func durationChip(minutes: Int) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                if !noxFocusMode { noxFocusMode = true }
+                focusTimer.start(duration: TimeInterval(minutes * 60))
+            }
+        } label: {
+            Text("\(minutes)m")
+                .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                .foregroundStyle(.white)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule()
+                        .fill(DS.Color.accent.opacity(0.38))
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(DS.Color.accent.opacity(0.65),
+                                              lineWidth: 0.5)
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Running + paused share the same layout — only the ring/timer
+    /// opacity and the play-vs-pause icon differ. Keeping them in
+    /// one branch avoids the layout flicker you'd get from two
+    /// separate ViewBuilders being swapped.
+    @ViewBuilder
+    private func timerRunningContent(now: Date) -> some View {
+        let remaining = focusTimer.remaining(now: now)
+        let progress = focusTimer.progress(now: now)
+        let paused = focusTimer.state == .paused
+
+        HStack(spacing: 14) {
+            // Circular progress ring + countdown digits.
+            ZStack {
+                Circle()
+                    .stroke(.white.opacity(0.08), lineWidth: 4)
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(
+                        DS.Color.accent.opacity(paused ? 0.45 : 0.95),
+                        style: StrokeStyle(lineWidth: 4, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .animation(.linear(duration: 0.5), value: progress)
+                Text(formatCountdown(remaining))
+                    .font(.system(size: 13, weight: .bold).monospacedDigit())
+                    .foregroundStyle(paused ? .white.opacity(0.55) : .white)
+            }
+            .frame(width: 56, height: 56)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(formatCountdown(remaining))
+                    .font(.system(size: 22, weight: .bold).monospacedDigit())
+                    .foregroundStyle(paused ? .white.opacity(0.55) : .white)
+                    .lineLimit(1)
+                Text(paused ? "Paused" : "remaining")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.45))
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 4)
+
+            // Pause/Resume + Stop. Two circular icon buttons; the
+            // primary action (pause/resume) gets the accent fill
+            // so the user's eye lands on it first.
+            HStack(spacing: 8) {
+                Button {
+                    if paused {
+                        focusTimer.resume()
+                    } else {
+                        focusTimer.pause()
+                    }
+                } label: {
+                    Image(systemName: paused ? "play.fill" : "pause.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(
+                            Circle().fill(DS.Color.accent.opacity(0.55))
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(paused ? "Resume timer" : "Pause timer")
+
+                Button {
+                    focusTimer.stop()
+                } label: {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .frame(width: 30, height: 30)
+                        .background(
+                            Circle().fill(.white.opacity(0.10))
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop timer")
+            }
+        }
+    }
+
+    /// Expired — celebration + duration chips for one-tap restart
+    /// + "Done" to acknowledge and clear the card back to idle.
+    /// The chime/notification fire from inside `FocusTimerService`
+    /// at the moment of expiry; this view just renders the resting
+    /// celebration state until the user dismisses it.
+    private var timerExpiredContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.green)
+                Text("Time's up — start another?")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            HStack(spacing: 6) {
+                ForEach([15, 25, 45, 90], id: \.self) { minutes in
+                    durationChip(minutes: minutes)
+                }
+                Spacer(minLength: 0)
+                Button {
+                    focusTimer.acknowledge()
+                } label: {
+                    Text("Done")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            Capsule().fill(.white.opacity(0.08))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// MM:SS — used for both the small ring digits and the big
+    /// countdown text. Ceil so a sub-second tail (0.4s left) reads
+    /// as "0:01" not "0:00", which would feel like the timer hit
+    /// zero a second early.
+    private func formatCountdown(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(ceil(seconds)))
+        let m = total / 60
+        let s = total % 60
+        return String(format: "%d:%02d", m, s)
     }
 
     /// Two-tile stats grid — TOTAL · TODAY (left) and THIS WEEK

@@ -212,6 +212,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // without an intervening transition are no-ops.
         StudySessionTracker.shared.handleStudyStateChanged(active: studyOn)
 
+        // Focus countdown timer auto-cleanup. Turning Focus OFF
+        // mid-timer (via toggle or macOS Focus falling edge) stops
+        // the running/paused/expired timer rather than leaving it
+        // dangling. The timer is conceptually a SUB-feature of a
+        // Focus session — without an active session it has no
+        // surface to live in.
+        if !(muteByQuiet || muteByFocus)
+            && FocusTimerService.shared.isActive {
+            FocusTimerService.shared.stop()
+        }
+
         // Resting-pill lifecycle. When quiet is active and there's
         // no music to anchor a pill, our quiet-mode state IS the
         // anchor — so the pill stays visible as a persistent
@@ -637,6 +648,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             timerCancellables.insert(cancellable)
             timerService = timer
+
+            // Focus countdown timer (Pomodoro-style, in-Focus-only).
+            // Distinct from `TimerService` above (which observes the
+            // macOS Clock app's timer) — this one is fully internal,
+            // bound to a Focus session, with pause/resume controls
+            // and persistence across app restart.
+            //
+            // Wire `onExpire` so the panel "vibrates" (its standard
+            // event-morph cycle) when a timer hits zero. We push a
+            // `.timerFinished` system event, which causes the panel
+            // to expand → display the Timer-finished pill → retract.
+            // Same surface treatment as the macOS-Clock-bound
+            // TimerService for visual consistency.
+            FocusTimerService.shared.onExpire = { [weak self] in
+                guard let panel = self?.panelController else { return }
+                panel.enterRestingMode()
+                panel.presenter.setPendingSystemEvent(.timerFinished)
+                // The chime itself is fired inside FocusTimerService
+                // (NSSound Glass) — keeping it there means the
+                // service stays self-contained for headless use.
+            }
 
             // Focus/DND auto-hide. Spin up the watcher in idle
             // mode — we don't request authorization until the user

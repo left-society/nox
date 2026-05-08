@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Hardened-runtime entitlements for nested helper binaries
+         (yt-dlp, ffmpeg). yt-dlp is a PyInstaller bundle that
+         extracts an upstream-signed Python.framework at runtime
+         and dlopens it. Without library-validation disabled here,
+         dyld rejects the upstream framework on Team-ID mismatch
+         and yt-dlp dies the moment a user clicks Download.
+
+         Note: comment text avoids the literal double-dash sequence
+         because Apple's AMFI XML parser treats it as a syntax error
+         even inside a comment, even though XML 1.0 only forbids it
+         immediately before the closing tag. Learned the hard way
+         when a 1.9.11 build refused to sign with that pattern. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

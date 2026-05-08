@@ -184,6 +184,16 @@ final class PanelWindowController {
     /// 240 → 220 across many rounds of eyeballed A/B comparison before
     /// we measured pixels and discovered the right answer was 259.
     static let closedPillWidth: CGFloat = 278
+
+    /// Closed-pill width on **non-notched (external) displays.**
+    /// Smaller than the notched `closedPillWidth` because there's
+    /// no notch hardware to span around — content packs into a
+    /// single tight row instead of left+right wings. 200pt fits
+    /// the music pill's compact packing (artwork + title + small
+    /// waveform) with comfortable horizontal breathing room, and
+    /// reads as a clear floating chip below the menu bar rather
+    /// than as a wide bar trying to mimic a notch that isn't there.
+    static let externalClosedPillWidth: CGFloat = 200
     /// Extra width added to the resting pill while `presenter.isFocused`
     /// is true, to fit the divider + "Focus" text + moon glyph that
     /// musicPillContent renders during Focus / DND.
@@ -532,11 +542,43 @@ final class PanelWindowController {
 
     weak var menuBarController: MenuBarController?
 
+    // MARK: - Multi-display state
+    //
+    // The panel is a never-key floating NSPanel, which makes
+    // `NSScreen.main` ("the screen with the key window") the WRONG
+    // anchor on multi-monitor setups — it follows whatever app the
+    // user is in, not where the user actually wants the panel. We
+    // resolve our own "active screen" instead and route every frame
+    // computation through it.
+    //
+    // Update sites:
+    //   • init — first read of cursor's screen at launch
+    //   • show() — re-resolve at every invocation so the panel lands
+    //     where the cursor is at that moment (hotkey, click, hover)
+    //   • didChangeScreenParameters — display reconfigure (plug,
+    //     unplug, lid close/open, resolution change)
+    //
+    // Read by every NSScreen-consuming call site below, replacing
+    // the previous `?? NSScreen.main` fallbacks.
+    private var activeScreen: NSScreen
+    private var displayObserver: NSObjectProtocol?
+
     init(environment: AppEnvironment) {
         self.environment = environment
         let presenter = PanelPresenter()
         self.presenter = presenter
-        let size = PanelWindowController.panelSize(for: NSScreen.main)
+        // Cache the cursor's screen at launch. NSScreen.main is the
+        // fallback for the very rare case where NSEvent.mouseLocation
+        // is in limbo between displays at exactly this moment. Use a
+        // local var so the init body can refer to it before the rest
+        // of self's stored properties (panel, etc.) are initialized.
+        let initialScreen = (
+            NSScreen.screens.first(where: {
+                $0.frame.contains(NSEvent.mouseLocation)
+            }) ?? NSScreen.main ?? NSScreen.screens.first!
+        )
+        self.activeScreen = initialScreen
+        let size = PanelWindowController.panelSize(for: initialScreen)
         let contentRect = NSRect(origin: .zero, size: size)
 
         // .borderless instead of .titled: every notch-HUD reference
@@ -891,6 +933,16 @@ final class PanelWindowController {
                     self.dismissTeleprompterPill()
                 }
             }
+
+        // Display reconfigure — plug/unplug, lid open/close, resolution
+        // change. Migration logic lives in handleDisplayReconfigure().
+        setupDisplayObservers()
+    }
+
+    deinit {
+        if let observer = displayObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     private var shadowStateSubscription: AnyCancellable?
@@ -1517,11 +1569,15 @@ final class PanelWindowController {
         // opens — on multi-display setups NSScreen.main is "the screen
         // with the key window," which can be a different display than
         // the one whose notch the user just hovered. For click-mode
-        // opens (hotkey, menu bar) NSScreen.main is the right answer
-        // (panel follows the focused app). The screen choice flows
-        // through every frame calculation below, so resting-pill and
-        // slab geometry both land on the right notch.
-        let screen = (mode == .hover ? screenContainingCursor() : nil) ?? NSScreen.main
+        // opens (hotkey, menu bar) we use `activeScreen` (the cursor's
+        // screen) — gives "panel follows where I'm looking" semantics.
+        // The screen choice flows through every frame calculation
+        // below, so resting-pill and slab geometry both land on the
+        // right display. resolveActiveScreen() also updates the
+        // cached `activeScreen` so subsequent transient pills land
+        // on the same display.
+        let screen = (mode == .hover ? screenContainingCursor() : nil)
+            ?? resolveActiveScreen()
         let pillFrame = closedPillFrame(for: screen)
         let slabFrame = openSlabFrame(for: screen, tab: presenter.activeTab)
 
@@ -1882,7 +1938,7 @@ final class PanelWindowController {
         //   on the target: dive+recoil for pill (visible landing
         //   beat), single ease-out shrink with alpha fade for the
         //   notch-hidden case (no recoil — there's nothing to land at).
-        let screen = panel.screen ?? NSScreen.main
+        let screen = panel.screen ?? activeScreen
         // Pick the close target. Anchored state (music / Focus /
         // nox quiet) keeps the pill open at closedPillFrame —
         // mirrored in the animateClose completion handler so the
@@ -1983,8 +2039,8 @@ final class PanelWindowController {
         // by smaller pill — we need separate one for this so it
         // opens from this position."
         if presenter.isResting && presenter.nowPlaying != nil {
-            let screen = screenContainingCursor() ?? NSScreen.main
-            let frame = screen?.frame ?? .zero
+            let screen = screenContainingCursor() ?? activeScreen
+            let frame = screen.frame
             let overlap = PanelWindowController.notchOverlap(for: screen)
             let halo = PanelWindowController.haloPadding
             // baseRestingFrame already includes halo padding +
@@ -2005,7 +2061,7 @@ final class PanelWindowController {
         // notch entry), so resolve the cursor's screen rather than the
         // key-window screen — otherwise on multi-display the tease
         // would bloom from the wrong notch.
-        let screen = screenContainingCursor() ?? NSScreen.main
+        let screen = screenContainingCursor() ?? activeScreen
         let teaseFrame = teasePillFrame(for: screen)
 
         // Decide the START frame for the tease spring:
@@ -2065,7 +2121,7 @@ final class PanelWindowController {
         guard isTeasing else { return }
         isTeasing = false
 
-        let screen = panel.screen ?? NSScreen.main
+        let screen = panel.screen ?? activeScreen
         // CRITICAL bug fixed 2026-05-06: was unconditionally retracting
         // to `closedPillFrame` which is the MUSIC pill geometry
         // (278pt wide). In no-music state this caused the panel to
@@ -2269,6 +2325,89 @@ final class PanelWindowController {
         return NSScreen.screens.first(where: { $0.frame.contains(p) })
     }
 
+    /// Re-resolve the panel's active screen using the cursor's
+    /// current location. Updates `self.activeScreen` and returns it.
+    /// Falls through cursor → NSScreen.main → first available so it
+    /// never returns a screen that's been disconnected.
+    @discardableResult
+    private func resolveActiveScreen() -> NSScreen {
+        let resolved = screenContainingCursor()
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+            ?? activeScreen
+        activeScreen = resolved
+        // Push notched-ness into the presenter so SwiftUI pill
+        // content can adapt its layout (wings vs centered) without
+        // having to query NSScreen directly. @Published auto-emits
+        // a re-render only when the value changes.
+        let isNotched = Self.isNotchedDisplay(resolved)
+        if presenter.isOnNotchedScreen != isNotched {
+            presenter.isOnNotchedScreen = isNotched
+        }
+        return resolved
+    }
+
+    /// True iff `screen` has notch hardware — i.e. its
+    /// `safeAreaInsets.top` is non-zero. Equivalent to "this is an
+    /// M-series MacBook built-in display." Used by the closed-pill
+    /// geometry + content layout to switch between the wing-around-
+    /// notch treatment (notched) and the centered compact treatment
+    /// (external monitor / non-notched display).
+    static func isNotchedDisplay(_ screen: NSScreen?) -> Bool {
+        ((screen ?? NSScreen.main)?.safeAreaInsets.top ?? 0) > 0
+    }
+
+    /// Register for `didChangeScreenParametersNotification` so the
+    /// panel migrates correctly when the user plugs/unplugs an
+    /// external display, closes the lid (clamshell mode), or changes
+    /// resolution. Called once from init.
+    private func setupDisplayObservers() {
+        displayObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleDisplayReconfigure()
+            }
+        }
+    }
+
+    /// Handle plug/unplug/lid/resolution change. We re-resolve the
+    /// active screen and, if the panel is currently visible on a
+    /// now-disconnected display OR if the active screen changed
+    /// underneath us, snap the panel to the appropriate frame on
+    /// the new active screen.
+    ///
+    /// Snap, not animate — animating across screen boundaries is
+    /// buggy (the window flickers as it crosses the coordinate-space
+    /// gap between screens) and display reconfigures are rare enough
+    /// that an instant cut is fine.
+    @MainActor
+    private func handleDisplayReconfigure() {
+        let oldScreen = activeScreen
+        let newScreen = resolveActiveScreen()
+        let panelScreenAlive = panel.screen != nil
+        let activeChanged = (oldScreen !== newScreen)
+        // Migrate if either: panel's current screen is gone, OR the
+        // active screen the user expects has shifted (e.g. they
+        // closed the lid, so what was "external" is now "primary").
+        guard !panelScreenAlive || activeChanged else { return }
+
+        // Skip migration when the panel is hidden — the next show()
+        // will re-resolve naturally. This also avoids a teardown
+        // race if the panel is mid-close-animation.
+        guard panel.isVisible else { return }
+
+        let target: NSRect
+        if presenter.isResting {
+            target = closedPillFrame(for: newScreen)
+        } else {
+            target = openSlabFrame(for: newScreen, tab: presenter.activeTab)
+        }
+        panel.setFrame(target, display: true)
+    }
+
     // MARK: - Morph frames
 
     /// Closed-pill frame: a 200pt-wide bump centered horizontally below
@@ -2307,8 +2446,20 @@ final class PanelWindowController {
         // also playing, so the side-by-side music + indicator
         // layout has room.
         let modeActive = noxFocus || noxStudy || (presenter.isFocused && respectFocus)
-        let bonus = (hasMusic && modeActive) ? Self.focusPillExtraWidth : 0
-        let width = PanelWindowController.closedPillWidth + bonus + 2 * halo
+        // Notched displays span around the notch hardware (wing
+        // layout). External displays use a compact centered pill
+        // (single-row content packed tight), so the base width
+        // is smaller and we skip the focus-indicator bonus
+        // because the no-wing content layout doesn't need the
+        // extra horizontal headroom.
+        let isNotched = PanelWindowController.isNotchedDisplay(screen)
+        let baseWidth = isNotched
+            ? PanelWindowController.closedPillWidth
+            : PanelWindowController.externalClosedPillWidth
+        let bonus = (isNotched && hasMusic && modeActive)
+            ? Self.focusPillExtraWidth
+            : 0
+        let width = baseWidth + bonus + 2 * halo
         return NSRect(
             x: frame.midX - width / 2,
             y: frame.maxY - height,
@@ -2340,7 +2491,7 @@ final class PanelWindowController {
         if isVisible { return }     // panel is in slab/expanded — leave it
         if isTeasing { return }
 
-        let screen = panel.screen ?? NSScreen.main
+        let screen = panel.screen ?? activeScreen
         // Pick the right resting target — same logic as
         // enterRestingMode. When isFocused / noxQuietMode flips
         // and we're already resting, we morph between music-pill /
@@ -2660,7 +2811,7 @@ final class PanelWindowController {
         guard isVisible else { return }
         // Skip if the tab change didn't actually require a height change
         // (e.g., notes→images→files all use the same default height).
-        let screen = panel.screen ?? NSScreen.main
+        let screen = panel.screen ?? activeScreen
         let target = openSlabFrame(for: screen, tab: newTab)
         if panel.frame == target { return }
 
@@ -3159,7 +3310,7 @@ final class PanelWindowController {
     ///
     /// Idempotent — safe to call repeatedly.
     func parkAtNotchHidden() {
-        let screen = NSScreen.main
+        let screen = activeScreen
         let target = notchHiddenFrame(for: screen)
         panel.setFrame(target, display: false)
         panel.alphaValue = 1
@@ -3214,10 +3365,9 @@ final class PanelWindowController {
 
         // Capture original geometry so we can restore exactly.
         let originalFrame = panel.frame
-        guard let screen = panel.screen ?? NSScreen.main else {
-            DictationOrchestrator.dlog("🔥 prewarm ABORT — no screen")
-            return
-        }
+        // `panel.screen` is Optional but `activeScreen` is not, so the
+        // OR resolves to a non-Optional NSScreen — no guard needed.
+        let screen = panel.screen ?? activeScreen
         let slabFrame = openSlabFrame(for: screen, tab: presenter.activeTab)
 
         // 1) Hide the panel (alpha=0). The window stays alive for
@@ -3281,7 +3431,7 @@ final class PanelWindowController {
         // visible after the morph settles.
         if isTeasing { return }
 
-        let screen = NSScreen.main
+        let screen = activeScreen
         // CHOOSE PILL GEOMETRY based on music state:
         //   • Music playing → music pill (302pt × 44pt) so the
         //     artwork+waveform+transient overlays have room
@@ -3396,7 +3546,7 @@ final class PanelWindowController {
         //
         // Mirror the enterRestingMode entrance: spring shrink from
         // current frame back to notch-hidden geometry.
-        let screen = panel.screen ?? NSScreen.main
+        let screen = panel.screen ?? activeScreen
         let target = notchHiddenFrame(for: screen)
         let start = panel.frame
         currentSpring?.cancel()
@@ -3437,7 +3587,7 @@ final class PanelWindowController {
         if isVisible { return }
         if isTeasing { return }
 
-        let screen = panel.screen ?? NSScreen.main
+        let screen = panel.screen ?? activeScreen
         let target = trackBannerFrame(for: screen)
         let start = panel.frame
         if start == target { return }
@@ -3547,7 +3697,7 @@ final class PanelWindowController {
             return
         }
 
-        let screen = panel.screen ?? NSScreen.main
+        let screen = panel.screen ?? activeScreen
         let target: NSRect = (presenter.nowPlaying != nil)
             ? closedPillFrame(for: screen)
             : transientPillFrame(for: screen)
@@ -3661,7 +3811,7 @@ final class PanelWindowController {
         if isVisible { return }
         if isTeasing { return }
 
-        let screen = panel.screen ?? NSScreen.main
+        let screen = panel.screen ?? activeScreen
         let target = volumeBannerFrame(for: screen)
         let start = panel.frame
         if start == target { return }
@@ -3777,7 +3927,7 @@ final class PanelWindowController {
             return
         }
 
-        let screen = panel.screen ?? NSScreen.main
+        let screen = panel.screen ?? activeScreen
         let target: NSRect = (presenter.nowPlaying != nil)
             ? closedPillFrame(for: screen)
             : transientPillFrame(for: screen)
@@ -3920,7 +4070,7 @@ final class PanelWindowController {
         // pill content shouldn't outlive the morph.
         presenter.teleprompterPillVisible = false
 
-        let screen = panel.screen ?? NSScreen.main
+        let screen = panel.screen ?? activeScreen
         let noxQuiet = UserDefaults.standard.bool(forKey: "noxFocusMode")
         let noxStudy = UserDefaults.standard.bool(forKey: "noxStudyMode")
         let target: NSRect = {
@@ -4001,7 +4151,7 @@ final class PanelWindowController {
     /// Inner morph step — assumes panel is at resting (no slab) and
     /// just animates frame + shadow path to teleprompter geometry.
     private func morphIntoTeleprompterFrame() {
-        let screen = panel.screen ?? NSScreen.main
+        let screen = panel.screen ?? activeScreen
         let target = teleprompterPillFrame(for: screen)
         let start = panel.frame
         if start == target { return }
@@ -4248,7 +4398,10 @@ final class SpringFrameAnimator: NSObject {
         self.startWallTime = CACurrentMediaTime()
         if #available(macOS 14.0, *) {
             // Prefer the screen the panel is on so the displayLink
-            // is bound to that display's vsync timer.
+            // is bound to that display's vsync timer. SpringAnimator
+            // is its own class — no PanelWindowController context, so
+            // we fall back to NSScreen.main here rather than the
+            // controller's resolved activeScreen.
             let screen = panel.screen ?? NSScreen.main
             if let link = screen?.displayLink(target: self, selector: #selector(tickFromDisplayLink)) {
                 // 2026-05-04: lock to 60Hz instead of letting

@@ -101,7 +101,17 @@ final class BackdropController {
 
     /// Cross-fade the scrim. Duration matches the panel-frame morph
     /// so the dim arrives with the slab and leaves with it.
-    func setShown(_ shown: Bool, duration: TimeInterval) {
+    ///
+    /// `screen` should be the panel's active screen — usually
+    /// PanelWindowController's `activeScreen`, the cursor's display
+    /// at invocation time. Without this parameter we'd fall back to
+    /// `NSScreen.main` (the key window's screen), which on multi-
+    /// display setups can land the scrim on a DIFFERENT display
+    /// from the panel — leaving the panel's screen un-dimmed while
+    /// some unrelated display gets a mystery scrim.
+    func setShown(_ shown: Bool,
+                  duration: TimeInterval,
+                  screen: NSScreen? = nil) {
         generation &+= 1
         let myGen = generation
         lastShown = shown
@@ -111,9 +121,13 @@ final class BackdropController {
             // screen before animating its alpha.
             window.orderFront(nil)
             // Ensure the frame matches the current screen bounds —
-            // user might have moved the panel between screens.
-            if let screen = NSScreen.main {
-                window.setFrame(screen.frame, display: false)
+            // user might have moved the panel between screens, OR
+            // an external display might have just been plugged/
+            // unplugged. Prefer the explicitly-passed screen (panel's
+            // active display); fall back to NSScreen.main if not
+            // provided.
+            if let target = screen ?? NSScreen.main {
+                window.setFrame(target.frame, display: false)
             }
         }
         NSAnimationContext.runAnimationGroup({ ctx in

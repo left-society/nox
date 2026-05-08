@@ -55,6 +55,7 @@
 		640131856A47354072120A76 /* FocusStatusService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F2BCA1A49368682B2BD7E7D /* FocusStatusService.swift */; };
 		FCST01001A2B3C4D5E6F0123 /* FocusSessionTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCST02001A2B3C4D5E6F0123 /* FocusSessionTracker.swift */; };
 		STSESSTRK001A2B3C4D5 /* StudySessionTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = STSESSTRK002A2B3C4D5 /* StudySessionTracker.swift */; };
+		FCTIMSRV001A2B3C4D5 /* FocusTimerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCTIMSRV002A2B3C4D5 /* FocusTimerService.swift */; };
 		FSB101A1B2C3D4E5F022468A /* FocusShortcutBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FSB201A1B2C3D4E5F022468B /* FocusShortcutBridge.swift */; };
 		64E1146E44882F7E940B0274 /* ClipboardService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FB98CADB6E11EE3D5131617 /* ClipboardService.swift */; };
 		65BE75628A3DC39F43A16DCA /* NotetakerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F828A81402E3514A29BEF54D /* NotetakerTests.swift */; };
@@ -176,6 +177,7 @@
 		4F2BCA1A49368682B2BD7E7D /* FocusStatusService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FocusStatusService.swift; sourceTree = "<group>"; };
 		FCST02001A2B3C4D5E6F0123 /* FocusSessionTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusSessionTracker.swift; sourceTree = "<group>"; };
 		STSESSTRK002A2B3C4D5 /* StudySessionTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudySessionTracker.swift; sourceTree = "<group>"; };
+		FCTIMSRV002A2B3C4D5 /* FocusTimerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusTimerService.swift; sourceTree = "<group>"; };
 		FSB201A1B2C3D4E5F022468B /* FocusShortcutBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusShortcutBridge.swift; sourceTree = "<group>"; };
 		52506B59D6695A520BAEC7B9 /* Animations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Animations.swift; sourceTree = "<group>"; };
 		52A9278F762CE0169AD6F820 /* DictationPasteHelper.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DictationPasteHelper.swift; sourceTree = "<group>"; };
@@ -366,6 +368,7 @@
 				4F2BCA1A49368682B2BD7E7D /* FocusStatusService.swift */,
 				FCST02001A2B3C4D5E6F0123 /* FocusSessionTracker.swift */,
 				STSESSTRK002A2B3C4D5 /* StudySessionTracker.swift */,
+				FCTIMSRV002A2B3C4D5 /* FocusTimerService.swift */,
 				FSB201A1B2C3D4E5F022468B /* FocusShortcutBridge.swift */,
 				093DDA8096D13E59AB52F32F /* CalendarMonitorService.swift */,
 				A0F3E921997B51884CEAE8A2 /* AirDropWatcher.swift */,
@@ -753,6 +756,7 @@
 				640131856A47354072120A76 /* FocusStatusService.swift in Sources */,
 				FCST01001A2B3C4D5E6F0123 /* FocusSessionTracker.swift in Sources */,
 				STSESSTRK001A2B3C4D5 /* StudySessionTracker.swift in Sources */,
+				FCTIMSRV001A2B3C4D5 /* FocusTimerService.swift in Sources */,
 				FSB101A1B2C3D4E5F022468A /* FocusShortcutBridge.swift in Sources */,
 				F194E37B475B78DA73FECAC4 /* CalendarMonitorService.swift in Sources */,
 				2B531DBFBCF834B5DB23439C /* AirDropWatcher.swift in Sources */,
@@ -816,14 +820,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20;
+				CURRENT_PROJECT_VERSION = 21;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = Notetaker/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.9.10;
+				MARKETING_VERSION = 1.9.11;
 				PRODUCT_BUNDLE_IDENTIFIER = app.trynox;
 				PRODUCT_NAME = nox;
 				SDKROOT = macosx;
@@ -854,14 +858,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20;
+				CURRENT_PROJECT_VERSION = 21;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = Notetaker/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.9.10;
+				MARKETING_VERSION = 1.9.11;
 				PRODUCT_BUNDLE_IDENTIFIER = app.trynox;
 				PRODUCT_NAME = nox;
 				SDKROOT = macosx;

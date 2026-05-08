@@ -151,6 +151,20 @@ final class PanelPresenter: ObservableObject {
     /// silhouette morphs smoothly during the expand animation.
     @Published var isResting: Bool = false
 
+    /// True iff the screen the panel is currently hosted on has notch
+    /// hardware (built-in MacBook display, M-series). False on
+    /// external monitors, sidecar iPads, lid-closed clamshell setups.
+    /// Drives the resting-pill content layout — notched displays use
+    /// the wing-around-notch pattern (left + Spacer + right), non-
+    /// notched use a centered packed single-row layout.
+    ///
+    /// Updated by PanelWindowController whenever `activeScreen`
+    /// changes: at init, at every show(), and on display reconfigure.
+    /// Default true because the overwhelming majority of nox users
+    /// are on a notched MacBook — gets the right answer at first
+    /// render before the controller has had a chance to push.
+    @Published var isOnNotchedScreen: Bool = true
+
     /// True when the panel has parked at notch-hidden geometry (no-music
     /// close target — 185×32, sized to the hardware notch). Used by
     /// PanelRootView to render a PROPORTIONALLY SCALED music-pill
