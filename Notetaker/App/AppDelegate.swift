@@ -524,6 +524,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .removeDuplicates()
                 .sink { [weak self] isFocused in
                     self?.panelController?.presenter.isFocused = isFocused
+                    // Re-morph the resting pill to its current
+                    // closedPillFrame width so the panel grows /
+                    // shrinks alongside the SwiftUI Focus cluster
+                    // appearing / disappearing inside it. No-op if
+                    // the panel isn't currently at resting (slab
+                    // open / transient banner showing).
+                    self?.panelController?.morphRestingFrameForFocusChange()
                 }
             // If we already have authorization from a prior session,
             // sync the initial state into the presenter so the very

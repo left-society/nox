@@ -2250,29 +2250,54 @@ struct PanelRootView: View {
                 .scaleEffect(x: waveformPulse, y: 1, anchor: .trailing)
                 .transition(.opacity)
             }
-            // Focus-mode indicator. When the system Focus / DND is on
-            // and we have authorization to read it, show a subtle moon
-            // glyph at the trailing edge of the pill. The suppression
-            // logic (PanelPresenter.setPendingSystemEvent) already
-            // hides ambient pills like charger / screenshot during
-            // Focus — this indicator just tells the user "yes, nox
-            // sees your Focus is on and is being quiet about it."
+            // Focus-mode group (layout option 8 from
+            // docs/focus-indicator-layouts.html): when the system
+            // Focus / DND is on and we have authorization to read
+            // it, render an explicit "Focus" cluster after the
+            // waveform — divider + moon + label.
             //
-            // Sized 10pt + 0.55 opacity so it reads as a status hint,
-            // not a primary element. Doesn't replace the waveform —
-            // sits alongside it. Fade-in/out via the .animation
-            // modifier on `value: presenter.isFocused` below.
+            // Suppression of ambient pills (charger / screenshot /
+            // Bluetooth) is handled by PanelPresenter.setPendingSystemEvent.
+            // This cluster is the visible counterpart that tells the
+            // user "yes, nox sees your Focus is on."
+            //
+            // The host pill widens by `focusPillExtraWidth` (50pt) via
+            // PanelWindowController.morphRestingFrameForFocusChange()
+            // so this content has room without crowding the waveform.
+            // Fade-in/out via the .animation(value: presenter.isFocused)
+            // modifier below — synced with the panel.frame morph.
             if presenter.isFocused {
+                // Vertical hairline divider, separates "current
+                // playback" content from "Focus status" content.
+                Rectangle()
+                    .fill(.white.opacity(0.18))
+                    .frame(width: 1, height: 12)
+                    .transition(.opacity)
                 Image(systemName: "moon.fill")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .transition(.opacity)
+                Text("Focus")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .kerning(0.2)
+                    .lineLimit(1)
+                    .fixedSize()
                     .transition(.opacity)
                     .accessibilityLabel("Focus mode is on")
                     .accessibilityHint("Non-essential pings are paused")
             }
         }
         .animation(.easeInOut(duration: 0.20), value: hasAnyAudio)
-        .animation(.easeInOut(duration: 0.25), value: presenter.isFocused)
+        // Match PanelWindowController.morphRestingFrameForFocusChange's
+        // 0.30s out-quint curve EXACTLY so the SwiftUI fade-in/out of
+        // the divider+moon+"Focus" text lands on the same beat as the
+        // panel.frame grow/shrink. Mismatched curves at the same
+        // duration tick at different speeds at the midpoint and look
+        // staggered (same fix as the .timingCurve in the pill swap
+        // animation lower in this file).
+        .animation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.30),
+                   value: presenter.isFocused)
         // Swipe-to-skip chevron hints. As the user drags past the
         // skip threshold, a chevron arrow fades in on the side
         // OPPOSITE the drag direction — i.e., dragging right

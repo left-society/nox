@@ -184,6 +184,19 @@ final class PanelWindowController {
     /// 240 → 220 across many rounds of eyeballed A/B comparison before
     /// we measured pixels and discovered the right answer was 259.
     static let closedPillWidth: CGFloat = 278
+    /// Extra width added to the resting pill while `presenter.isFocused`
+    /// is true, to fit the divider + "Focus" text + moon glyph that
+    /// musicPillContent renders during Focus / DND.
+    ///
+    /// Width budget at 11pt SF Pro Semibold:
+    ///   • 1pt divider + 6pt spacing                =  7pt
+    ///   • 10pt moon glyph + 6pt spacing            = 16pt
+    ///   • ~28pt "Focus" text + 6pt leading spacing = 34pt
+    ///   • 8pt breathing room for kerning + clipping safety
+    /// Total: 65pt. Anything below ~60 squeezes the Spacer to 0
+    /// and starts crowding the waveform off the right edge.
+    /// Layout option 8 from docs/focus-indicator-layouts.html.
+    static let focusPillExtraWidth: CGFloat = 65
     /// Visible bump height below the menu-bar bottom. **14pt** —
     /// matches `pillCornerRadius` so the entire bottom-corner
     /// curve happens BELOW the menu bar (fully visible against the
@@ -2167,13 +2180,70 @@ final class PanelWindowController {
         let overlap = PanelWindowController.notchOverlap(for: screen)
         let halo = PanelWindowController.haloPadding
         let height = overlap + PanelWindowController.closedPillBump + halo
-        let width = PanelWindowController.closedPillWidth + 2 * halo
+        // Focus / DND mode widens the pill so the SwiftUI HStack inside
+        // can fit the "Focus" text + divider + moon glyph alongside the
+        // existing artwork + waveform. Width returns to the base
+        // closedPillWidth automatically when isFocused flips off.
+        // morphRestingFrameForFocusChange() (below) re-animates the
+        // panel.frame on flip so the user sees a smooth grow/shrink.
+        let focusBonus = presenter.isFocused ? Self.focusPillExtraWidth : 0
+        let width = PanelWindowController.closedPillWidth + focusBonus + 2 * halo
         return NSRect(
             x: frame.midX - width / 2,
             y: frame.maxY - height,
             width: width,
             height: height
         )
+    }
+
+    /// Animate the panel from its current resting-pill width to whatever
+    /// `closedPillFrame(for:)` returns NOW. Called by AppDelegate when
+    /// `presenter.isFocused` flips state — closedPillFrame's width
+    /// depends on isFocused, so a flip needs the panel to grow/shrink
+    /// to match.
+    ///
+    /// No-op if:
+    ///   • the panel isn't at a resting-pill geometry (slab open, or
+    ///     a transient banner is showing — those will pick up the
+    ///     new width naturally on their next return-to-resting)
+    ///   • the target frame matches what's already on screen (e.g.
+    ///     focus flipped twice rapidly and we're already there)
+    ///
+    /// Uses NSAnimationContext + `panel.animator().setFrame` for an
+    /// off-thread Core Animation morph. Simpler than the manual
+    /// CABasicAnimation pipeline used by showVolumeBanner / showTrackBanner
+    /// because Focus pill morph is a small (50pt) width change with
+    /// no shadowPath complications.
+    func morphRestingFrameForFocusChange() {
+        guard presenter.isResting else { return }
+        if isVisible { return }     // panel is in slab/expanded — leave it
+        if isTeasing { return }
+
+        let screen = panel.screen ?? NSScreen.main
+        let target = closedPillFrame(for: screen)
+        let start = panel.frame
+        // 1pt tolerance — sub-pixel diffs from previous animations
+        // shouldn't trigger a redundant morph.
+        if abs(start.width - target.width) < 1 { return }
+
+        // Cancel any in-flight spring so it doesn't fight us. The
+        // morph is a clean linear interpolation in width; whatever
+        // was animating before should yield.
+        currentSpring?.cancel()
+        currentSpring = nil
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            // Apple's signature out-quint, same curve every other
+            // pill morph in this file uses for consistency.
+            ctx.duration = 0.30
+            ctx.timingFunction = CAMediaTimingFunction(
+                controlPoints: 0.32, 0.72, 0, 1
+            )
+            ctx.allowsImplicitAnimation = true
+            panel.animator().setFrame(target, display: true)
+        }, completionHandler: { [weak self] in
+            self?.updateShadowPath()
+        })
     }
 
     /// "Notch-hidden" frame — geometry sized to the ACTUAL hardware

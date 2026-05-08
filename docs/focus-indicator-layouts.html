@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>nox · Focus indicator — 10 layout options</title>
+<style>
+  :root {
+    --bg: #0e0c14;
+    --bg-soft: #16131c;
+    --fg: #f5f3fa;
+    --fg-soft: rgba(245,243,250,0.78);
+    --muted: rgba(245,243,250,0.50);
+    --line: rgba(245,243,250,0.10);
+    --pill: #000;
+    --accent: #c5a3ff;
+    --accent-soft: rgba(197,163,255,0.55);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font: 14.5px/1.55 -apple-system, "SF Pro Text", system-ui, sans-serif;
+    color: var(--fg);
+    background:
+      radial-gradient(ellipse 70% 50% at 50% 0%,
+        rgba(197,163,255,0.18) 0%,
+        rgba(168,130,232,0.06) 40%,
+        transparent 75%),
+      var(--bg);
+    background-attachment: fixed;
+    min-height: 100vh;
+    padding: 56px 28px 80px;
+  }
+  header {
+    max-width: 1080px;
+    margin: 0 auto 36px;
+  }
+  h1 {
+    font-family: "SF Pro Display", system-ui, sans-serif;
+    font-size: 32px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0 0 8px;
+  }
+  .lede {
+    color: var(--fg-soft);
+    max-width: 70ch;
+    margin: 0 0 16px;
+  }
+  .toolbar {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.03);
+    backdrop-filter: blur(8px);
+  }
+  .toolbar label { color: var(--muted); font-size: 13px; }
+  .toolbar input[type="checkbox"] { accent-color: var(--accent); transform: scale(1.1); }
+  .grid {
+    max-width: 1080px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+  }
+  @media (max-width: 760px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: linear-gradient(180deg,
+      rgba(255,255,255,0.04),
+      rgba(255,255,255,0.02));
+    padding: 22px 22px 18px;
+    backdrop-filter: blur(10px);
+  }
+  .card-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 4px;
+  }
+  .card-title {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--fg);
+    margin: 0;
+  }
+  .card-num {
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .stage {
+    margin: 18px 0 14px;
+    padding: 28px 18px;
+    border-radius: 12px;
+    background:
+      radial-gradient(ellipse at 50% 0%, rgba(197,163,255,0.06), transparent 60%),
+      rgba(0,0,0,0.35);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 110px;
+    position: relative;
+  }
+  .tradeoff {
+    color: var(--fg-soft);
+    font-size: 13px;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .pros {
+    display: inline-block;
+    color: rgba(99,222,153,0.9);
+    margin-right: 14px;
+  }
+  .cons {
+    display: inline-block;
+    color: rgba(255,160,140,0.9);
+  }
+
+  /* ── Pill base ──────────────────────────────────────────── */
+  .pill {
+    --pill-w: 280px;
+    --pill-h: 26px;
+    width: var(--pill-w);
+    height: var(--pill-h);
+    background: var(--pill);
+    border-radius: calc(var(--pill-h) / 2);
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    gap: 6px;
+    position: relative;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.06),
+      0 8px 24px -8px rgba(0,0,0,0.6);
+  }
+  .pill .art {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    background: linear-gradient(135deg, #c5a3ff, #6e4fa8);
+    flex: 0 0 auto;
+  }
+  .pill .spacer { flex: 1 1 auto; }
+  .pill .wave {
+    display: inline-flex;
+    gap: 2px;
+    align-items: end;
+    height: 14px;
+    flex: 0 0 auto;
+  }
+  .pill .wave span {
+    display: inline-block;
+    width: 2.5px;
+    background: rgba(255,255,255,0.92);
+    border-radius: 2px;
+    animation: bar 0.9s ease-in-out infinite;
+  }
+  .pill .wave span:nth-child(1) { height: 40%; animation-delay: 0s; }
+  .pill .wave span:nth-child(2) { height: 70%; animation-delay: 0.1s; }
+  .pill .wave span:nth-child(3) { height: 95%; animation-delay: 0.2s; }
+  .pill .wave span:nth-child(4) { height: 60%; animation-delay: 0.3s; }
+  @keyframes bar {
+    0%, 100% { transform: scaleY(0.6); }
+    50% { transform: scaleY(1); }
+  }
+  /* When Focus toggle is OFF, hide all .focus-* elements + pill states */
+  body:not(.focus-on) .focus-only { display: none !important; }
+  body:not(.focus-on) .pill.tinted { background: var(--pill); }
+  body:not(.focus-on) .pill.haloed { box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 8px 24px -8px rgba(0,0,0,0.6); }
+  body:not(.focus-on) .pill.notch-accent::before { display: none; }
+  body:not(.focus-on) .pill.expanded {
+    --pill-w: 280px;
+  }
+
+  /* ── Variant 01: Trailing moon (current) ────────────────── */
+  .v01 .moon {
+    width: 11px;
+    height: 11px;
+    color: rgba(255,255,255,0.55);
+  }
+
+  /* ── Variant 02: Leading moon (before artwork) ──────────── */
+  .v02 .moon {
+    width: 11px;
+    height: 11px;
+    color: rgba(255,255,255,0.55);
+  }
+
+  /* ── Variant 03: Replace waveform ───────────────────────── */
+  .v03 .moon {
+    width: 14px;
+    height: 14px;
+    color: rgba(255,255,255,0.7);
+  }
+
+  /* ── Variant 04: Corner overlay badge ───────────────────── */
+  .v04 .moon {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    width: 12px;
+    height: 12px;
+    color: var(--accent);
+    background: var(--pill);
+    border-radius: 50%;
+    padding: 2px;
+    box-shadow: 0 0 0 1.5px var(--pill);
+  }
+
+  /* ── Variant 05: Artwork corner badge ───────────────────── */
+  .v05 .art-wrap { position: relative; flex: 0 0 auto; }
+  .v05 .moon {
+    position: absolute;
+    bottom: -3px;
+    right: -3px;
+    width: 9px;
+    height: 9px;
+    color: var(--accent);
+    background: var(--pill);
+    border-radius: 50%;
+    padding: 1.5px;
+    box-shadow: 0 0 0 1.5px var(--pill);
+  }
+
+  /* ── Variant 06: Lavender pill tint ─────────────────────── */
+  .v06 .pill.tinted {
+    background: linear-gradient(180deg, #1a0f30, #100823);
+    box-shadow:
+      0 0 0 1px rgba(197,163,255,0.18),
+      0 8px 24px -8px rgba(168,130,232,0.4);
+  }
+
+  /* ── Variant 07: Border halo ────────────────────────────── */
+  .v07 .pill.haloed {
+    box-shadow:
+      0 0 0 1px rgba(197,163,255,0.30),
+      0 0 18px 0 rgba(197,163,255,0.18),
+      0 8px 24px -8px rgba(0,0,0,0.6);
+  }
+
+  /* ── Variant 08: "Focus" pill — text + moon, expanded ──── */
+  .v08 .pill.expanded {
+    --pill-w: 320px;
+    transition: width 0.3s ease;
+  }
+  .v08 .focus-text {
+    font: 600 11px/1 -apple-system, "SF Pro Text", sans-serif;
+    color: rgba(255,255,255,0.78);
+    letter-spacing: 0.02em;
+    flex: 0 0 auto;
+  }
+  .v08 .moon {
+    width: 11px;
+    height: 11px;
+    color: rgba(255,255,255,0.78);
+    flex: 0 0 auto;
+  }
+  .v08 .divider {
+    width: 1px;
+    height: 12px;
+    background: rgba(255,255,255,0.18);
+    flex: 0 0 auto;
+  }
+
+  /* ── Variant 09: Breathing moon ─────────────────────────── */
+  .v09 .moon {
+    width: 11px;
+    height: 11px;
+    color: rgba(255,255,255,0.55);
+    animation: breathe 3.2s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%, 100% { opacity: 0.40; transform: scale(0.92); }
+    50% { opacity: 0.85; transform: scale(1.05); }
+  }
+
+  /* ── Variant 10: Top notch accent line ──────────────────── */
+  .v10 .pill.notch-accent::before {
+    content: "";
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 56px;
+    height: 2.5px;
+    border-radius: 2px;
+    background: linear-gradient(90deg,
+      transparent 0%,
+      var(--accent) 50%,
+      transparent 100%);
+    opacity: 0.85;
+  }
+  .v10 .moon {
+    width: 9px;
+    height: 9px;
+    color: var(--accent-soft);
+    margin-left: 1px;
+    flex: 0 0 auto;
+  }
+
+  /* shared moon SVG sizing — defined per-variant above */
+  .moon { display: inline-block; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Focus indicator — 10 layouts</h1>
+  <p class="lede">
+    Each card shows a different way to surface "Focus is on, nox is being quiet."
+    Toggle below to compare with Focus off (some variants are no-ops in that state).
+    Pill is rendered at ~1.27× true size for legibility — real resting pill is 220×20pt.
+  </p>
+  <div class="toolbar">
+    <input type="checkbox" id="focus-toggle" checked>
+    <label for="focus-toggle">Focus on</label>
+  </div>
+</header>
+
+<div class="grid">
+
+  <!-- 01 ─────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">Trailing moon (current)</h2>
+      <span class="card-num">01</span>
+    </div>
+    <p class="tradeoff">Moon sits after the waveform at the right edge. Subtle, doesn't fight any element. Hardest to notice — that's the whole design.</p>
+    <div class="stage v01">
+      <div class="pill">
+        <div class="art"></div>
+        <div class="spacer"></div>
+        <div class="wave"><span></span><span></span><span></span><span></span></div>
+        <svg class="moon focus-only" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </div>
+    </div>
+    <p class="tradeoff">
+      <span class="pros">+ minimal, easy to miss in a good way</span>
+      <span class="cons">– may be TOO subtle; fights waveform attention</span>
+    </p>
+  </div>
+
+  <!-- 02 ─────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">Leading moon</h2>
+      <span class="card-num">02</span>
+    </div>
+    <p class="tradeoff">Moon at the left edge, before the artwork. Reads first since you scan left-to-right.</p>
+    <div class="stage v02">
+      <div class="pill">
+        <svg class="moon focus-only" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <div class="art"></div>
+        <div class="spacer"></div>
+        <div class="wave"><span></span><span></span><span></span><span></span></div>
+      </div>
+    </div>
+    <p class="tradeoff">
+      <span class="pros">+ first thing the eye sees</span>
+      <span class="cons">– pushes the artwork off its anchor; less calm</span>
+    </p>
+  </div>
+
+  <!-- 03 ─────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">Replace waveform</h2>
+      <span class="card-num">03</span>
+    </div>
+    <p class="tradeoff">When Focus is on, the bouncy waveform is replaced by a static moon. Honest about the "calm down" intent.</p>
+    <div class="stage v03">
+      <div class="pill">
+        <div class="art"></div>
+        <div class="spacer"></div>
+        <div class="wave" style="display: var(--wave-disp, inline-flex);"><span></span><span></span><span></span><span></span></div>
+        <svg class="moon focus-only" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </div>
+    </div>
+    <p class="tradeoff">
+      <span class="pros">+ visually quieter pill, matches Focus mood</span>
+      <span class="cons">– loses "audio is flowing" signal during Focus</span>
+    </p>
+    <p class="tradeoff" style="margin-top:6px;font-size:12px;color:var(--muted)">In real impl, the waveform would actually hide; this mockup shows both for layout clarity.</p>
+  </div>
+
+  <!-- 04 ─────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">Corner badge (top-right)</h2>
+      <span class="card-num">04</span>
+    </div>
+    <p class="tradeoff">Tiny lavender moon as a badge floating off the top-right corner. iOS-app-icon vibe.</p>
+    <div class="stage v04">
+      <div class="pill">
+        <div class="art"></div>
+        <div class="spacer"></div>
+        <div class="wave"><span></span><span></span><span></span><span></span></div>
+        <svg class="moon focus-only" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </div>
+    </div>
+    <p class="tradeoff">
+      <span class="pros">+ doesn't compete with pill content at all</span>
+      <span class="cons">– the pill's outline is the silhouette of the notch — protruding badges break that</span>
+    </p>
+  </div>
+
+  <!-- 05 ─────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">Artwork badge</h2>
+      <span class="card-num">05</span>
+    </div>
+    <p class="tradeoff">Tiny moon overlay on the bottom-right corner of the album art. Like an iMessage typing-indicator pip on a contact photo.</p>
+    <div class="stage v05">
+      <div class="pill">
+        <div class="art-wrap">
+          <div class="art"></div>
+          <svg class="moon focus-only" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </div>
+        <div class="spacer"></div>
+        <div class="wave"><span></span><span></span><span></span><span></span></div>
+      </div>
+    </div>
+    <p class="tradeoff">
+      <span class="pros">+ pill silhouette stays clean; left-side anchor</span>
+      <span class="cons">– 9pt at retina is on the edge of legibility</span>
+    </p>
+  </div>
+
+  <!-- 06 ─────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">Lavender pill tint</h2>
+      <span class="card-num">06</span>
+    </div>
+    <p class="tradeoff">No glyph. The pill itself takes a deep lavender tint while Focus is on. The whole thing IS the indicator.</p>
+    <div class="stage v06">
+      <div class="pill tinted">
+        <div class="art"></div>
+        <div class="spacer"></div>
+        <div class="wave"><span></span><span></span><span></span><span></span></div>
+      </div>
+    </div>
+    <p class="tradeoff">
+      <span class="pros">+ ambient, not visual noise; brand-aligned</span>
+      <span class="cons">– no clear "moon"=Focus mapping, easy to miss</span>
+    </p>
+  </div>
+
+  <!-- 07 ─────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">Border halo</h2>
+      <span class="card-num">07</span>
+    </div>
+    <p class="tradeoff">Soft lavender outer glow around the pill while Focus is on. Pill stays black; the halo is the cue.</p>
+    <div class="stage v07">
+      <div class="pill haloed">
+        <div class="art"></div>
+        <div class="spacer"></div>
+        <div class="wave"><span></span><span></span><span></span><span></span></div>
+      </div>
+    </div>
+    <p class="tradeoff">
+      <span class="pros">+ premium, ambient; matches other Apple "system mode" cues</span>
+      <span class="cons">– costs more to render (blur radius); could leak past the notch silhouette</span>
+    </p>
+  </div>
+
+  <!-- 08 ─────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">"Focus" pill (text + moon)</h2>
+      <span class="card-num">08</span>
+    </div>
+    <p class="tradeoff">Pill grows by ~40pt to fit "Focus" text after the waveform, with a thin divider. Most explicit option.</p>
+    <div class="stage v08">
+      <div class="pill expanded">
+        <div class="art"></div>
+        <div class="spacer"></div>
+        <div class="wave"><span></span><span></span><span></span><span></span></div>
+        <div class="divider focus-only"></div>
+        <svg class="moon focus-only" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <span class="focus-text focus-only">Focus</span>
+      </div>
+    </div>
+    <p class="tradeoff">
+      <span class="pros">+ unambiguous; readable at a glance</span>
+      <span class="cons">– pill width fluctuates with state, which fights the locked 220pt resting geometry</span>
+    </p>
+  </div>
+
+  <!-- 09 ─────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">Breathing moon</h2>
+      <span class="card-num">09</span>
+    </div>
+    <p class="tradeoff">Trailing moon (like 01) but with a slow 3.2s breath. The motion is the "this is alive, intentional" signal.</p>
+    <div class="stage v09">
+      <div class="pill">
+        <div class="art"></div>
+        <div class="spacer"></div>
+        <div class="wave"><span></span><span></span><span></span><span></span></div>
+        <svg class="moon focus-only" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </div>
+    </div>
+    <p class="tradeoff">
+      <span class="pros">+ noticeable without being loud; says "I'm intentionally on"</span>
+      <span class="cons">– breathing animations can feel "demanding attention" — opposite of Focus</span>
+    </p>
+  </div>
+
+  <!-- 10 ─────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">Top notch accent</h2>
+      <span class="card-num">10</span>
+    </div>
+    <p class="tradeoff">A thin lavender line ABOVE the pill (where the menu bar / hardware notch is) plus a tiny moon at the trailing edge of the pill itself. Two-zone signal.</p>
+    <div class="stage v10">
+      <div class="pill notch-accent">
+        <div class="art"></div>
+        <div class="spacer"></div>
+        <div class="wave"><span></span><span></span><span></span><span></span></div>
+        <svg class="moon focus-only" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </div>
+    </div>
+    <p class="tradeoff">
+      <span class="pros">+ uses the dead zone above the pill; brand-color anchor</span>
+      <span class="cons">– the menu bar / hardware notch sits there in real life — the line could collide visually</span>
+    </p>
+  </div>
+
+</div>
+
+<script>
+  const toggle = document.getElementById('focus-toggle');
+  toggle.addEventListener('change', (e) => {
+    document.body.classList.toggle('focus-on', e.target.checked);
+  });
+  document.body.classList.add('focus-on');
+</script>
+
+</body>
+</html>
