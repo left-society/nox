@@ -2250,8 +2250,29 @@ struct PanelRootView: View {
                 .scaleEffect(x: waveformPulse, y: 1, anchor: .trailing)
                 .transition(.opacity)
             }
+            // Focus-mode indicator. When the system Focus / DND is on
+            // and we have authorization to read it, show a subtle moon
+            // glyph at the trailing edge of the pill. The suppression
+            // logic (PanelPresenter.setPendingSystemEvent) already
+            // hides ambient pills like charger / screenshot during
+            // Focus — this indicator just tells the user "yes, nox
+            // sees your Focus is on and is being quiet about it."
+            //
+            // Sized 10pt + 0.55 opacity so it reads as a status hint,
+            // not a primary element. Doesn't replace the waveform —
+            // sits alongside it. Fade-in/out via the .animation
+            // modifier on `value: presenter.isFocused` below.
+            if presenter.isFocused {
+                Image(systemName: "moon.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .transition(.opacity)
+                    .accessibilityLabel("Focus mode is on")
+                    .accessibilityHint("Non-essential pings are paused")
+            }
         }
         .animation(.easeInOut(duration: 0.20), value: hasAnyAudio)
+        .animation(.easeInOut(duration: 0.25), value: presenter.isFocused)
         // Swipe-to-skip chevron hints. As the user drags past the
         // skip threshold, a chevron arrow fades in on the side
         // OPPOSITE the drag direction — i.e., dragging right
