@@ -4,11 +4,11 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>nox. Your MacBook notch, actually useful.</title>
-<meta name="description" content="The dark cutout at the top of your MacBook becomes useful. See your music, take voice notes, drop files in, never miss a meeting. Free while we're testing." />
+<meta name="description" content="Music, voice, files, video downloads, AirDrop, meetings, notes — all from one tiny spot at the top of your MacBook. Free while we're testing." />
 
 <!-- Open Graph (iMessage, Slack, Discord, WhatsApp, LinkedIn, Facebook) -->
 <meta property="og:title" content="nox. Your MacBook notch, actually useful." />
-<meta property="og:description" content="The dark cutout at the top of your MacBook becomes useful. See your music, take voice notes, drop files in, never miss a meeting. Free while we're testing." />
+<meta property="og:description" content="Music, voice, files, video downloads, AirDrop, meetings, notes — all from one tiny spot at the top of your MacBook. Free while we're testing." />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://trynox.app" />
 <meta property="og:site_name" content="nox" />
@@ -22,7 +22,7 @@
      summary_large_image needs the Twitter-specific opt-in) -->
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="nox. Your MacBook notch, actually useful." />
-<meta name="twitter:description" content="The dark cutout at the top of your MacBook becomes useful. Music, voice notes, files, your next meeting, all without opening anything." />
+<meta name="twitter:description" content="Music, voice, files, video downloads, AirDrop, meetings, notes — all from one tiny spot at the top of your MacBook." />
 <meta name="twitter:image" content="https://trynox.app/assets/og-image.png" />
 <meta name="twitter:image:alt" content="nox — your MacBook notch, actually useful" />
 
@@ -650,6 +650,22 @@
   .hero .tagline strong {
     color: var(--fg);
     font-weight: 600;
+  }
+  /*  Two-layer tagline: the feature stack reads as a confident
+      list (one dot-separated line at desktop, naturally wraps on
+      mobile via the &middot; entities), and the coda below it
+      delivers the actual promise. Stacked with vertical breathing
+      room so neither layer fights the other for attention. */
+  .hero .tagline .feature-stack {
+    display: block;
+    color: var(--fg);
+    font-weight: 500;
+    font-size: clamp(15px, 1.7vw, 17px);
+    letter-spacing: 0.01em;
+    margin-bottom: 14px;
+  }
+  .hero .tagline .tagline-coda {
+    display: block;
   }
   /*  CTA + stats wrap into vertical stack — `inline-flex` was
       letting them collapse onto the same line at desktop widths.
@@ -2107,7 +2123,8 @@
       <span class="punch">actually useful.</span>
     </h1>
     <p class="tagline">
-      You know that dark cutout at the top of your MacBook screen? nox makes it useful. Music, voice notes, files, your next meeting, all <strong>without opening anything</strong>.
+      <span class="feature-stack">Music &middot; Voice &middot; Files &middot; Video downloads &middot; AirDrop &middot; Meetings &middot; Notes</span>
+      <span class="tagline-coda">All from <strong>one tiny spot</strong> at the top of your screen. <strong>No new windows.</strong></span>
     </p>
     <div class="hero-cta">
       <button class="btn btn-primary btn-large" type="button" data-tally-open="xX9Apd" data-tally-layout="modal" data-tally-overlay="1" data-tally-emoji-text="🌙" data-tally-emoji-animation="wave">
