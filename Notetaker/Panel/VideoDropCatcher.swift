@@ -119,7 +119,17 @@ final class PanelDropContainer: NSView {
         let count: Int
         if urlCount > 0 {
             count = urlCount
-        } else if ImageDropExtractor.extract(from: pb) != nil {
+        } else if !ImageDropExtractor.extractInMemory(from: pb).isEmpty {
+            // `extractInMemory` is the disk-free probe — checks
+            // pasteboard data slots only. The previous `extract`
+            // call had a file-URL fallback that did
+            // `Data(contentsOf:)` synchronously, which would have
+            // stalled drag-enter if the user dragged a single
+            // multi-MB image with no file URL on the pasteboard.
+            // (Browser drags normally have only image data, no
+            // URL — so the fallback would never have fired here in
+            // practice, but using the disk-free probe keeps that
+            // guarantee explicit.)
             count = 1
         } else {
             count = 0
@@ -186,28 +196,79 @@ final class PanelDropContainer: NSView {
             self?.onTargeted(false)
             self?.onZoneHover(nil)
         }
-        let pb = sender.draggingPasteboard
 
-        // AirDrop branch — pure send, no local save. Pull file URLs
-        // directly from the pasteboard (Finder drags, Notetaker
-        // re-drags) and hand them to the share-sheet caller. For
-        // pasteboard image DATA without a backing URL (browser
-        // image drag), materialize it to a temp file first so
-        // AirDrop has something to send.
+        // **Drop-smoothness fix.** The pasteboard is only readable
+        // for the duration of `performDragOperation` — but disk
+        // I/O against the URL slots (`Data(contentsOf:)` on each
+        // image file the user dropped) is allowed to happen later
+        // because the underlying files persist after the drag
+        // session ends. Previously we read every dropped file
+        // synchronously here on the main thread; for a multi-select
+        // of large screenshots that stalled the panel for 200-500ms
+        // (mouse release → image grid update). User reported "some
+        // stiffness or lag while dropping something."
+        //
+        // New flow:
+        //   1. Capture references off the pasteboard SYNCHRONOUSLY
+        //      while it's still valid (URLs + in-memory image data
+        //      slots — both are O(memcpy) fast)
+        //   2. Return `true` immediately so the OS can finish the
+        //      drag session and the panel UI is unblocked
+        //   3. Read the file bytes on a background queue
+        //   4. Dispatch the resolved data via the existing onImage
+        //      / onFile / onVideo / onAirDrop callbacks on main
+        //
+        // The public callback contract is unchanged — same arguments,
+        // same dispatch onto the main queue. Only the timing differs:
+        // a few tens of ms later, but with no main-thread stall.
+        let pb = sender.draggingPasteboard
+        let pbUrls: [URL] = (pb.readObjects(forClasses: [NSURL.self]) as? [URL])?
+            .filter { $0.isFileURL } ?? []
+        let inMemoryImages: [(Data, String)] = ImageDropExtractor.extractInMemory(from: pb)
+        let videoCandidate = VideoDropScanner.findCandidate(in: pb)
+        let pbTypeNames = pb.types?.map { $0.rawValue } ?? []
+
+        // Off-main routing — does the slow stuff (disk reads, temp-
+        // file writes for AirDrop) on a background queue, then
+        // dispatches the existing callbacks back to main.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.routeDropAsync(
+                dropZone: dropZone,
+                pbUrls: pbUrls,
+                inMemoryImages: inMemoryImages,
+                videoCandidate: videoCandidate,
+                pbTypeNames: pbTypeNames
+            )
+        }
+
+        // Returning true unconditionally — the routing above will
+        // emit the appropriate callback (or log "no route" if the
+        // pasteboard had nothing usable). False here would tell the
+        // OS the drop failed and trigger the fly-back animation,
+        // which would fight our async routing. Worst case (truly
+        // empty pasteboard) is a silent drop; the dlog catches it.
+        return true
+    }
+
+    /// Background-queue routing for a drop. Reads file bytes,
+    /// materializes pasteboard image data to temp files (for AirDrop),
+    /// and dispatches the appropriate callback back to main. Called
+    /// once per `performDragOperation` from a `userInitiated` queue.
+    private func routeDropAsync(
+        dropZone: DropDestination,
+        pbUrls: [URL],
+        inMemoryImages: [(Data, String)],
+        videoCandidate: VideoDropScanner.Candidate?,
+        pbTypeNames: [String]
+    ) {
+        // AirDrop branch — pure send, no local save. We need real
+        // file URLs for the share sheet; pasteboard image DATA gets
+        // materialized to temp files here on the bg queue (writes
+        // were one of the synchronous-main-thread offenders).
         if dropZone == .airDrop {
-            var urls: [URL] = []
-            if let pbUrls = pb.readObjects(forClasses: [NSURL.self]) as? [URL] {
-                urls.append(contentsOf: pbUrls.filter { $0.isFileURL })
-            }
-            // Multi-image fallback: when there are no file URLs (raw
-            // pasteboard image data, e.g. from a browser drag),
-            // materialize EVERY extractable image to its own temp
-            // file so AirDrop has the full set. Previously only the
-            // first image got materialized — same root bug as the
-            // save path.
+            var urls = pbUrls
             if urls.isEmpty {
-                let images = ImageDropExtractor.extractAll(from: pb)
-                for (data, mime) in images {
+                for (data, mime) in inMemoryImages {
                     if let tempURL = Self.materializeTempImage(data: data, mime: mime) {
                         urls.append(tempURL)
                     }
@@ -216,31 +277,34 @@ final class PanelDropContainer: NSView {
             if !urls.isEmpty {
                 DictationOrchestrator.dlog("  ROUTE → onAirDrop (\(urls.count) URL(s))")
                 DispatchQueue.main.async { [weak self] in self?.onAirDrop(urls) }
-                return true
+                return
             }
             DictationOrchestrator.dlog("  ⚠️ AirDrop zone hit but no usable URLs — falling through to save")
-            // Fall through to save below if there's nothing AirDrop can take.
+            // Fall through to save branches below.
         }
 
         // **Image FIRST.** Browser image drags (Chrome, Safari) put
         // BOTH the image bytes AND a source URL on the pasteboard.
-        // The previous ordering (video first) made VideoDropScanner
-        // catch the URL and treat the drop as a "remote video
-        // candidate" — image data was discarded, photo never
-        // saved. User reported: "no photo is saving to the thing."
+        // Putting video before image made VideoDropScanner catch the
+        // URL and treat the drop as a remote-video candidate, which
+        // dropped the image data on the floor. (User: "no photo is
+        // saving to the thing.")
         //
-        // Image extraction only succeeds when there's actual image
-        // DATA on the pasteboard (PNG / TIFF / JPEG / WebP / GIF /
-        // image file URL). A plain video file URL or a YouTube link
-        // has no image data so it falls through cleanly to the
-        // video branch below.
-        // Multi-image extract — when Finder hands us 8 selected
-        // images, all 8 land. The previous `extract` returned just
-        // one and silently dropped the rest. Each image fires its
-        // own `onImage` callback so the existing single-image save
-        // pipeline stays unchanged downstream — we just call it N
-        // times instead of once.
-        let images = ImageDropExtractor.extractAll(from: pb)
+        // We resolve images in two passes:
+        //   1. File URLs that point to images — read off this bg
+        //      queue with `Data(contentsOf:)`, one read per file
+        //   2. In-memory pasteboard image data — already captured
+        //      synchronously upstream, just pass through
+        var images: [(Data, String)] = []
+        for url in pbUrls {
+            let ext = url.pathExtension.lowercased()
+            guard ImageDropExtractor.imageExts.contains(ext) else { continue }
+            if let data = try? Data(contentsOf: url) {
+                images.append((data, ImageDropExtractor.mime(forExt: ext)))
+            }
+        }
+        if images.isEmpty { images = inMemoryImages }
+
         if !images.isEmpty {
             DictationOrchestrator.dlog("  ROUTE → onImage ×\(images.count)")
             DispatchQueue.main.async { [weak self] in
@@ -248,29 +312,26 @@ final class PanelDropContainer: NSView {
                     self?.onImage(data, mime)
                 }
             }
-            return true
+            return
         }
-        // Video next — local video file URL or a remote video URL
-        // (YouTube, Vimeo, etc.). Reads the URL slot only after we've
-        // ruled out image data.
-        if let candidate = VideoDropScanner.findCandidate(in: pb) {
+        // Video — local video file URL or a remote video URL
+        // (YouTube, Vimeo, etc.). Captured synchronously upstream
+        // because the scanner needs pasteboard access; we just
+        // dispatch here.
+        if let candidate = videoCandidate {
             DictationOrchestrator.dlog("  ROUTE → onVideo")
             DispatchQueue.main.async { [weak self] in self?.onVideo(candidate) }
-            return true
+            return
         }
         // Generic file URLs — falls through to the Files tab as a
         // pure staging operation (we never copy the file, just hold
-        // the URL). Anything that wasn't an image or video goes here.
-        if let urls = pb.readObjects(forClasses: [NSURL.self]) as? [URL] {
-            let fileUrls = urls.filter { $0.isFileURL }
-            if !fileUrls.isEmpty {
-                DictationOrchestrator.dlog("  ROUTE → onFile (\(fileUrls.count) URL(s))")
-                DispatchQueue.main.async { [weak self] in self?.onFile(fileUrls) }
-                return true
-            }
+        // the URL). Anything that wasn't an image or video lands here.
+        if !pbUrls.isEmpty {
+            DictationOrchestrator.dlog("  ROUTE → onFile (\(pbUrls.count) URL(s))")
+            DispatchQueue.main.async { [weak self] in self?.onFile(pbUrls) }
+            return
         }
-        DictationOrchestrator.dlog("  ⚠️ NO ROUTE — pasteboard had no recognizable type; types=\(pb.types?.map { $0.rawValue } ?? [])")
-        return false
+        DictationOrchestrator.dlog("  ⚠️ NO ROUTE — pasteboard had no recognizable type; types=\(pbTypeNames)")
     }
 
     /// Write pasteboard image data to a temp file so AirDrop has a
@@ -329,6 +390,32 @@ final class PanelDropContainer: NSView {
 /// a file URL with an image extension. Splits the dance out of
 /// PanelDropContainer so the catcher stays focused on routing.
 enum ImageDropExtractor {
+    /// Pasteboard image data ONLY — no file URL fallback, so this
+    /// never touches disk. Used by the drop hot-path so that a
+    /// quick probe ("does the pb have any image bytes?") finishes
+    /// in microseconds even when the user is dragging a hefty
+    /// image. Returns every image data slot found (PNG, JPEG, GIF,
+    /// WebP, TIFF) — usually 0 or 1 entries since pasteboards
+    /// hold one image data slot, but designed array-shaped to match
+    /// `extractAll`'s signature for caller convenience.
+    static func extractInMemory(from pb: NSPasteboard) -> [(Data, String)] {
+        var images: [(Data, String)] = []
+        if let png = pb.data(forType: .png) {
+            images.append((png, "image/png"))
+        } else if let jpeg = pb.data(forType: NSPasteboard.PasteboardType("public.jpeg")) {
+            images.append((jpeg, "image/jpeg"))
+        } else if let gif = pb.data(forType: NSPasteboard.PasteboardType("com.compuserve.gif")) {
+            images.append((gif, "image/gif"))
+        } else if let webp = pb.data(forType: NSPasteboard.PasteboardType("org.webmproject.webp")) {
+            images.append((webp, "image/webp"))
+        } else if let tiff = pb.data(forType: .tiff) {
+            // TIFF passes through raw; the save path handles
+            // conversion off-main. Same reason as `extract` below.
+            images.append((tiff, "image/tiff"))
+        }
+        return images
+    }
+
     static func extract(from pb: NSPasteboard) -> (Data, String)? {
         if let png = pb.data(forType: .png) {
             return (png, "image/png")
@@ -400,11 +487,17 @@ enum ImageDropExtractor {
         return []
     }
 
-    private static let imageExts: Set<String> = [
+    /// Image-file extensions the extractor recognizes. Internal
+    /// (not private) so the off-main drop router in PanelDropContainer
+    /// can iterate file URLs and pick out images without duplicating
+    /// the list.
+    static let imageExts: Set<String> = [
         "png", "jpg", "jpeg", "gif", "tiff", "tif", "webp", "heic", "bmp"
     ]
 
-    private static func mime(forExt ext: String) -> String {
+    /// MIME type for a file extension. Internal so the off-main
+    /// drop router can stamp the right MIME on file-loaded images.
+    static func mime(forExt ext: String) -> String {
         switch ext {
         case "jpg", "jpeg": return "image/jpeg"
         case "gif": return "image/gif"
