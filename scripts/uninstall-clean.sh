@@ -29,7 +29,15 @@
 #     version. No username, no hostname, no hardware identifiers. To
 #     opt out, comment out the curl block at the top of the script.
 
-set -u
+# 2026-05-08 audit H21: was `set -u` only. Other scripts use
+# `set -euo pipefail`; rm/defaults/tccutil failures here were
+# silent and "✓ Factory reset complete" printed regardless of
+# what actually succeeded. -e + pipefail now match.
+#
+# But many lines deliberately tolerate failure (process not
+# running, key not in keychain, file not present). Those still
+# trail with `|| true` so -e doesn't abort the run.
+set -euo pipefail
 
 # Current and legacy bundle IDs — both wiped to handle upgrades from
 # the legacy 1.x line that used a different identifier.
@@ -74,8 +82,15 @@ rm -rf "$HOME/Library/Caches/Sparkle"
 
 echo "▸ Removing auto-save launchd agent (if present)…"
 launchctl unload "$HOME/Library/LaunchAgents/com.notetaker.autosave.plist" 2>/dev/null || true
+launchctl unload "$HOME/Library/LaunchAgents/app.trynox.autosave.plist" 2>/dev/null || true
 rm -f "$HOME/Library/LaunchAgents/com.notetaker.autosave.plist"
+rm -f "$HOME/Library/LaunchAgents/app.trynox.autosave.plist"
+# 2026-05-08 audit H20: legacy folder name was Notetaker-AutoSave,
+# but the running app under app.trynox writes to nox-AutoSave (the
+# directory follows the app's branded name, not the bundle ID).
+# Wipe both so a "factory reset" actually clears the user data.
 rm -rf "$HOME/Library/Notetaker-AutoSave"
+rm -rf "$HOME/Library/nox-AutoSave"
 
 # Per-bundle-ID cleanup: UserDefaults, caches, saved state, keychain,
 # TCC. Iterating over BUNDLE_IDS handles both current and legacy

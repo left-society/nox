@@ -22,11 +22,14 @@ chmod +x "$BIN_DIR/yt-dlp"
 
 echo "▸ Fetching ffmpeg…"
 TMP="$(mktemp -d)"
+# 2026-05-08 audit M31: clean up the temp dir on any exit path,
+# not just the happy path. A failed download / unzip used to leak
+# the temp dir.
+trap 'rm -rf "$TMP"' EXIT
 curl -fsSL --retry 3 "$FFMPEG_URL" -o "$TMP/ffmpeg.zip"
 unzip -q "$TMP/ffmpeg.zip" -d "$TMP"
 mv "$TMP/ffmpeg" "$BIN_DIR/ffmpeg"
 chmod +x "$BIN_DIR/ffmpeg"
-rm -rf "$TMP"
 
 echo "✓ Binaries ready in $BIN_DIR"
 "$BIN_DIR/yt-dlp" --version | sed 's/^/  yt-dlp /'

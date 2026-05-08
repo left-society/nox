@@ -58,10 +58,25 @@ for arg in "$@"; do
   esac
 done
 
+# 2026-05-08 audit H17/H18: when notarization is skipped the DMG
+# is not stapled either; Sparkle auto-update users on Catalina+
+# get a Gatekeeper-blocked install. Same when --publish isn't
+# set, the appcast's enclosure URL points at the SUFeed dir
+# (https://trynox.app/...) but the DMGs live on GitHub Releases
+# — auto-update points at a 404. Both are silent failures with
+# exit 0 from release.sh. Fail loudly instead by refusing to
+# write the appcast under either condition.
+if [ "$SKIP_NOTARIZE" -eq 1 ] && [ "$PUBLISH" -eq 1 ]; then
+  echo "✗ refuse: --skip-notarize + --publish would ship an unstapled"
+  echo "         DMG. Run without --skip-notarize to actually publish."
+  exit 1
+fi
+
 echo "▸ Release pipeline for nox $VERSION (build $BUILD)"
 echo "  DMG → $DMG_PATH"
 echo "  Appcast → $APPCAST"
 echo "  SUFeedURL → $SUFEED_URL"
+echo "  Publish → $([ "$PUBLISH" -eq 1 ] && echo "yes" || echo "no (dry-run; appcast won't be written)")"
 echo
 
 # ────────────────────────────────────────────────────────────────────
@@ -83,12 +98,22 @@ if [ "$SKIP_NOTARIZE" -eq 1 ]; then
 else
   echo "▸ [2/4] Submit to Apple notary service…"
   echo "  (this can take a few minutes; using --wait to block)"
+  # 2026-05-08 audit H19: the previous redirect was `> json 2>&1`,
+  # which mixed stderr (any noise from notarytool, network warnings)
+  # into the JSON file — a single stderr line broke the json.load
+  # parse below. Send stderr to its own log so the JSON file stays
+  # parseable, and tail the log on failure for diagnostics.
   if ! xcrun notarytool submit "$DMG_PATH" \
       --keychain-profile "$NOTARY_PROFILE" \
       --wait \
-      --output-format json > "$DIST_DIR/notarize-$VERSION.json" 2>&1; then
-    echo "✗ notarization failed — see $DIST_DIR/notarize-$VERSION.json"
-    cat "$DIST_DIR/notarize-$VERSION.json"
+      --output-format json \
+      > "$DIST_DIR/notarize-$VERSION.json" \
+      2> "$DIST_DIR/notarize-$VERSION.stderr.log"; then
+    echo "✗ notarization failed — see $DIST_DIR/notarize-$VERSION.json + .stderr.log"
+    echo "── stderr ──"
+    cat "$DIST_DIR/notarize-$VERSION.stderr.log" || true
+    echo "── stdout ──"
+    cat "$DIST_DIR/notarize-$VERSION.json" || true
     exit 1
   fi
   # notarytool emits JSON, not plist. PlistBuddy can't parse JSON —
@@ -187,12 +212,19 @@ EOF
 # Insert the new item right after <language>en</language> so newest
 # entries are at the top (Sparkle picks the highest version number
 # regardless of order, but humans read the file in order).
-python3 - <<PYEOF
-import re, sys
+#
+# 2026-05-08 audit M30: pass shell variables via the environment,
+# not bash interpolation into the python source. The previous
+# unquoted heredoc let any quote / backslash / odd character in
+# $NEW_ITEM or $VERSION become a SyntaxError. Quoted heredoc
+# ('PYEOF') + os.environ.get is bulletproof.
+APPCAST_PATH="$APPCAST" NEW_ITEM_XML="$NEW_ITEM" RELEASE_VERSION="$VERSION" \
+python3 - <<'PYEOF'
+import os, re
 
-path = "$APPCAST"
-new_item = """$NEW_ITEM"""
-version = "$VERSION"
+path = os.environ["APPCAST_PATH"]
+new_item = os.environ["NEW_ITEM_XML"]
+version = os.environ["RELEASE_VERSION"]
 
 with open(path, "r", encoding="utf-8") as f:
     xml = f.read()

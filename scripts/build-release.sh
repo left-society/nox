@@ -36,7 +36,19 @@ PRODUCT_NAME="nox"
 BUILD_DIR="$ROOT/build"
 DIST_DIR="$ROOT/dist"
 APP_PATH="$BUILD_DIR/Build/Products/$CONFIG/$PRODUCT_NAME.app"
-VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Notetaker/Resources/Info.plist 2>/dev/null || echo 1.0)"
+# 2026-05-08 audit M29: previous fallback was `|| echo 1.0`, which
+# silently produced `nox.1.0.dmg` if Info.plist was moved/missing
+# / corrupted. Fail loudly instead — a bad version string here
+# poisons the whole release pipeline (DMG path, appcast, etc.).
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Notetaker/Resources/Info.plist 2>/dev/null)" || {
+  echo "✗ Could not read CFBundleShortVersionString from Info.plist." >&2
+  echo "  Path: Notetaker/Resources/Info.plist" >&2
+  exit 1
+}
+if [ -z "$VERSION" ]; then
+  echo "✗ Empty CFBundleShortVersionString in Info.plist." >&2
+  exit 1
+fi
 # DMG filename uses dots between the product name and the version
 # (no hyphens per user direction). This also matches what GitHub
 # does to filenames with spaces during release upload, so local
@@ -44,6 +56,11 @@ VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Noteta
 # resolve the asset URL by exact name match.
 DMG_PATH="$DIST_DIR/nox.$VERSION.dmg"
 STAGE="$(mktemp -d -t notetaker-dmg)"
+
+# 2026-05-08 audit M31: clean up the staging dir on any exit
+# path. Failed runs used to leak a full .app staging copy
+# (~150-200 MB) under /var/folders/.../T/notetaker-dmg.XXXXXX.
+trap 'rm -rf "$STAGE"' EXIT
 
 # Signing identity selection, in priority order:
 #   1. Developer ID Application (Apple-issued, notarization-eligible)
@@ -71,13 +88,25 @@ if [ -z "$SIGN_IDENTITY" ]; then
 fi
 
 echo "▸ Clean + build Release…"
+# 2026-05-08 audit M28: previous version redirected xcodebuild
+# stdout+stderr to /dev/null. Under `set -e`, a failing build
+# left the maintainer with zero diagnostic output. Capture to a
+# log file alongside dist/, so failures are debuggable without
+# losing the noise-free stdout for the success path.
 rm -rf "$BUILD_DIR"
-xcodebuild \
-  -scheme "$SCHEME" \
-  -configuration "$CONFIG" \
-  -derivedDataPath "$BUILD_DIR" \
-  CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-  clean build >/dev/null
+mkdir -p "$DIST_DIR"
+XCODEBUILD_LOG="$DIST_DIR/build-xcodebuild-$VERSION.log"
+if ! xcodebuild \
+    -scheme "$SCHEME" \
+    -configuration "$CONFIG" \
+    -derivedDataPath "$BUILD_DIR" \
+    CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+    clean build > "$XCODEBUILD_LOG" 2>&1; then
+  echo "✗ xcodebuild failed — see $XCODEBUILD_LOG"
+  echo "── tail of log ──"
+  tail -40 "$XCODEBUILD_LOG"
+  exit 1
+fi
 
 echo "▸ Sign with $SIGN_IDENTITY…"
 # Sign nested binaries FIRST, then the outer app. `--deep` is
@@ -213,8 +242,6 @@ hdiutil create \
   -srcfolder "$STAGE" \
   -ov -format UDZO -fs APFS \
   "$DMG_PATH" >/dev/null
-
-rm -rf "$STAGE"
 
 echo
 echo "✓ $DMG_PATH"
