@@ -580,8 +580,36 @@ final class PanelPresenter: ObservableObject {
         }
     }
 
-    func clearPendingSystemEvent() {
-        pendingSystemEvent = nil
+    /// Clear the pending system-event banner.
+    ///
+    /// `animated: true` (default) lets SwiftUI's transition system run
+    /// — the appropriate `.transition(...)` modifier on the outgoing
+    /// banner content fires its removal animation, and whatever pill
+    /// content takes its place fires its insertion animation.
+    ///
+    /// `animated: false` is the **track-changed banner handoff** mode:
+    /// after the panel.frame has already sprung back to resting-pill
+    /// geometry (PanelWindowController.dismissTrackBanner spring done),
+    /// we don't want SwiftUI to animate the music pill back in — the
+    /// banner just finished showing the new artwork inside the flip,
+    /// so a second `.softMusicEntrance` blur-fade reads as a glitch:
+    /// "the artwork comes again with some weird glitch and then coming
+    /// it should be there already without any animations." Wrapping
+    /// the @Published property change in a `disablesAnimations`
+    /// transaction skips both the trackChanged removal and the music
+    /// pill insertion, so the swap is instantaneous and the user sees
+    /// a continuous resting pill with the post-banner artwork already
+    /// in place.
+    func clearPendingSystemEvent(animated: Bool = true) {
+        if animated {
+            pendingSystemEvent = nil
+        } else {
+            var snap = Transaction()
+            snap.disablesAnimations = true
+            withTransaction(snap) {
+                pendingSystemEvent = nil
+            }
+        }
         pendingSystemEventTimer?.cancel()
         pendingSystemEventTimer = nil
     }

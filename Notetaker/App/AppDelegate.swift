@@ -1587,7 +1587,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         guard let panel = panel else { return }
                         panel.presenter.trackChangedFiring = false
                         panel.dismissTrackBanner {
-                            panel.presenter.clearPendingSystemEvent()
+                            // animated: false is the banner→pill handoff —
+                            // the banner already showed the new artwork
+                            // inside the flip, so animating the music
+                            // pill in again with .softMusicEntrance reads
+                            // as a duplicate fade-in glitch. Snap-swap.
+                            panel.presenter.clearPendingSystemEvent(animated: false)
                         }
                     }
                 } else if trackKey == lastAnnouncedTrackKey,
