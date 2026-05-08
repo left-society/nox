@@ -1476,57 +1476,12 @@
     }
   }
 
-  /*  ----------------------------------------------------------------
-      Comparison table (DEPRECATED — kept for backward compat in
-      case anything else references the class)
-      ----------------------------------------------------------------  */
-  .compare-table {
-    overflow-x: auto;
-    border-radius: 18px;
-    border: 1px solid var(--line);
-    background: var(--surface);
-    backdrop-filter: blur(20px) saturate(140%);
-    -webkit-backdrop-filter: blur(20px) saturate(140%);
-  }
-  .compare-table table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 14.5px;
-    min-width: 720px;
-  }
-  .compare-table th,
-  .compare-table td {
-    padding: 14px 18px;
-    text-align: left;
-    border-bottom: 1px solid var(--line-soft);
-    vertical-align: middle;
-  }
-  .compare-table tr:last-child td { border-bottom: none; }
-  .compare-table thead th {
-    font-size: 11.5px;
-    font-weight: 600;
-    color: var(--muted);
-    letter-spacing: 0.10em;
-    text-transform: uppercase;
-    padding: 22px 18px 14px;
-  }
-  .compare-table thead th.self { color: var(--fg); }
-  .compare-table td:first-child,
-  .compare-table th:first-child {
-    color: var(--fg-soft);
-    font-weight: 500;
-    width: 32%;
-  }
-  .compare-table th.self,
-  .compare-table td.self {
-    background: linear-gradient(180deg,
-      rgba(200, 181, 255, 0.10),
-      rgba(200, 181, 255, 0.04));
-    color: var(--fg);
-    font-weight: 500;
-    border-left: 1px solid rgba(200, 181, 255, 0.16);
-    border-right: 1px solid rgba(200, 181, 255, 0.16);
-  }
+  /*  Comparison table — auxiliary classes (yes/no/soon badges,
+      footnote). The full .compare-table block below was removed
+      in 2026-05-08's bug-audit pass: it was a leftover deprecated
+      copy that overrode the live `liquid-glass` styling at the
+      top of the file via cascade order, flattening the table
+      surface and adding `overflow-x: auto`. Cleanup audit: H16. */
   .compare-yes  { color: var(--success); font-weight: 600; }
   .compare-no   { color: var(--dim); font-weight: 400; }
   .compare-soon {
@@ -1540,7 +1495,9 @@
     letter-spacing: 0.02em;
     text-transform: lowercase;
   }
-  .compare-note { color: var(--muted); font-size: 13.5px; }
+  /*  Footnote sits below the table — kept here, the duplicate
+      .compare-note that existed in this block was removed in the
+      H16 cleanup (the live one is at line ~1284). */
   .compare-footnote {
     margin-top: 24px;
     color: var(--dim);
@@ -1555,9 +1512,6 @@
     text-decoration-color: rgba(255,255,255,0.2);
   }
   .compare-footnote a:hover { color: var(--fg); }
-  @media (max-width: 720px) {
-    .compare-table th, .compare-table td { padding: 12px 14px; }
-  }
 
   /*  ----------------------------------------------------------------
       Privacy callout
@@ -1846,7 +1800,21 @@
     // Tally posts events as window messages. Shape:
     //   { event: 'Tally.FormSubmitted', payload: { formId: '...' } }
     // (Plus Tally.PopupClosed when the modal dismisses.)
+    // Origin allowlist for the Tally postMessage. Without this,
+    // ANY cross-origin frame or popup that posts a JSON payload
+    // matching {event:'Tally.FormSubmitted'} could trigger the
+    // DMG download — a clickjacking vector for phishing pages
+    // that iframe trynox.app and post fake events. Audit M25.
+    var TALLY_ORIGINS = [
+      'https://tally.so',
+      'https://www.tally.so'
+    ];
     window.addEventListener('message', function (e) {
+      // First gate: origin must be Tally. Reject everything else
+      // silently — this is a fast path that runs on every message
+      // posted to the window (browsers post their own internal
+      // messages too).
+      if (TALLY_ORIGINS.indexOf(e.origin) === -1) return;
       // Tally sends string messages, JSON-encoded. Some other
       // origins post non-JSON strings — ignore those.
       var data = e.data;
@@ -2400,7 +2368,7 @@
     <p>Download it. Drag the icon into your Applications folder. Open it. That's the whole setup.</p>
     <button class="btn btn-primary btn-large" type="button" data-tally-open="xX9Apd" data-tally-layout="modal" data-tally-overlay="1" data-tally-emoji-text="🌙" data-tally-emoji-animation="wave">
       <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.463 1.58-1.518 3.12-.945 1.34-1.94 2.71-3.43 2.71-1.517 0-1.9-.88-3.63-.88-1.698 0-2.302.91-3.67.91-1.49 0-2.534-1.32-3.43-2.64-1.911-2.81-3.39-7.94-1.41-11.4.954-1.69 2.717-2.78 4.66-2.81 1.46-.03 2.83.96 3.71.96.88 0 2.55-.96 4.31-.82.74.03 2.81.3 4.13 2.25-.11.07-2.47 1.44-2.44 4.31.04 3.43 3.01 4.57 3.04 4.59-.07.04-2.84-1.41-3.5-2.91z"/></svg>
-      Download nox 1.9.6
+      Download nox 1.9.7
     </button>
   </div>
 </section>

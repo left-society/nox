@@ -378,8 +378,8 @@ private struct PopoutNoteContainer: View {
             }
         } label: {
             Image(systemName: notesListVisible
-                  ? "sidebar.right"
-                  : "sidebar.right")
+                  ? "sidebar.left.fill"
+                  : "sidebar.left")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(notesListVisible
                                  ? Color.primary.opacity(0.8)

@@ -128,7 +128,8 @@ enum SettingsKey {
     static let respectFocusMode = "respectFocusMode"
 
     // Music
-    static let showRestingPill = "showRestingPill"
+    // showRestingPill removed 2026-05-08 (audit H3): the @AppStorage
+    // toggle wrote this key but nothing in the project read it.
     static let sphereVisualizerEnabled = "sphereVisualizerEnabled"
     static let hideMusicWhileSourceFrontmost = "hideMusicWhileSourceFrontmost"
     static let musicAutoSwitchTab = "musicAutoSwitchTab"
@@ -576,12 +577,30 @@ private struct GeneralSettings: View {
         }
     }
 
+    /// Roll back the toggle's stored UserDefaults value if SMAppService
+    /// rejects the registration. Without this the toggle stays "on"
+    /// even though the OS won't actually launch the app at login —
+    /// the same class of "settings UI lies on failure" bug fixed in
+    /// BUG-119. Audit H2.
     private func setLaunchAtLogin(_ on: Bool) {
         do {
             if on { try SMAppService.mainApp.register() }
             else { try SMAppService.mainApp.unregister() }
         } catch {
             NSLog("Login item toggle failed: \(error)")
+            // Bounce the toggle back to its previous state on the
+            // next runloop tick — doing it inline would land
+            // mid-onChange and SwiftUI ignores re-entrant writes
+            // to the same @AppStorage var.
+            DispatchQueue.main.async { [self] in
+                launchAtLogin = !on
+                let alert = NSAlert()
+                alert.messageText = "Couldn't change Launch at Login"
+                alert.informativeText = "macOS rejected the request. \(error.localizedDescription)\n\nIf this keeps happening, try removing nox from System Settings → General → Login Items, then toggle this setting again."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+            }
         }
     }
 }
@@ -589,12 +608,18 @@ private struct GeneralSettings: View {
 // MARK: - Music
 
 private struct MusicSettings: View {
-    @AppStorage(SettingsKey.showRestingPill) private var showRestingPill: Bool = true
     @AppStorage(SettingsKey.sphereVisualizerEnabled) private var sphereVisualizerEnabled: Bool = true
     // Per BUG-119 fix: removed `hideMusicWhileSourceFrontmost`
     // and `musicAutoSwitchTab` — both were dead settings (UI
-    // toggle wrote UserDefaults; nothing read it back). The
-    // corresponding rows are gone from the body below.
+    // toggle wrote UserDefaults; nothing read it back).
+    // 2026-05-08 audit H3: same fate for `showRestingPill` —
+    // its toggle wrote `"showRestingPill"` to UserDefaults but
+    // no code in the project read the key back, so flipping
+    // it had no observable effect. Implementing a real on/off
+    // would require gating PanelPresenter's resting-pill mode
+    // on the setting; out of scope for this audit pass. The
+    // resting pill always shows when music is playing, which
+    // is the more common preference.
     @AppStorage(SettingsKey.pillSwipeToSkip) private var pillSwipeToSkip: Bool = true
 
     var body: some View {
@@ -604,10 +629,6 @@ private struct MusicSettings: View {
                           title: "Music")
 
             SettingsCard {
-                SettingsRow(title: "Always-on resting pill",
-                            subtitle: "Show the small pill near the notch whenever music is playing") {
-                    Toggle("", isOn: $showRestingPill).labelsHidden()
-                }
                 SettingsRow(title: "Sphere visualizer",
                             subtitle: "Rotating particle sphere on the music card") {
                     Toggle("", isOn: $sphereVisualizerEnabled).labelsHidden()
@@ -1342,7 +1363,18 @@ private struct DictationSettings: View {
         keyValidationStatus = .validating
         validateTask = Task {
             let ok = await DictationService.validateAPIKey(key, baseURL: baseURL)
+            // Cooperative cancellation check after the network call
+            // completes. Without this, the user clicks Test → changes
+            // the key → clicks Test again, and Task1's stale result
+            // would land and overwrite Task2's .validating /.valid /
+            // .invalid badge — wrong key would show as validated.
+            // Audit H1.
+            if Task.isCancelled { return }
             await MainActor.run {
+                // Belt-and-suspenders: re-check on main too, in case
+                // cancellation happened between the await above and
+                // the MainActor hop.
+                guard !Task.isCancelled else { return }
                 keyValidationStatus = ok ? .valid : .invalid
             }
         }

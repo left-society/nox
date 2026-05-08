@@ -2652,7 +2652,22 @@ final class PanelWindowController {
 
         let halo = PanelWindowController.haloPadding
         let notchOnly = PanelWindowController.notchOverlap(for: panel.screen)
-        let isNotchHiddenTarget = abs(target.height - notchOnly) < halo / 2
+        // 2026-05-08 audit H10: closedPillBump=0 and visibleBump=0
+        // make notchHiddenFrame.height == closedPillFrame.height,
+        // so the height-only test couldn't tell music close from
+        // notch-hidden close — both got the soft 158/25 spring,
+        // and the music close that should bounce-snap into the
+        // pill instead arrived mushy. Discriminate by WIDTH too:
+        // closedPillFrame is `closedPillWidth + 2*halo` (~290pt
+        // total); notchHiddenFrame is the hardware notch width
+        // (~185-205pt + 2*halo ~= 220pt). 240pt is the unambiguous
+        // midpoint — if target.width is below it, it's the
+        // hardware-notch close path.
+        let closedPillFullWidth = PanelWindowController.closedPillWidth + 2 * halo
+        let widthMidpoint = (closedPillFullWidth + 220) / 2
+        let isNotchHiddenTarget =
+            abs(target.height - notchOnly) < halo / 2 &&
+            target.width < widthMidpoint
 
         // Close spring calibrated against PIXEL-LEVEL measurement of
         // Alcove's close (frames 2150-2190 in /Users/apple/Downloads/

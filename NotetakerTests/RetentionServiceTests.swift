@@ -11,7 +11,7 @@ final class RetentionServiceTests: XCTestCase {
         return tmp
     }
 
-    func test_sweep_movesOldActiveToTrashed() throws {
+    func test_sweep_movesOldActiveToTrashed() async throws {
         let db = try Database(inMemory: true)
         let tmp = try makeTmp()
 
@@ -30,7 +30,7 @@ final class RetentionServiceTests: XCTestCase {
         }
 
         let svc = RetentionService(db: db, imageRoot: tmp, clock: { fakeNow })
-        try svc.sweep()
+        await svc.sweep()
 
         let fetchedOld = try db.dbQueue.read { try Note.fetchOne($0, id: "old") }
         let fetchedNew = try db.dbQueue.read { try Note.fetchOne($0, id: "new") }
@@ -38,7 +38,7 @@ final class RetentionServiceTests: XCTestCase {
         XCTAssertEqual(fetchedNew?.status, "active")
     }
 
-    func test_sweep_hardDeletesOldTrashed() throws {
+    func test_sweep_hardDeletesOldTrashed() async throws {
         let db = try Database(inMemory: true)
         let tmp = try makeTmp()
 
@@ -49,13 +49,13 @@ final class RetentionServiceTests: XCTestCase {
         try db.dbQueue.write { try oldTrash.insert($0) }
 
         let svc = RetentionService(db: db, imageRoot: tmp, clock: { fakeNow })
-        try svc.sweep()
+        await svc.sweep()
 
         let fetched = try db.dbQueue.read { try Note.fetchOne($0, id: "t") }
         XCTAssertNil(fetched)
     }
 
-    func test_sweep_deletesExpiredImageFilesFromDisk() throws {
+    func test_sweep_deletesExpiredImageFilesFromDisk() async throws {
         let db = try Database(inMemory: true)
         let tmp = try makeTmp()
         try FileManager.default.createDirectory(
@@ -86,7 +86,7 @@ final class RetentionServiceTests: XCTestCase {
         try db.dbQueue.write { try expired.insert($0) }
 
         let svc = RetentionService(db: db, imageRoot: tmp, clock: { fakeNow })
-        try svc.sweep()
+        await svc.sweep()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: fullURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: thumbURL.path))

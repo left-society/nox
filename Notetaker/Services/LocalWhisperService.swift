@@ -244,31 +244,64 @@ actor LocalWhisperService {
             ".",                                  // lone period
         ]
 
-        // Split into sentence-ish units, filter, dedup, rejoin.
-        // Use both period+space AND newline boundaries so we catch
-        // each Whisper segment cleanly.
-        let segments = raw
-            .components(separatedBy: CharacterSet(charactersIn: ".!?\n"))
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        // Split into sentence-ish units, filter, dedup, rejoin —
+        // PRESERVING each segment's original terminator. The
+        // previous version used `components(separatedBy:)` which
+        // throws away the delimiter, then rejoined with ". " — so
+        // every "?" and "!" became a "." in the final output.
+        // User reported that "Hello? How are you?" came back as
+        // "Hello. How are you" — exactly that bug.
+        //
+        // The walker below scans the raw string character by
+        // character, accumulating into `current` until it hits a
+        // sentence terminator (.?!), keeping which terminator was
+        // found, and appending the trimmed segment + its original
+        // terminator to `segments`. Newlines are normalized to
+        // periods because the cleanup-LLM downstream expects
+        // proper sentence boundaries (newlines aren't a punctuation
+        // signal it interprets reliably).
+        var segments: [String] = []
+        var current = ""
+        let stopChars: Set<Character> = [".", "!", "?", "\n"]
+        for ch in raw {
+            if stopChars.contains(ch) {
+                let trimmed = current.trimmingCharacters(in: .whitespaces)
+                if !trimmed.isEmpty {
+                    let terminator: Character = (ch == "\n") ? "." : ch
+                    segments.append(trimmed + String(terminator))
+                }
+                current = ""
+            } else {
+                current.append(ch)
+            }
+        }
+        // Trailing fragment without a terminator — keep it as-is
+        // (Whisper sometimes emits the final clause without ending
+        // punctuation when the audio cuts mid-thought).
+        let trailingTrimmed = current.trimmingCharacters(in: .whitespaces)
+        if !trailingTrimmed.isEmpty {
+            segments.append(trailingTrimmed)
+        }
 
         var out: [String] = []
         var lastNormalized = ""
         for seg in segments {
+            // For hallucination + dedup comparison only — strip any
+            // trailing punctuation so "Thanks for watching!" and
+            // "Thanks for watching." normalize to the same key.
             let normalized = seg.lowercased()
                 .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".,!?")))
-            // Drop hallucinated lines outright.
             if hallucinations.contains(normalized) { continue }
-            // Drop back-to-back duplicates (case-insensitive).
             if normalized == lastNormalized { continue }
+            // Append the segment AS-IS, with its original terminator
+            // intact — that's the H13 fix.
             out.append(seg)
             lastNormalized = normalized
         }
 
-        // Rejoin with periods so the cleanup-LLM downstream sees
-        // proper sentence boundaries. Trailing punctuation already
-        // stripped above.
-        return out.joined(separator: ". ")
+        // Each segment already has its own terminator embedded;
+        // join with a single space.
+        return out.joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
