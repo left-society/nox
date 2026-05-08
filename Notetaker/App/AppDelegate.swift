@@ -2262,8 +2262,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             modelDefault = "whisper-1"
             cleanupDefault = "gpt-4o-mini"
         case "custom":
-            baseDefault = URL(string: defaults.string(forKey: "dictationCustomURL") ?? "")
-                ?? URL(string: "https://api.groq.com/openai/v1")!
+            // 2026-05-08 audit M18: previously an empty / whitespace-
+            // only custom URL became `URL(string: "")` (= nil) and
+            // silently fell back to Groq — the user picked "custom"
+            // and got their dictation routed to a different provider
+            // without warning. Now we trim, validate the URL parses,
+            // and log the fallback so the maintainer can spot
+            // configurations that need fixing.
+            let rawCustom = (defaults.string(forKey: "dictationCustomURL") ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let parsed = URL(string: rawCustom), !rawCustom.isEmpty,
+               (parsed.scheme == "http" || parsed.scheme == "https") {
+                baseDefault = parsed
+            } else {
+                NSLog("nox: provider=custom but dictationCustomURL is empty/invalid (\(rawCustom)) — falling back to Groq. Set a real URL in Settings → Voice → Custom.")
+                baseDefault = URL(string: "https://api.groq.com/openai/v1")!
+            }
             modelDefault = defaults.string(forKey: "dictationCustomModel") ?? "whisper-large-v3-turbo"
             cleanupDefault = defaults.string(forKey: "dictationCustomCleanupModel")
         default:  // "groq" or anything else

@@ -1323,9 +1323,24 @@ private struct DictationSettings: View {
             DictationPermissionsCard()
         }
         .onAppear {
+            // 2026-05-08 audit M17: load the keychain value WITHOUT
+            // tripping the .onChange handler below. Previously the
+            // load wrote to @State, which counts as a change, which
+            // reset keyValidationStatus to .untested every time the
+            // user opened Settings. Net effect: the validation
+            // badge disappeared whenever they came back to the
+            // Integrations tab. The `didLoadFromKeychain` latch
+            // makes the first onChange a no-op.
+            didLoadFromKeychain = true
             apiKey = SecureKeyStore.shared.load(.dictationApiKey) ?? ""
         }
         .onChange(of: apiKey) { newValue in
+            // First fire after onAppear's load isn't a real edit —
+            // skip persistence and badge reset.
+            if didLoadFromKeychain {
+                didLoadFromKeychain = false
+                return
+            }
             // Persist on every keystroke so the user doesn't lose the
             // key by closing Settings without an explicit Save (there
             // isn't one). Reapply config so the orchestrator picks up
@@ -1340,6 +1355,11 @@ private struct DictationSettings: View {
             reapply()
         }
     }
+
+    /// Latch that suppresses the .onChange-fires-on-onAppear-load
+    /// echo. Set true on the keychain load, cleared on the first
+    /// onChange invocation after that. Audit M17.
+    @State private var didLoadFromKeychain: Bool = false
 
     private var statusBadge: some View {
         Group {
