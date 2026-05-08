@@ -135,6 +135,18 @@ struct TeleprompterPillBody: View {
         // freezes exactly at the pause moment.
         let isPaused = presenter.teleprompterPausedAtElapsed != nil
 
+        // 2026-05-09 perf fix: extract the Text view + all layout
+        // modifiers (font, lineSpacing, GeometryReader background,
+        // padding) into a stable child view that does NOT live
+        // inside the TimelineView closure. Previously this entire
+        // subtree was re-evaluated 60× per second; for large scripts
+        // (1000+ words) the per-frame text-layout cost dropped frames
+        // — visible at high WPM as scroll-glitches. By extracting,
+        // SwiftUI sees the same `TeleprompterScrollingBody` value
+        // across ticks (script.body unchanged), skips its body re-
+        // evaluation, and TextKit's cached layout sticks. Only the
+        // outer `.offset(y:)` translation varies per tick, which is
+        // a cheap CALayer transform.
         TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: isPaused)) { ctx in
             // Effective elapsed: frozen if paused, otherwise from
             // the date diff. This single computation drives offset,
@@ -150,21 +162,7 @@ struct TeleprompterPillBody: View {
             let travel = textHeight + viewportH
             let offset = viewportH - CGFloat(progress) * travel
 
-            Text(script.body)
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
-                .lineSpacing(7)
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .background(
-                    GeometryReader { geo in
-                        Color.clear.preference(
-                            key: TeleprompterTextHeightKey.self,
-                            value: geo.size.height
-                        )
-                    }
-                )
-                .padding(.horizontal, 50)
+            TeleprompterScrollingBody(text: script.body)
                 .offset(y: offset)
                 // End detection — kicks off the "Done" flash exactly
                 // once per session. `didReachEnd` is a State guard so
@@ -339,5 +337,48 @@ private struct TeleprompterTextHeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
+    }
+}
+
+/// The actual scrolling text — extracted from `TeleprompterPillBody`
+/// so its layout (TextKit pass + GeometryReader height measurement)
+/// happens **once per script change**, not per TimelineView tick.
+///
+/// Conforms to `Equatable` on the input string so SwiftUI's diffing
+/// can skip body re-evaluation when wrapped in `EquatableView`-style
+/// usage. In practice SwiftUI is good at deduplicating identical
+/// View values in a stable parent; the explicit Equatable conformance
+/// is belt-and-suspenders insurance for the high-frequency closure
+/// re-entry case (60Hz).
+///
+/// Why this shape (separate struct vs `let bodyText = ...` local):
+/// SwiftUI tracks struct-typed views by their `body` output. A local
+/// `let` of view-builder modifiers gets re-built on every closure
+/// invocation, and SwiftUI may not realize the resulting tree is
+/// identical. A named struct with stable input gives SwiftUI a
+/// strong identity hook and a clean Equatable comparison point.
+private struct TeleprompterScrollingBody: View, Equatable {
+    let text: String
+
+    static func == (lhs: TeleprompterScrollingBody, rhs: TeleprompterScrollingBody) -> Bool {
+        lhs.text == rhs.text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 17, weight: .semibold, design: .rounded))
+            .lineSpacing(7)
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: TeleprompterTextHeightKey.self,
+                        value: geo.size.height
+                    )
+                }
+            )
+            .padding(.horizontal, 50)
     }
 }

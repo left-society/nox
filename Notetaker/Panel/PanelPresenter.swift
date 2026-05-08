@@ -318,9 +318,27 @@ final class PanelPresenter: ObservableObject {
     /// from the date diff and ticks forward seamlessly.
     @Published var teleprompterPausedAtElapsed: TimeInterval? = nil
 
-    /// User asked to start reading `script`. Idempotent on the same
-    /// script (no-op if already reading it); switches if a different
-    /// script is requested mid-session.
+    /// User asked to start reading `script`. Idempotent only when
+    /// we're GENUINELY already reading it — i.e. the same script id
+    /// AND the teleprompter pill is visible right now. Otherwise we
+    /// always emit a fresh transition so the controller's Combine
+    /// subscription reliably fires `showTeleprompterPill()`.
+    ///
+    /// **Why the visibility guard matters (2026-05-09 bug fix):**
+    /// the previous version early-returned on script id alone. That
+    /// caused a stale-state failure when the user dismissed the
+    /// teleprompter pill via a path that didn't go through
+    /// `stopTeleprompter()` (e.g. opening the slab via hotkey while
+    /// the teleprompter was active). `teleprompterScript` would still
+    /// hold the old script, so the next Start tap silently no-op'd.
+    /// User-visible symptom: "script is not working when you copy
+    /// something and play it" — Start button does nothing.
+    ///
+    /// Also: forcing a nil → script transition (rather than
+    /// script → script) gives the controller's
+    /// `$teleprompterScript.map { $0 != nil }.removeDuplicates()`
+    /// subscription a clean false → true edge, bypassing the dedup
+    /// that would otherwise suppress `showTeleprompterPill()`.
     ///
     /// `resumeFromElapsed` lets the caller resume mid-script — pass
     /// the saved `lastReadOffset` (interpreted as elapsed seconds)
@@ -328,7 +346,21 @@ final class PanelPresenter: ObservableObject {
     /// duration; if the user finished a script and re-starts, they
     /// get a fresh run from the beginning.
     func startTeleprompter(_ script: Script, resumeFromElapsed: TimeInterval = 0) {
-        if let existing = teleprompterScript, existing.id == script.id { return }
+        // True idempotency: same script AND we're currently
+        // displaying the teleprompter pill. Tapping Start while
+        // already reading shouldn't restart from the beginning.
+        if let existing = teleprompterScript,
+           existing.id == script.id,
+           teleprompterPillVisible {
+            return
+        }
+        // Force a clean nil → script edge so the Combine subscription
+        // reliably fires showTeleprompterPill, even if the previous
+        // teleprompter session left state dangling. Clearing first is
+        // a no-op when teleprompterScript is already nil.
+        if teleprompterScript != nil {
+            teleprompterScript = nil
+        }
         teleprompterScript = script
         teleprompterPausedAtElapsed = nil
         // Shift the anchor backward so `now - startedAt == resumeFromElapsed`.
