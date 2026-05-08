@@ -42,5 +42,18 @@ final class LinkPreviewService: ObservableObject {
                 }
             }
         }
+        // 2026-05-08 audit H11: watchdog so a hung LP fetch
+        // (network problem, OS bug, server stalling forever) can't
+        // permanently trap the URL in `inflight`. Without this,
+        // ensure() would silent-no-op for that URL forever — the
+        // user gets one bad fetch, never sees a preview again.
+        // 12s is well past the typical LPMetadataProvider timeout
+        // (~10s) but short enough to clear quickly when something
+        // actually wedges.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 12 * 1_000_000_000)
+            guard let self, self.inflight.contains(url) else { return }
+            self.inflight.remove(url)
+        }
     }
 }

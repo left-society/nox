@@ -79,9 +79,32 @@ final class BackdropController {
         self.window = w
     }
 
+    /// Generation counter — incremented every time `setShown` is
+    /// called so a stale completion handler can recognize that a
+    /// newer call has superseded it.
+    ///
+    /// 2026-05-08 audit H7: the previous version had a race where
+    /// `setShown(false, ...)`'s completion `orderOut`'d the window
+    /// AFTER a subsequent `setShown(true, ...)` had already shown
+    /// it — rapid open/close cycles left the scrim invisible.
+    /// NSAnimationContext animations can't be cleanly cancelled,
+    /// so we let the stale completion run but make it a no-op via
+    /// the generation check.
+    private var generation: Int = 0
+
+    /// Last requested visibility state. The completion handler
+    /// only honors `orderOut(nil)` when this still equals the
+    /// `shown` value its enclosing call captured — i.e. nobody
+    /// has flipped the request in the meantime.
+    private var lastShown: Bool = false
+
     /// Cross-fade the scrim. Duration matches the panel-frame morph
     /// so the dim arrives with the slab and leaves with it.
     func setShown(_ shown: Bool, duration: TimeInterval) {
+        generation &+= 1
+        let myGen = generation
+        lastShown = shown
+
         if shown {
             // Make sure the window is on the active space and on
             // screen before animating its alpha.
@@ -98,10 +121,17 @@ final class BackdropController {
             window.animator().alphaValue = shown ? 1.0 : 0.0
         }, completionHandler: { [weak self] in
             guard let self else { return }
+            // Reject if a newer call has superseded this one — it
+            // either set the opposite state or is mid-fade and will
+            // run its own completion later.
+            guard self.generation == myGen else { return }
             // After the fade completes, if we're hidden, orderOut
             // so the window isn't still consuming GPU compositing
-            // resources for an invisible scrim.
-            if !shown { self.window.orderOut(nil) }
+            // resources for an invisible scrim. The lastShown gate
+            // is belt-and-suspenders for the corner case where
+            // generation hasn't advanced but state has flipped via
+            // some other path.
+            if !shown && !self.lastShown { self.window.orderOut(nil) }
         })
     }
 }

@@ -310,7 +310,7 @@ final class VideoDownloader {
             guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
             lastActivity.touch()
             for line in text.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
-                if let p = Self.parseProgressLine(String(line)) {
+                if let p = self.parseProgressLine(String(line)) {
                     onProgress(p)
                 }
             }
@@ -512,14 +512,24 @@ final class VideoDownloader {
     /// can flicker to "NA" between segments / phases of a fragmented
     /// download (HLS / DASH); we use the last known value when the
     /// current one is unparseable so the progress bar doesn't
-    /// reset to 0 (or freeze) every time. Static-thread-local-style
-    /// state is fine here — parseProgressLine is only called from
-    /// the stdout readabilityHandler of one yt-dlp process at a
-    /// time per VideoDownloader instance, and instances aren't
-    /// shared across downloads.
-    private static var lastKnownDownloadedBytes: Int64 = 0
+    /// reset to 0 (or freeze) every time.
+    ///
+    /// 2026-05-08 audit H5: this used to be a `static var`, with a
+    /// comment claiming "instances aren't shared across downloads"
+    /// — but `VideoStore.startDownload` allows multiple parallel
+    /// jobs, and a static var leaks between them. Two simultaneous
+    /// downloads cross-pollute progress; the smaller download
+    /// "completes" instantly because it inherits the larger one's
+    /// accumulated bytes. Now per-instance.
+    ///
+    /// Marked `nonisolated(unsafe)` because the readabilityHandler
+    /// closure that mutates this var runs on the system pipe queue,
+    /// which is serial per file handle — so the mutations are
+    /// already safely serialized in practice. The annotation tells
+    /// the strict-concurrency checker we know what we're doing.
+    nonisolated(unsafe) private var lastKnownDownloadedBytes: Int64 = 0
 
-    private static func parseProgressLine(_ raw: String) -> DownloadProgress? {
+    private func parseProgressLine(_ raw: String) -> DownloadProgress? {
         guard let range = raw.range(of: "PROG|") else { return nil }
         let body = raw[range.upperBound...]
         let parts = body.split(separator: "|", omittingEmptySubsequences: false).map(String.init)

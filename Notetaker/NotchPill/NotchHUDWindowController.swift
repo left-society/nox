@@ -423,8 +423,15 @@ final class NotchHUDWindowController {
             delay = NotchHUDWindowController.nowPlayingHideDelay
         }
 
+        // 2026-05-08 audit H8: the original closure was a bare
+        // [weak self] in self?.hide() — `hide()` is @MainActor, so
+        // strict-concurrency compiles flagged the unhopped call.
+        // The other call site in this file (lines 313-318) was
+        // already fixed under BUG-115 by wrapping in
+        // Task { @MainActor in ... }. This site was missed; same
+        // wrap brings them into parity.
         let item = DispatchWorkItem { [weak self] in
-            self?.hide()
+            Task { @MainActor in self?.hide() }
         }
         hideWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)

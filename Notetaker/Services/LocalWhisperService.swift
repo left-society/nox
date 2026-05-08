@@ -168,6 +168,17 @@ actor LocalWhisperService {
             await prepare()
         }
         guard let pipeline = pipeline else {
+            // 2026-05-08 audit H12: previously always threw
+            // .notReady ("model is still loading…") even when
+            // prepare() had failed permanently (out of disk,
+            // model URL 404, signature mismatch). Users were
+            // told to wait when the real problem was
+            // unrecoverable. Now we surface lastError when it
+            // exists — the dictation service can show the real
+            // message instead of an infinite "still loading."
+            if let err = lastError {
+                throw LocalWhisperError.prepareFailed(err)
+            }
             throw LocalWhisperError.notReady
         }
 
@@ -308,11 +319,14 @@ actor LocalWhisperService {
 
 enum LocalWhisperError: LocalizedError {
     case notReady
+    case prepareFailed(Error)
 
     var errorDescription: String? {
         switch self {
         case .notReady:
             return "Local Whisper model is still loading. Try again in a moment."
+        case .prepareFailed(let err):
+            return "Local Whisper failed to load: \(err.localizedDescription). Check your network and disk space, then re-open Settings to retry."
         }
     }
 }

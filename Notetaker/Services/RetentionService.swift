@@ -49,7 +49,16 @@ final class RetentionService {
         }
         if defaults.object(forKey: "trashRetentionDays") != nil {
             let days = defaults.integer(forKey: "trashRetentionDays")
-            trashRetentionSeconds = Double(days) * 86400
+            // 2026-05-08 audit H14: trashRetentionDays now follows
+            // the same -1 = "Forever" convention as retentionDays
+            // and imageRetentionDays. Previously a stored 0 mapped
+            // to `trashCutoff = now` (mass delete next sweep) and
+            // a stored -1 mapped to `trashCutoff = now + 86400`
+            // (delete everything). Both were latent footguns. Now
+            // negative → infinity, zero → infinity (zero trash
+            // retention isn't a meaningful user choice), positive
+            // → days * 86400 as before.
+            trashRetentionSeconds = days <= 0 ? .infinity : Double(days) * 86400
         }
         // Per BUG-119 fix: also seed the image-retention clock.
         if defaults.object(forKey: "imageRetentionDays") != nil {

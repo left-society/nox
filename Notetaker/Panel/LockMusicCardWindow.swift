@@ -279,12 +279,18 @@ struct LockMusicCardView: View {
     /// loaded wallpaper image with what would actually be behind
     /// the card on screen. Read fresh on each render so it picks
     /// up the right `NSScreen` if the user changed displays.
+    ///
+    /// 2026-05-08 audit H6: y-anchor was 0.18 but the controller's
+    /// positionForLockScreen() was bumped to 0.22 in 2026-05-06.
+    /// The 4% offset (~43pt at 1080p) made the wallpaper backdrop
+    /// sample the wrong region — the lens refracted displaced
+    /// pixels behind the card. Synced to 0.22.
     private var cardScreenFrame: NSRect {
         guard let screen = NSScreen.main else { return .zero }
         let cardWidth: CGFloat = 380
         let cardHeight: CGFloat = 140
         let x = screen.frame.midX - cardWidth / 2
-        let y = screen.frame.minY + screen.frame.height * 0.18
+        let y = screen.frame.minY + screen.frame.height * 0.22
         return NSRect(x: x, y: y, width: cardWidth, height: cardHeight)
     }
 

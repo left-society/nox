@@ -498,9 +498,25 @@ private struct GeneralSettings: View {
             SettingsCard {
                 SettingsRow(title: "Launch at login",
                             subtitle: nil,
-                            divider: false) {
+                            divider: true) {
                     Toggle("", isOn: $launchAtLogin).labelsHidden()
                         .onChange(of: launchAtLogin) { setLaunchAtLogin($0) }
+                }
+                // 2026-05-08 audit H15: a user who closes the
+                // first-launch onboarding window via the red traffic-
+                // light gets `onboardingCompletedV2` set to true
+                // anyway (in OnboardingWindow.windowWillClose) so
+                // we don't pester them on every launch — but until
+                // now there was no way back to the onboarding flow.
+                // This button calls the previously-orphan
+                // AppDelegate.presentOnboarding() to give one.
+                SettingsRow(title: "Show onboarding again",
+                            subtitle: "Re-open the welcome flow that ran on first launch.",
+                            divider: false) {
+                    Button("Show…") {
+                        AppDelegate.shared?.presentOnboarding()
+                    }
+                    .buttonStyle(.bordered)
                 }
                 // Per BUG-119 fix: removed "Hide in fullscreen" and
                 // "Hide from screen capture" rows. Both wrote to
