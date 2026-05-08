@@ -52,8 +52,8 @@ final class BrowserMediaProbe {
     private var lastPublishedKey: String?
 
     /// Cached reference to the most-recently-detected audible tab.
-    /// Consumed by `openAudibleTab` and `sendCommandToAudibleTab` so
-    /// they don't need a fresh scan to act. Cleared when the scan
+    /// Consumed by `openAudibleTab` (artwork-tap → jump to source)
+    /// so it doesn't need a fresh scan to act. Cleared when the scan
     /// stops finding anything.
     private(set) var lastAudibleTab: AudibleTabRef?
 
@@ -215,63 +215,44 @@ final class BrowserMediaProbe {
     @discardableResult
     func openAudibleTab() -> Bool {
         guard let ref = lastAudibleTab else { return false }
-        return runActivateScript(ref: ref, keystroke: nil)
+        return runActivateScript(ref: ref)
     }
 
-    /// Activate the audible tab and synthesize the page's keystroke
-    /// for the given transport command. Returns false if no audible
-    /// tab is known (caller falls back to MediaRemote).
-    @discardableResult
-    func sendCommandToAudibleTab(_ command: MediaRemoteService.Command) -> Bool {
-        guard let ref = lastAudibleTab else { return false }
-        guard let stroke = keystroke(for: command, ref: ref) else { return false }
-        return runActivateScript(ref: ref, keystroke: stroke)
-    }
+    // MARK: - Removed: sendCommandToAudibleTab + keystroke(for:)
+    //
+    // Up to 2026-05-08 we activated the audible browser tab and
+    // synthesized a per-site keystroke (k/space for play-pause,
+    // shift+n / shift+p for next/prev on YouTube, arrows elsewhere).
+    // The activate part needed only Apple Events (granted), but the
+    // `tell "System Events" to keystroke …` part needed Accessibility
+    // — which the app never asked for. So in practice the browser
+    // jumped to foreground and the video kept playing. User report:
+    // "press pause / next leads you to the browser itself."
+    //
+    // The replacement lives in MediaRemoteAdapterService.send(), which
+    // routes commands through the entitled Perl helper. Works on any
+    // source MediaRemote can see (browser tabs included), no
+    // Accessibility prompt, no foreground flash.
+    //
+    // The helpers that supported the old path (Keystroke struct,
+    // keystroke(for:ref:) lookup, runActivateScript's keystroke
+    // parameter) have been deleted alongside it. Only the no-keystroke
+    // variant of runActivateScript remains, used by openAudibleTab
+    // for the artwork-tap "go to source" UX.
 
-    /// What to type at the page once it's focused. YouTube has
-    /// well-known shortcuts (k/j/l/shift+n/shift+p). For unknown
-    /// sites, fall back to spacebar (HTML5 video play/pause when the
-    /// player has focus) and arrow keys for seek.
-    private func keystroke(for command: MediaRemoteService.Command, ref: AudibleTabRef) -> Keystroke? {
-        let isYouTube = ref.urlLowercased.contains("youtube.com") ||
-                        ref.urlLowercased.contains("music.youtube.com")
-        switch command {
-        case .togglePlayPause, .play, .pause:
-            return isYouTube ? Keystroke(key: "k", shift: false) : Keystroke(key: " ", shift: false)
-        case .next:
-            return isYouTube ? Keystroke(key: "n", shift: true) : Keystroke(keyCode: 124, shift: false) // right arrow
-        case .previous:
-            return isYouTube ? Keystroke(key: "p", shift: true) : Keystroke(keyCode: 123, shift: false) // left arrow
-        case .stop:
-            return nil
-        case .toggleShuffle:
-            // No standard shuffle keystroke for browser-based media
-            // (YouTube's "shuffle" depends on the playlist context).
-            // Skip — MediaRemoteService still routes through to the
-            // private command for non-browser apps.
-            return nil
-        }
-    }
-
-    private struct Keystroke {
-        var key: String? = nil
-        var keyCode: Int? = nil
-        var shift: Bool
-
-        init(key: String, shift: Bool) {
-            self.key = key
-            self.shift = shift
-        }
-        init(keyCode: Int, shift: Bool) {
-            self.keyCode = keyCode
-            self.shift = shift
-        }
-    }
-
-    nonisolated private func runActivateScript(ref: AudibleTabRef, keystroke: Keystroke?) -> Bool {
-        let activatePart: String
+    /// Activate the audible browser tab — both bring the browser to
+    /// the foreground AND focus the specific window/tab playing the
+    /// audio. Used by the artwork-tap "open source" UX so that
+    /// clicking the album art on the notch jumps to the actual
+    /// YouTube tab the user is hearing, not just the browser app.
+    ///
+    /// AppleScript-only (Apple Events permission already granted).
+    /// No keystroke synthesis here — that path was deleted along
+    /// with sendCommandToAudibleTab.
+    nonisolated private func runActivateScript(ref: AudibleTabRef) -> Bool {
+        let script: String
         if ref.scriptName == "Safari" {
-            activatePart = """
+            script = """
             tell application "Safari"
                 activate
                 tell window \(ref.windowIndex)
@@ -281,7 +262,7 @@ final class BrowserMediaProbe {
             end tell
             """
         } else {
-            activatePart = """
+            script = """
             tell application "\(ref.scriptName)"
                 activate
                 set active tab index of window \(ref.windowIndex) to \(ref.tabIndex)
@@ -290,44 +271,11 @@ final class BrowserMediaProbe {
             """
         }
 
-        var script = activatePart
-        if let stroke = keystroke {
-            // Small delay so System Events sends the key after the
-            // browser has actually become frontmost. 0.18s is the
-            // smallest value that's reliable across Chrome / Arc /
-            // Safari on M-series macs in informal testing.
-            let strokeLine: String
-            if let key = stroke.key {
-                let escaped = key.replacingOccurrences(of: "\\", with: "\\\\")
-                                 .replacingOccurrences(of: "\"", with: "\\\"")
-                if stroke.shift {
-                    strokeLine = "keystroke \"\(escaped)\" using shift down"
-                } else {
-                    strokeLine = "keystroke \"\(escaped)\""
-                }
-            } else if let code = stroke.keyCode {
-                if stroke.shift {
-                    strokeLine = "key code \(code) using shift down"
-                } else {
-                    strokeLine = "key code \(code)"
-                }
-            } else {
-                return false
-            }
-            script += """
-
-            delay 0.18
-            tell application "System Events"
-                \(strokeLine)
-            end tell
-            """
-        }
-
         var error: NSDictionary?
         guard let osa = NSAppleScript(source: script) else { return false }
         _ = osa.executeAndReturnError(&error)
         if let error {
-            FileHandle.standardError.write("BROWSERPROBE: activate/keystroke script failed: \(error)\n".data(using: .utf8)!)
+            FileHandle.standardError.write("BROWSERPROBE: activate script failed: \(error)\n".data(using: .utf8)!)
             return false
         }
         return true
@@ -422,8 +370,8 @@ final class BrowserMediaProbe {
 
     /// Find the first tab in `bundleID`'s browser whose title contains
     /// `titleHint`, then update `lastAudibleTab` so subsequent
-    /// `openAudibleTab` / `sendCommandToAudibleTab` calls land on the
-    /// exact tab that's actually playing the audio.
+    /// `openAudibleTab` calls land on the exact tab that's actually
+    /// playing the audio.
     ///
     /// Why this is needed even though we already have `findAudibleTab`:
     /// the URL-pattern scanner only runs when MediaRemote is silent

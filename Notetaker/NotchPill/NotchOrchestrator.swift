@@ -131,23 +131,45 @@ final class NotchOrchestrator {
     /// can drive playback the same way the notch HUD's transport
     /// buttons already do.
     ///
-    /// Dispatch:
-    ///   - Browser sources (the bundle ID matches a tab the
-    ///     BrowserMediaProbe is currently tracking) → run an
-    ///     AppleScript that activates the audible tab and
-    ///     synthesizes the page's keystroke (k for YouTube
-    ///     play/pause, etc.). MRMediaRemoteSendCommand is restricted
-    ///     on macOS 15.4+ and won't reach Chrome anyway, so this is
-    ///     the only path that actually controls a YouTube tab.
-    ///   - Everything else → MediaRemoteService.send, which
-    ///     dispatches to AppleScript for Spotify/Music and
-    ///     MRMediaRemoteSendCommand for the rest.
+    /// Dispatch (post 2026-05-08 rewrite — see commit log for the
+    /// research that drove this):
+    ///   - Spotify / Apple Music — keep their first-class AppleScript
+    ///     verbs (`play`, `pause`, `next track`, `previous track`).
+    ///     They don't require foregrounding the source app and the
+    ///     latency is identical to MediaRemote.
+    ///   - Everything else (browsers, podcast apps, anything that
+    ///     publishes Media Session) → route through the bundled Perl
+    ///     adapter's `send` subcommand. `/usr/bin/perl` is signed by
+    ///     Apple and IS entitled to MediaRemote, so commands sent
+    ///     from inside it reach `mediaremoted` even on macOS 15.4+
+    ///     where in-process MRMediaRemoteSendCommand silently no-ops.
+    ///
+    /// Removed: the BrowserMediaProbe.sendCommandToAudibleTab path.
+    /// It built a `tell app "X" to activate` + `tell System Events
+    /// to keystroke "k"` AppleScript. The activate succeeded but the
+    /// keystroke needed Accessibility permission the app never asks
+    /// for — so the browser would jump to foreground and the video
+    /// wouldn't pause. Exactly the bug the user reported as "press
+    /// pause / next leads you to the browser itself." The adapter
+    /// route fixes both halves: no foreground flash AND the command
+    /// actually pauses the video.
     func sendMediaCommand(_ command: MediaRemoteService.Command) {
-        if let ref = browserProbe.lastAudibleTab,
-           ref.bundleID == lastForwardedBundleID {
-            if browserProbe.sendCommandToAudibleTab(command) {
-                return
-            }
+        // Spotify / Apple Music keep their existing AppleScript path
+        // because that's what's wired today and it works without
+        // foregrounding. mediaService.send() handles them at line
+        // ~756 of MediaRemoteService.swift via runAppleScript.
+        if let bundleID = lastForwardedBundleID,
+           bundleID == "com.spotify.client" || bundleID == "com.apple.Music" {
+            mediaService.send(command)
+            return
+        }
+        // Everything else — adapter route. Works for browsers,
+        // podcast apps, web Apple Music, SoundCloud, anything that
+        // publishes Media Session. Falls back to the legacy
+        // mediaService.send if the adapter isn't running (e.g. its
+        // bundled resources didn't ship for some reason).
+        if mediaRemoteAdapter.isRunning, mediaRemoteAdapter.send(command) {
+            return
         }
         mediaService.send(command)
     }

@@ -243,6 +243,104 @@ final class MediaRemoteAdapterService {
         return true
     }
 
+    // MARK: - Sending commands
+
+    /// Resolved paths to the bundled adapter resources, captured on
+    /// `start()`. We hold them so `send()` doesn't repeat the
+    /// Bundle-lookup dance per command. Re-resolved each `start()`
+    /// in case the .app moved between launches.
+    private var resolvedScriptURL: URL?
+    private var resolvedFrameworkURL: URL?
+
+    /// Send a one-shot media command via the entitled Perl helper.
+    ///
+    /// The streaming `start()` Process is read-only; we spawn a
+    /// short-lived perl invocation per command instead of trying to
+    /// stuff input into the long-lived stream. ~30ms per call,
+    /// fire-and-forget — much faster than a user can press another
+    /// button, no queueing concerns in practice.
+    ///
+    /// **Why this exists**: as of macOS 15.4 the OS gates
+    /// `MRMediaRemoteSendCommand` against the
+    /// `com.apple.private.mediaremote` entitlement that only Apple
+    /// system processes carry. Loading MediaRemote.framework directly
+    /// from this app and calling sendCommand returns silently —
+    /// `mediaremoted` drops the request. The bundled `mediaremote-adapter.pl`
+    /// runs under `/usr/bin/perl`, which IS entitled, so commands sent
+    /// from inside it reach the daemon and route to whatever app owns
+    /// the active Now Playing session — including YouTube/SoundCloud/
+    /// any browser tab that publishes Media Session, plus Spotify and
+    /// Apple Music.
+    ///
+    /// Result: a single send() route works for every source the
+    /// adapter can already display. No Accessibility permission,
+    /// no per-browser AppleScript, no foreground-app flash.
+    ///
+    /// Returns true if the subprocess launched (not whether the
+    /// command was actually accepted by the source — Perl exits 0
+    /// either way; failure modes are silent in mediaremoted itself).
+    @discardableResult
+    func send(_ command: MediaRemoteService.Command) -> Bool {
+        guard let scriptURL = resolvedScriptURL ?? bundleResolvedScriptURL(),
+              let frameworkURL = resolvedFrameworkURL ?? bundleResolvedFrameworkURL() else {
+            NSLog("nox: MRA send(\(command)) — adapter resources not found, dropping command")
+            return false
+        }
+        // Cache for next call.
+        resolvedScriptURL = scriptURL
+        resolvedFrameworkURL = frameworkURL
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
+        process.arguments = [
+            scriptURL.path,
+            frameworkURL.path,
+            "send",
+            String(command.rawValue)
+        ]
+        // Discard stdout/stderr — `send` mode emits nothing useful
+        // on success, and we don't want a stalled pipe holding
+        // the subprocess open.
+        process.standardOutput = FileHandle(forWritingAtPath: "/dev/null") ?? Pipe()
+        process.standardError = FileHandle(forWritingAtPath: "/dev/null") ?? Pipe()
+
+        do {
+            try process.run()
+            // Don't waitUntilExit — let it complete in the background.
+            // Subprocess is short-lived (~30ms) and nothing depends on
+            // the result. Holding the main actor here would defeat
+            // the whole point of this being snappy.
+            Self.fileLog("MRA send command=\(command) (\(command.rawValue))")
+            return true
+        } catch {
+            NSLog("nox: MRA send(\(command)) — failed to spawn perl: \(error)")
+            return false
+        }
+    }
+
+    /// Re-run the same Bundle path resolution `start()` does.
+    /// Pulled out so `send()` works even if called before `start()`
+    /// (defensive — orchestrator should always start the streamer
+    /// first, but cheap to handle the out-of-order case).
+    private func bundleResolvedScriptURL() -> URL? {
+        return bundleResolve("mediaremote-adapter.pl")
+    }
+    private func bundleResolvedFrameworkURL() -> URL? {
+        return bundleResolve("MediaRemoteAdapter.framework")
+    }
+    private func bundleResolve(_ name: String) -> URL? {
+        guard let resourceURL = Bundle.main.resourceURL else { return nil }
+        let flat = resourceURL.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: flat.path) { return flat }
+        let nested = resourceURL
+            .appendingPathComponent("mediaremote-adapter")
+            .appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: nested.path) { return nested }
+        return nil
+    }
+
+    // MARK: - Lifecycle (cont'd)
+
     /// Terminate the subprocess and drop all state. Idempotent —
     /// safe to call when not running.
     func stop() {
