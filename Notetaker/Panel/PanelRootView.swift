@@ -5839,21 +5839,50 @@ private struct TrackChangedPillBody: View {
     /// otherwise the lavender placeholder tile with a music note.
     /// Used for both the front (old) and back (new) faces of the
     /// two-faced card flip.
+    ///
+    /// 2026-05-09 — bug fix for YouTube thumbnails during the flip.
+    /// User report: "instead of the thumbnail showing the real
+    /// thing, it shows half of the thumbnail at first when tilting,
+    /// when it going back to the small pill, it shows the real
+    /// actual artwork. But in the time of 3D tilt, it just don't
+    /// show it."
+    ///
+    /// Root cause: previously this returned an
+    /// `Image(...).resizable().aspectRatio(.fill)` with no explicit
+    /// frame or hard clip. For a 16:9 source (YouTube thumbnails
+    /// are 1280×720) SwiftUI fills the proposed square by scaling
+    /// height to fit and overflowing width on both sides. With the
+    /// outer `.clipShape` + `.compositingGroup` + `.rotation3DEffect`
+    /// stack, the compositing group's offscreen rasterization can
+    /// capture the overflow because the clip only affects the final
+    /// visible result, not the layer baked into the rotating
+    /// transform. During the rotation that overflow becomes visible
+    /// and reads as "half the thumbnail showing."
+    ///
+    /// Fix: bake the frame + clip into each face. The rotating
+    /// compositing group now sees a true 22×22 square regardless of
+    /// source aspect ratio, matching how the resting pill's
+    /// `PillArtworkLayerView` handles it via CALayer.resizeAspectFill
+    /// + masksToBounds.
     @ViewBuilder
     private func artworkFace(data: Data?) -> some View {
-        if let data = data,
-           let nsImage = NSImage(data: data) {
-            Image(nsImage: nsImage)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-        } else {
-            ZStack {
-                accent.opacity(0.18)
-                Image(systemName: "music.note")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(accent)
+        Group {
+            if let data = data,
+               let nsImage = NSImage(data: data) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                ZStack {
+                    accent.opacity(0.18)
+                    Image(systemName: "music.note")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(accent)
+                }
             }
         }
+        .frame(width: 22, height: 22)
+        .clipped()
     }
 
     var body: some View {

@@ -133,21 +133,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     func pillHasAnyAnchor() -> Bool {
         guard let panel = panelController else { return false }
-        // Music anchor: actively playing, NOT just "we have cached
-        // track metadata." `presenter.nowPlaying` is intentionally
-        // sticky (the slab shows the last-played track for hover-
-        // and-resume even hours after pause), so checking `!= nil`
-        // would keep the resting pill anchored forever once any
-        // music has been played in the session.
+        // Music anchor: actively playing AND actually flowing audio.
+        // BOTH signals required, not just one — see the bug history
+        // below.
         //
-        // Using `nowPlaying?.isPlaying == true` matches the
-        // `effectivelyPlaying` signal `updatePillVisibility` uses
-        // to schedule the 1.5s retract debounce — without this
-        // alignment, the debounce fires but `exitRestingMode()` is
-        // gated out by the stale anchor and the pill never closes.
-        // (User-reported bug 2026-05-09: "notch is not closing
-        // when music is stopped.")
-        if panel.presenter.nowPlaying?.isPlaying == true { return true }
+        // `presenter.nowPlaying` is intentionally sticky (the slab
+        // shows the last-played track for hover-and-resume even
+        // hours after pause). Checking `!= nil` would keep the pill
+        // anchored forever once any music has been played; checking
+        // just `nowPlaying?.isPlaying == true` matches what
+        // `effectivelyPlaying` does — but BOTH go stale together
+        // when MR doesn't emit a final `isPlaying=false` snapshot
+        // (Chrome tab closed mid-song, playlist auto-ended, source
+        // app crashed, AirPods disconnected without a clean stop).
+        // In that case the cached `isPlaying` stays `true` forever
+        // and the pill never retracts.
+        //
+        // Pairing with `isAudioFlowing` catches the stale case: if
+        // no output is flowing, music isn't actually playing
+        // regardless of what MR's last emission claimed. The 1.5s
+        // retract debounce in `updatePillVisibility` absorbs the
+        // sub-second Bluetooth-flicker window where `audioFlowing`
+        // toggles during stable BT playback, so this stricter check
+        // doesn't reintroduce that flicker bug.
+        //
+        // User-reported bug history:
+        //   • 2026-05-09a: "notch is not closing when music is
+        //     stopped" — was checking `!= nil`, fixed to check
+        //     `isPlaying == true`.
+        //   • 2026-05-09b: "sometimes when you turn focus on/off
+        //     and then turn the music off, the pill doesn't close" —
+        //     stale `isPlaying=true` from a non-clean stop. Fixed
+        //     by ALSO requiring `isAudioFlowing`.
+        if panel.presenter.nowPlaying?.isPlaying == true
+            && panel.presenter.isAudioFlowing {
+            return true
+        }
         if UserDefaults.standard.bool(forKey: SettingsKey.noxFocusMode) {
             return true
         }
@@ -157,6 +178,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if UserDefaults.standard.bool(forKey: SettingsKey.noxStudyMode) {
             return true
         }
+        // Dictation anchor (added 2026-05-09 after user-reported
+        // bug: "When I'm recording audio, after 10-15 seconds the
+        // small pill closes automatically"). Without this guard,
+        // any path that calls `if !pillHasAnyAnchor() {
+        // exitRestingMode() }` — including transient-pill cleanup
+        // and the audio-flow retract debounce — would tear down
+        // the panel mid-dictation. The dictation pill content
+        // remains in the SwiftUI tree but the panel.frame would
+        // have already collapsed back to notch-hidden, so the
+        // user sees nothing.
+        if panel.presenter.dictationPhase != .idle { return true }
+        // Teleprompter anchor — same logic. When `teleprompterScript`
+        // is non-nil the user is actively reading and the panel is
+        // morphed to teleprompter geometry. A transient cleanup
+        // firing here would tear down the reading session.
+        if panel.presenter.teleprompterScript != nil { return true }
         if panel.presenter.isFocused {
             // Mirror PanelPresenter.setPendingSystemEvent's
             // respect-Focus default-true gating.
@@ -308,6 +345,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// doesn't flicker out and back during brief gaps (YouTube
     /// scrub, Spotify track-change pause, ad-break).
     private var audioFlowingRetractWork: DispatchWorkItem?
+
+    /// Wall-clock instant audio output last transitioned from
+    /// flowing → not-flowing. Cleared when audio resumes. Used by
+    /// `updatePillVisibility` to detect "stale MR cache" — if MR
+    /// last said `isPlaying=true` but audio has been continuously
+    /// off for longer than the BT-flicker window (~3s), the source
+    /// app stopped without a clean isPlaying=false emission and
+    /// we should trust the audio signal over MR's cache.
+    private var audioOffSince: Date? = nil
+
+    /// Re-evaluate work scheduled to wake up at audio-off + 3s so
+    /// `updatePillVisibility` re-runs and the stale-MR override can
+    /// fire even if no other event arrives. Cancelled when audio
+    /// resumes (the override no longer applies).
+    private var staleMRReevalWork: DispatchWorkItem?
 
     /// Wall-clock timestamp of the moment audio started flowing
     /// while there was NO MediaRemote info available (np=nil).
@@ -2082,8 +2134,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // not from nowPlaying-nil events. This is the key invariant
         // that lets the slab show "your last track, paused" even
         // after the source app has gone fully silent.
+        //
+        // Multi-source fallback poll. macOS MediaRemote tracks ONE
+        // active source at a time. User scenario 2026-05-09:
+        // Spotify playing in the background, user opens a YouTube
+        // tab → MR switches to Chrome/YouTube. User stops the
+        // YouTube tab → MR emits nil and stops reporting. Spotify
+        // is still actively playing audio but MR doesn't auto-fall-
+        // back to it, so the pill collapses. Schedule a delayed
+        // probe of Spotify + Music — if either is playing, the
+        // probe publishes a synthetic NowPlayingInfo via
+        // `applyAppNotification` and the pill seamlessly swaps.
+        // 700ms gives the prior nil time to settle and avoids
+        // racing legitimate "user closed everything" cases.
+        if info == nil, panel.presenter.isAudioFlowing {
+            scheduleFallbackSourceProbe()
+        }
 
         updatePillVisibility(panel: panel)
+    }
+
+    /// Debounced re-probe of running music apps when MR went nil
+    /// but audio is still flowing. Cancels any prior scheduled
+    /// probe so rapid nil emissions don't pile up — only the
+    /// freshest "still nil after settling" gets a probe.
+    private var fallbackSourceProbeWork: DispatchWorkItem?
+    private func scheduleFallbackSourceProbe() {
+        fallbackSourceProbeWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.fallbackSourceProbeWork = nil
+            // Re-check guards at fire time. If a real MR emission
+            // landed during the 700ms window, presenter.nowPlaying
+            // is non-nil and we don't need the probe. If audio
+            // stopped flowing, the user genuinely paused everything
+            // and we shouldn't pull a stale Spotify state into the
+            // pill.
+            guard let panel = self.panelController,
+                  panel.presenter.nowPlaying == nil,
+                  panel.presenter.isAudioFlowing else { return }
+            NSLog("nox: MR-nil + audio-on → probing Spotify/Music for fallback source")
+            self.notchOrchestrator?.probeForFallbackSource()
+        }
+        fallbackSourceProbeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: work)
     }
 
     /// Single decision point for "is the small pill currently visible."
@@ -2179,10 +2273,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             noMRSustainWork = nil
         }
 
+        // Track when audio went off — drives the "stale MR cache"
+        // override below. Symmetric with how `noMRAudioStartedAt`
+        // tracks the no-MR sustain timer above. Set on the
+        // transition into "audio off" (don't repeatedly bump the
+        // timestamp on every re-eval), cleared the moment audio
+        // returns.
+        if audioOn {
+            audioOffSince = nil
+            staleMRReevalWork?.cancel()
+            staleMRReevalWork = nil
+        } else if audioOffSince == nil {
+            audioOffSince = now
+        }
+
+        // Stale-MR detector: MR's `nowPlaying.isPlaying` can stay
+        // `true` indefinitely if the source app stopped without a
+        // clean isPlaying=false emission (Chrome tab closed mid-
+        // song, playlist auto-end, source app crashed, AirPods
+        // disconnected without a clean stop). When audio has been
+        // continuously off for longer than the typical BT-flicker
+        // window (~3s — flickers are sub-second, this gives wide
+        // margin), the cache is stale; trust the audio signal
+        // instead. Without this, the resting pill stays open
+        // forever after a non-clean stop.
+        let mrCacheIsStale: Bool = {
+            guard !audioOn, let since = audioOffSince else { return false }
+            return now.timeIntervalSince(since) > 3.0
+        }()
+
+        // If the cache is going to become stale soon, schedule a
+        // re-eval at exactly that moment — `updatePillVisibility`
+        // is event-driven (audio change, MR emission), and a
+        // stale-cache scenario by definition has no further events
+        // to ride in on. Without this self-wake, the pill would
+        // hang open forever waiting for an event that never comes.
+        if !audioOn,
+           !mrCacheIsStale,
+           let since = audioOffSince,
+           staleMRReevalWork == nil {
+            let work = DispatchWorkItem { [weak self] in
+                self?.staleMRReevalWork = nil
+                if let panel = self?.panelController {
+                    self?.updatePillVisibility(panel: panel)
+                }
+            }
+            staleMRReevalWork = work
+            let remaining = 3.0 - now.timeIntervalSince(since)
+            DispatchQueue.main.asyncAfter(deadline: .now() + remaining + 0.05, execute: work)
+        }
+
         let effectivelyPlaying: Bool = {
-            if let np = np {
+            if let np = np, !mrCacheIsStale {
                 return np.isPlaying
             }
+            // Either no MR data, or the MR cache is stale and we're
+            // trusting audio-flow alone. Either way, falling through
+            // to the audio signal.
             return audioOn && !noMRGated
         }()
 

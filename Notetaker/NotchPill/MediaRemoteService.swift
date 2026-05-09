@@ -395,6 +395,23 @@ final class MediaRemoteService {
     /// exists is that MediaRemote returned empty. AppleScript inherits
     /// the user's existing automation grant (already required for the
     /// transport buttons to work), so there's no extra permission cost.
+    /// Public entry point for AppDelegate to trigger the same
+    /// running-music-apps probe outside of startup. Used when
+    /// MediaRemote goes silent (the active source ended) but
+    /// CoreAudio still reports audio flowing — i.e. another music
+    /// app (Spotify/Music) is still playing in the background and
+    /// MR just hasn't fallen back to it. Calling this re-runs the
+    /// AppleScript probe, which publishes a fresh NowPlayingInfo
+    /// for whichever app is actually playing — so the pill swaps
+    /// to it instead of collapsing.
+    ///
+    /// Idempotent — `applyAppNotification`'s dedup path swallows
+    /// repeated emissions of the same track. Safe to call on every
+    /// nil emission.
+    func probeRunningMusicAppsExternally() {
+        probeRunningMusicApps()
+    }
+
     private func probeRunningMusicApps() {
         // Per 2026-04-29 deep dive on open-source notch HUDs: NONE of
         // boring.notch / DynamicNotch / ComfyNotch special-case

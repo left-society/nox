@@ -153,6 +153,19 @@ final class NotchOrchestrator {
     /// pause / next leads you to the browser itself." The adapter
     /// route fixes both halves: no foreground flash AND the command
     /// actually pauses the video.
+    /// Re-run the running-music-apps probe. Called by AppDelegate
+    /// when MediaRemote goes nil but CoreAudio still reports audio
+    /// flowing — typical case: user was watching YouTube while
+    /// Spotify played in the background, then closed the YouTube
+    /// tab. MR follows the active source so it goes silent; without
+    /// this poll, the pill would collapse even though Spotify is
+    /// still playing. Probe runs AppleScript against Spotify and
+    /// Music, publishes a fresh NowPlayingInfo if either is
+    /// playing, and the pill cleanly swaps to it.
+    func probeForFallbackSource() {
+        mediaService.probeRunningMusicAppsExternally()
+    }
+
     func sendMediaCommand(_ command: MediaRemoteService.Command) {
         // Spotify / Apple Music keep their existing AppleScript path
         // because that's what's wired today and it works without
