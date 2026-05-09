@@ -250,15 +250,20 @@ cp -R "$APP_PATH" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 
 echo "▸ Build compressed DMG…"
-# Volname must NOT be the bare "nox". macOS Sequoia's TCC layer
-# protects /Volumes/<bundle-name> for installed apps with privacy
-# permissions, so hdiutil's transient mount at /Volumes/nox fails
-# with "Operation not permitted" before it can copy the .app in.
-# Reproducible — same volname blocks regardless of output path.
-# "Install nox" reads naturally in Finder window titles when the
-# user opens the DMG and stays clear of the protected mountpoint.
+# Volname is versioned per-release. macOS Sequoia's TCC layer
+# adds /Volumes/<volname> to a protected list the moment the
+# user mounts a DMG with that volname for an app holding privacy
+# permissions; subsequent attempts to write into a fresh DMG with
+# the same volname fail with "Operation not permitted." Worked
+# around with "nox" → "Install nox" in 1.9.12, but "Install nox"
+# got TCC-flagged after one release too. Embedding the version
+# means every build gets a fresh, unprotected mountpoint name.
+# The DMG window title is purely cosmetic so versioned text is
+# fine — users see it for ~3 seconds before dragging into
+# Applications.
+DMG_VOLNAME="nox-installer-${VERSION//./}"
 hdiutil create \
-  -volname "Install nox" \
+  -volname "$DMG_VOLNAME" \
   -srcfolder "$STAGE" \
   -ov -format UDZO -fs APFS \
   "$DMG_PATH" >/dev/null

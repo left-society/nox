@@ -3439,6 +3439,25 @@ struct LiveStudyDetailPanel: View {
     @AppStorage(SettingsKey.noxFocusMode) private var noxFocusMode: Bool = false
     @ObservedObject private var tracker = StudySessionTracker.shared
 
+    /// Pomodoro-style countdown timer for the active Study session.
+    /// Same `SessionTimerService` class powering Focus's timer; the
+    /// `.study` singleton has its own UserDefaults snapshot key and
+    /// expiry notification, so the two timers don't share state.
+    @ObservedObject private var studyTimer = SessionTimerService.study
+
+    /// True while the Study-on-idle hero is showing the custom-
+    /// duration editor instead of the four-preset chip strip.
+    /// Mirrors `LiveFocusDetailPanel`'s same-named flag — tapping
+    /// the trailing "+" chip flips this on; × in the editor flips
+    /// it off.
+    @State private var customTimerExpanded: Bool = false
+
+    /// User-entered custom duration in minutes for the Study timer.
+    /// Defaults to 30. Clamped to 1...300 on commit. Independent
+    /// of Focus's custom-timer state — both can have different
+    /// last-used custom values without interfering.
+    @State private var customTimerMinutes: Int = 30
+
     /// Closure invoked when the user taps the "‹ Live" back arrow.
     let onBack: () -> Void
 
@@ -3477,75 +3496,48 @@ struct LiveStudyDetailPanel: View {
         }
     }
 
+    /// Hero card state machine — same shape as
+    /// `LiveFocusDetailPanel.HeroState`. Combines Study toggle state
+    /// with timer state so the SwiftUI body uses one switch instead
+    /// of nested ifs.
+    private enum HeroState: Equatable {
+        case studyOff
+        case studyOnIdle
+        case timerActive(paused: Bool)
+        case timerExpired
+    }
+
+    private var heroState: HeroState {
+        switch studyTimer.state {
+        case .running: return .timerActive(paused: false)
+        case .paused:  return .timerActive(paused: true)
+        case .expired: return .timerExpired
+        case .idle:    return noxStudyMode ? .studyOnIdle : .studyOff
+        }
+    }
+
+    /// Hero card content. Single source of truth for the four
+    /// states above — same gradient + stroke wrapper, different
+    /// content tree per state. The wrapper's `.animation(value:)`
+    /// makes state transitions interpolate the gradient/stroke
+    /// intensity smoothly.
     @ViewBuilder
     private func heroContent(now: Date) -> some View {
-        HStack(spacing: 12) {
-            // Book glyph in a soft tile — same visual weight as the
-            // Focus hero's character but a single SF Symbol so we
-            // don't need a custom illustration. Lights up when
-            // Study is on.
-            ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(DS.Color.accent.opacity(noxStudyMode ? 0.20 : 0.08))
-                Image(systemName: noxStudyMode ? "book.closed.fill" : "book.closed")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(
-                        noxStudyMode
-                            ? DS.Color.accent
-                            : Color.white.opacity(0.55)
-                    )
-            }
-            .frame(width: 50, height: 50)
-            .animation(.easeInOut(duration: 0.22), value: noxStudyMode)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(noxStudyMode ? "Study on" : "Study off")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(0.6)
-                    .foregroundStyle(DS.Color.accent)
-                    .textCase(.uppercase)
-                    .contentTransition(.opacity)
-
-                if let start = presenter.studySessionStartedAt, noxStudyMode {
-                    Text(formatSessionDuration(now.timeIntervalSince(start)))
-                        .font(.system(size: 22, weight: .bold).monospacedDigit())
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .transition(.asymmetric(
-                            insertion: .opacity.combined(with: .offset(y: 4)),
-                            removal: .opacity
-                        ))
-                } else {
-                    Text("Tap toggle below to start")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.58))
-                        .transition(.asymmetric(
-                            insertion: .opacity,
-                            removal: .opacity.combined(with: .offset(y: -4))
-                        ))
-                }
-            }
-
-            Spacer(minLength: 8)
-
-            if let start = presenter.studySessionStartedAt, noxStudyMode {
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text("SINCE")
-                        .font(.system(size: 8.5, weight: .bold))
-                        .tracking(0.7)
-                        .foregroundStyle(.white.opacity(0.45))
-                    Text(formatTimeOfDay(start))
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-                .transition(.asymmetric(
-                    insertion: .opacity.combined(with: .offset(x: 8)),
-                    removal: .opacity.combined(with: .offset(x: 4))
-                ))
+        Group {
+            switch heroState {
+            case .studyOff:
+                heroStudyOffRow
+            case .studyOnIdle:
+                heroStudyOnIdleColumn(now: now)
+            case .timerActive(let paused):
+                heroTimerRunningRow(now: now, paused: paused)
+            case .timerExpired:
+                heroTimerExpiredColumn
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(
@@ -3567,7 +3559,429 @@ struct LiveStudyDetailPanel: View {
                 )
         )
         .animation(.spring(response: 0.34, dampingFraction: 0.78),
+                   value: heroState)
+        .animation(.spring(response: 0.34, dampingFraction: 0.78),
                    value: noxStudyMode)
+    }
+
+    // MARK: - Hero card sub-rows
+
+    /// State A — Study mode is off. Single-row layout with the
+    /// dimmed book glyph + STUDY OFF eyebrow + prompt copy.
+    private var heroStudyOffRow: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(DS.Color.accent.opacity(0.08))
+                Image(systemName: "book.closed")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.55))
+            }
+            .frame(width: 50, height: 50)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("STUDY OFF")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundStyle(DS.Color.accent.opacity(0.78))
+                    .textCase(.uppercase)
+                Text("Tap toggle below to start")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.58))
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// State B — Study is on, no timer set. Top row: book glyph +
+    /// STUDY ON + duration + SINCE column. Underneath: hairline
+    /// divider + a `⏱ Timer  [chips]` strip embedded inside the
+    /// same card so the user can start a Pomodoro without leaving
+    /// the dashboard.
+    private func heroStudyOnIdleColumn(now: Date) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(DS.Color.accent.opacity(0.20))
+                    Image(systemName: "book.closed.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(DS.Color.accent)
+                }
+                .frame(width: 50, height: 50)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("STUDY ON")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(0.6)
+                        .foregroundStyle(DS.Color.accent)
+                        .textCase(.uppercase)
+                    if let start = presenter.studySessionStartedAt {
+                        Text(formatSessionDuration(now.timeIntervalSince(start)))
+                            .font(.system(size: 22, weight: .bold).monospacedDigit())
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                    } else {
+                        Text("0s")
+                            .font(.system(size: 22, weight: .bold).monospacedDigit())
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
+                }
+                Spacer(minLength: 8)
+                if let start = presenter.studySessionStartedAt {
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text("SINCE")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .tracking(0.7)
+                            .foregroundStyle(.white.opacity(0.45))
+                        Text(formatTimeOfDay(start))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white)
+                    }
+                }
+            }
+
+            Rectangle()
+                .fill(.white.opacity(0.06))
+                .frame(height: 0.5)
+
+            // Timer chip strip — embedded inside the hero card.
+            // Morphs to a custom-duration editor when the user taps
+            // the trailing "+" chip; back to chips on cancel/start.
+            if customTimerExpanded {
+                customTimerEditor
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "timer")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(DS.Color.accent.opacity(0.85))
+                    Text("Timer")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .padding(.trailing, 2)
+                    ForEach([15, 25, 45, 90], id: \.self) { minutes in
+                        durationChip(minutes: minutes)
+                    }
+                    customExpandChip
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+    }
+
+    /// State C — Pomodoro countdown is running (or paused).
+    /// Replaces the full hero row with a ring + remaining-time
+    /// + pause/resume + stop controls.
+    private func heroTimerRunningRow(now: Date, paused: Bool) -> some View {
+        let remaining = studyTimer.remaining(now: now)
+        let progress = studyTimer.progress(now: now)
+
+        return HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .stroke(.white.opacity(0.08), lineWidth: 4)
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(
+                        DS.Color.accent.opacity(paused ? 0.45 : 0.95),
+                        style: StrokeStyle(lineWidth: 4, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .animation(.linear(duration: 0.5), value: progress)
+                Text(formatCountdown(remaining))
+                    .font(.system(size: 12, weight: .bold).monospacedDigit())
+                    .foregroundStyle(paused ? .white.opacity(0.55) : .white)
+            }
+            .frame(width: 56, height: 56)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(paused ? "PAUSED" : "STUDY ON")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundStyle(
+                        paused
+                            ? .yellow.opacity(0.85)
+                            : DS.Color.accent
+                    )
+                    .textCase(.uppercase)
+                Text(formatCountdown(remaining))
+                    .font(.system(size: 22, weight: .bold).monospacedDigit())
+                    .foregroundStyle(paused ? .white.opacity(0.55) : .white)
+                    .lineLimit(1)
+                Text(paused ? "paused" : "remaining")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.45))
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 4)
+
+            HStack(spacing: 8) {
+                Button {
+                    if paused { studyTimer.resume() }
+                    else      { studyTimer.pause() }
+                } label: {
+                    Image(systemName: paused ? "play.fill" : "pause.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(
+                            Circle().fill(DS.Color.accent.opacity(0.55))
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(paused ? "Resume timer" : "Pause timer")
+
+                Button {
+                    studyTimer.stop()
+                } label: {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .frame(width: 30, height: 30)
+                        .background(
+                            Circle().fill(.white.opacity(0.10))
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop timer")
+            }
+        }
+    }
+
+    /// State D — Timer hit zero. Celebration row + chip strip
+    /// for one-tap restart + Done button.
+    private var heroTimerExpiredColumn: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.green)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("TIME'S UP")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(0.6)
+                        .foregroundStyle(.green)
+                        .textCase(.uppercase)
+                    Text("Start another?")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                Spacer(minLength: 0)
+                Button {
+                    studyTimer.acknowledge()
+                } label: {
+                    Text("Done")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            Capsule().fill(.white.opacity(0.08))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+
+            Rectangle()
+                .fill(.white.opacity(0.06))
+                .frame(height: 0.5)
+
+            if customTimerExpanded {
+                customTimerEditor
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "timer")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(DS.Color.accent.opacity(0.85))
+                    Text("Again")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .padding(.trailing, 2)
+                    ForEach([15, 25, 45, 90], id: \.self) { minutes in
+                        durationChip(minutes: minutes)
+                    }
+                    customExpandChip
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+    }
+
+    // MARK: - Hero card helpers (timer chips + custom editor)
+
+    /// Tap-to-start chip. Auto-flips Study mode on if it's off
+    /// AND mutex-flips Focus off — same rule as the live-status-row
+    /// pill toggles, so starting a Study timer can't leave Focus
+    /// quietly competing in the background.
+    private func durationChip(minutes: Int) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                if !noxStudyMode {
+                    if noxFocusMode { noxFocusMode = false }
+                    noxStudyMode = true
+                }
+                studyTimer.start(duration: TimeInterval(minutes * 60))
+            }
+        } label: {
+            Text("\(minutes)m")
+                .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                .foregroundStyle(.white)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule()
+                        .fill(DS.Color.accent.opacity(0.38))
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(DS.Color.accent.opacity(0.65),
+                                              lineWidth: 0.5)
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Trailing "+" chip that opens the custom-duration editor.
+    private var customExpandChip: some View {
+        Button {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                customTimerExpanded = true
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 10, weight: .heavy))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .frame(minWidth: 28)
+                .background(
+                    Capsule()
+                        .fill(DS.Color.accent.opacity(0.22))
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(DS.Color.accent.opacity(0.45),
+                                              lineWidth: 0.5)
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Custom timer duration")
+    }
+
+    /// Custom-duration editor — same single-row layout as the Focus
+    /// version: `⏱ Custom  [− N +] min  [▶ Start]  [×]`.
+    private var customTimerEditor: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "timer")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(DS.Color.accent.opacity(0.85))
+            Text("Custom")
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.78))
+                .padding(.trailing, 2)
+
+            HStack(spacing: 0) {
+                stepperButton(systemImage: "minus") {
+                    customTimerMinutes = max(1, customTimerMinutes - 5)
+                }
+
+                TextField("", value: Binding(
+                    get: { customTimerMinutes },
+                    set: { customTimerMinutes = max(1, min(300, $0)) }
+                ), format: .number)
+                .multilineTextAlignment(.center)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                .foregroundStyle(.white)
+                .frame(width: 30)
+                .onSubmit { commitCustomTimer() }
+
+                stepperButton(systemImage: "plus") {
+                    customTimerMinutes = min(300, customTimerMinutes + 5)
+                }
+            }
+            .padding(.horizontal, 2)
+            .padding(.vertical, 2)
+            .background(
+                Capsule().fill(.white.opacity(0.06))
+                    .overlay(
+                        Capsule().strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
+                    )
+            )
+
+            Text("min")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(0.45))
+                .padding(.leading, 1)
+
+            Spacer(minLength: 4)
+
+            Button {
+                commitCustomTimer()
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 9, weight: .heavy))
+                    Text("Start")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule().fill(DS.Color.accent.opacity(0.55))
+                )
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.defaultAction)
+            .accessibilityLabel("Start custom timer")
+
+            Button {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                    customTimerExpanded = false
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .heavy))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .frame(width: 22, height: 22)
+                    .background(Circle().fill(.white.opacity(0.06)))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Cancel custom timer")
+        }
+    }
+
+    private func stepperButton(
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 9, weight: .heavy))
+                .foregroundStyle(.white.opacity(0.78))
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func commitCustomTimer() {
+        let mins = max(1, min(300, customTimerMinutes))
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+            if !noxStudyMode {
+                if noxFocusMode { noxFocusMode = false }
+                noxStudyMode = true
+            }
+            studyTimer.start(duration: TimeInterval(mins * 60))
+            customTimerExpanded = false
+        }
+    }
+
+    private func formatCountdown(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(ceil(seconds)))
+        let m = total / 60
+        let s = total % 60
+        return String(format: "%d:%02d", m, s)
     }
 
     // MARK: - Stats grid

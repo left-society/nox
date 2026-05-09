@@ -64,6 +64,15 @@ struct ScriptsView: View {
     /// preview surfaces a pause toggle if they want it still.
     @State private var previewPlaying: Bool = true
 
+    /// True while the TextEditor (script body) has keyboard focus.
+    /// When true we collapse the live preview pill so the writing
+    /// surface gets the full available column height — much more
+    /// comfortable for actually drafting a script. The pill returns
+    /// the moment focus leaves, so the user can still see the
+    /// preview when fiddling with WPM. User direction 2026-05-09:
+    /// "When someone is writing only that one should be big."
+    @FocusState private var bodyFieldFocused: Bool
+
     init() {
         // Defer to AppEnvironment so the store is shared across the
         // app (same instance feeding any future search / spotlight
@@ -239,11 +248,27 @@ struct ScriptsView: View {
     private func editorContent(for script: Script) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             titleRow
-            ScriptPreviewPill(
-                text: editingBody,
-                wpm: editingWPM,
-                isPlaying: $previewPlaying
-            )
+            // Hide the preview pill while the TextEditor is focused
+            // so the editor expands into the freed vertical space.
+            // The spring curve below drives BOTH the pill's
+            // appearance/disappearance AND the surrounding VStack's
+            // layout reflow in lockstep — the editor grows into the
+            // freed space at the same cadence the pill fades away,
+            // so the user reads it as one continuous motion rather
+            // than two competing animations.
+            if !bodyFieldFocused {
+                ScriptPreviewPill(
+                    text: editingBody,
+                    wpm: editingWPM,
+                    isPlaying: $previewPlaying
+                )
+                // Pure opacity transition — no .move/.slide. The
+                // VStack's layout animation handles the geometry;
+                // adding a translate on top fights it and reads as
+                // a stutter at the midpoint. Opacity-only lets the
+                // spring drive every visible vector cleanly.
+                .transition(.opacity)
+            }
             wpmRow
             textArea
             startRow(for: script)
@@ -251,6 +276,11 @@ struct ScriptsView: View {
         .padding(.horizontal, 14)
         .padding(.top, 12)
         .padding(.bottom, 12)
+        // Spring curve matched to the rest of the app's content
+        // reveals (response 0.45, damping 0.85). Feels organic —
+        // a touch of settle at the end without overshoot.
+        .animation(.spring(response: 0.45, dampingFraction: 0.86),
+                   value: bodyFieldFocused)
     }
 
     private var editorEmptyState: some View {
@@ -347,6 +377,7 @@ struct ScriptsView: View {
                 .scrollContentBackground(.hidden)
                 .padding(.horizontal, 4)
                 .padding(.vertical, 4)
+                .focused($bodyFieldFocused)
                 .onChange(of: editingBody) { _ in scheduleFlush() }
         }
         .background(

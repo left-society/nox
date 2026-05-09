@@ -138,7 +138,16 @@ struct PanelRootView: View {
     /// Paused state shows the countdown frozen at the remaining
     /// value. Expired state falls through to the count-up label
     /// (the celebration card lives inside the dashboard).
-    @ObservedObject private var focusTimer = FocusTimerService.shared
+    @ObservedObject private var focusTimer = SessionTimerService.focus
+
+    /// Sibling timer for Study mode. Identical state machine and
+    /// observation contract as `focusTimer` — driven by the Study
+    /// dashboard's chip strip, persists separately in UserDefaults
+    /// (`noxStudyTimerSnapshot`), fires its own `.studyTimerExpired`
+    /// notification. The resting pill picks between the two based
+    /// on `activePillMode` so a Study countdown shows up on the
+    /// pill while Study mode is active.
+    @ObservedObject private var studyTimer = SessionTimerService.study
 
     /// True when the resting pill should swap to the focus
     /// pill content (aura + timer). Fires for EITHER source:
@@ -2425,7 +2434,7 @@ struct PanelRootView: View {
     }
 
     /// Pill timer text, with priority order:
-    ///   1. **Active countdown timer** (Focus mode only, running or
+    ///   1. **Active countdown timer** (Focus or Study, running or
     ///      paused) → MM:SS remaining. Pause shows the same digits
     ///      with a tiny ⏸ glyph + dimmer foreground so the user can
     ///      tell at a glance whether time is still burning.
@@ -2437,16 +2446,22 @@ struct PanelRootView: View {
     private func pillTimerLabel(
         now: Date, sessionStart: Date?, fallback: String
     ) -> some View {
-        // Countdown takes priority over count-up — only Focus mode
-        // ever has a countdown attached (Study uses count-up only,
-        // since the Pomodoro timer is gated on Focus). Expired falls
-        // through to count-up so the celebration is visible only on
-        // the dashboard, not duplicated on the pill.
-        if activePillMode == .focus,
-           focusTimer.state == .running || focusTimer.state == .paused {
-            let remaining = focusTimer.remaining(now: now)
+        // Pick the right countdown timer for the active mode. Both
+        // singletons run their state machines independently — the
+        // pill just reads whichever one matches what the user is
+        // currently in. Expired falls through to count-up so the
+        // celebration UI is only on the dashboard, not duplicated
+        // on the pill.
+        let activeTimer: SessionTimerService = {
+            switch activePillMode {
+            case .focus: return focusTimer
+            case .study: return studyTimer
+            }
+        }()
+        if activeTimer.state == .running || activeTimer.state == .paused {
+            let remaining = activeTimer.remaining(now: now)
             HStack(spacing: 3) {
-                if focusTimer.state == .paused {
+                if activeTimer.state == .paused {
                     Image(systemName: "pause.fill")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(.white.opacity(0.55))
@@ -2454,7 +2469,7 @@ struct PanelRootView: View {
                 Text(formatPillCountdown(remaining))
                     .font(.system(size: 11.5, weight: .semibold).monospacedDigit())
                     .foregroundStyle(
-                        focusTimer.state == .paused
+                        activeTimer.state == .paused
                             ? .white.opacity(0.55) : .white
                     )
                     .lineLimit(1)
@@ -2538,9 +2553,21 @@ struct PanelRootView: View {
                 width: 18,
                 height: 14,
                 lineWidth: 2.4,
-                tint: ArtworkColor.dominant(from: info?.artworkData) ?? .white,
+                // 2026-05-09 round 2: tint also lagged on
+                // `displayedNowPlaying?.artworkData`. Was using
+                // `info?.artworkData` (live) which jumped the
+                // visualizer's color to the NEW song's palette
+                // the instant MR emitted the new track — while
+                // the artwork on screen + the wave pattern
+                // (fixed earlier) were still on OLD. The user
+                // saw "visualizer is one color [old/wrong]
+                // instead of the next music one." Same
+                // displayedNowPlaying source the artwork reads,
+                // so all three (artwork / pattern / tint) flip
+                // in lockstep when the banner finishes.
+                tint: ArtworkColor.dominant(from: displayedNowPlaying?.artworkData) ?? .white,
                 opacity: 0.95,
-                pattern: WaveformPattern.deterministic(for: trackKey)
+                pattern: WaveformPattern.deterministic(for: displayedTrackKey)
             )
             .scaleEffect(x: waveformPulse, y: 1, anchor: .trailing)
             .transition(.opacity)
@@ -2564,22 +2591,24 @@ struct PanelRootView: View {
             // Tick at 1Hz when a countdown is running so MM:SS
             // refreshes every second — the legacy 30s cadence was
             // fine for HH:MM count-up (minutes only), but a
-            // countdown needs to show seconds advancing.
+            // countdown needs to show seconds advancing. Either
+            // mode's countdown bumps the cadence; if neither is
+            // running we stay on 30s.
+            let activeTimer: SessionTimerService = (activePillMode == .focus)
+                ? focusTimer : studyTimer
             let tickInterval: TimeInterval = (
-                activePillMode == .focus
-                && (focusTimer.state == .running
-                    || focusTimer.state == .paused)
+                activeTimer.state == .running
+                || activeTimer.state == .paused
             ) ? 1.0 : 30.0
             TimelineView(.periodic(from: .now, by: tickInterval)) { context in
                 // Countdown takes priority over the count-up label
                 // so the user can glance at remaining time while
                 // music is playing, without opening the panel.
-                if activePillMode == .focus,
-                   focusTimer.state == .running
-                    || focusTimer.state == .paused {
-                    let remaining = focusTimer.remaining(now: context.date)
+                if activeTimer.state == .running
+                    || activeTimer.state == .paused {
+                    let remaining = activeTimer.remaining(now: context.date)
                     HStack(spacing: 3) {
-                        if focusTimer.state == .paused {
+                        if activeTimer.state == .paused {
                             Image(systemName: "pause.fill")
                                 .font(.system(size: 9, weight: .bold))
                                 .foregroundStyle(.white.opacity(0.55))
@@ -2587,7 +2616,7 @@ struct PanelRootView: View {
                         Text(formatPillCountdown(remaining))
                             .font(.system(size: 11, weight: .semibold).monospacedDigit())
                             .foregroundStyle(
-                                focusTimer.state == .paused
+                                activeTimer.state == .paused
                                     ? .white.opacity(0.55)
                                     : .white.opacity(0.92)
                             )
@@ -2806,9 +2835,15 @@ struct PanelRootView: View {
                     width: 26,
                     height: 18,
                     lineWidth: 2.8,
-                    tint: ArtworkColor.dominant(from: info?.artworkData) ?? .white,
+                    // Tint + pattern BOTH read from displayedNowPlaying /
+                    // displayedTrackKey (lagged) so all three signals —
+                    // artwork, wave shape, color — flip in lockstep at
+                    // the moment the banner finishes its 3D card flip.
+                    // See the matching site in `combinedPillContent`
+                    // for the full story.
+                    tint: ArtworkColor.dominant(from: displayedNowPlaying?.artworkData) ?? .white,
                     opacity: 0.95,
-                    pattern: WaveformPattern.deterministic(for: trackKey)
+                    pattern: WaveformPattern.deterministic(for: displayedTrackKey)
                 )
                 .scaleEffect(x: waveformPulse, y: 1, anchor: .trailing)
                 .transition(.opacity)
@@ -5910,7 +5945,18 @@ private struct TrackChangedPillBody: View {
 
                 Spacer(minLength: 0)
 
-                TrackChangedEqualizer(accent: accent)
+                // Bars lerp between OLD song's color and NEW song's
+                // color in lockstep with the 3D artwork flip. Lavender
+                // `accent` is the fallback when ArtworkColor.dominant
+                // can't extract a color (no artwork bytes / extraction
+                // fails) — same fallback as the small pill's
+                // WaveformView so a song without artwork looks
+                // consistent across both surfaces.
+                TrackChangedEqualizer(
+                    fromAccent: ArtworkColor.dominant(from: fromArtworkData) ?? accent,
+                    toAccent: ArtworkColor.dominant(from: toArtworkData) ?? accent,
+                    flipProgress: artworkFlipAngle / 180.0
+                )
                     .frame(width: 20, height: 16)
                     .opacity(textOpacity)
             }
@@ -6013,19 +6059,56 @@ private struct TrackChangedPillBody: View {
 /// (not state-driven) so the bars stay smooth even if the parent
 /// re-renders mid-animation. Frequencies are deliberately offset
 /// per-bar so the bars don't pulse in sync.
+///
+/// **2026-05-09 color fix:** previously `accent` was a hardcoded
+/// lavender constant in the parent (`Color(red: 0.78, green: 0.62,
+/// blue: 0.98)`). User-reported bug: "during the 3D titling, the
+/// audio visualizer color is bugged — instead of fading and
+/// getting the next music's gradient, it's getting something
+/// different." The hardcoded lavender was that "something
+/// different." Now the bars LERP between the OLD song's dominant
+/// artwork color and the NEW song's dominant artwork color, with
+/// the lerp factor driven by the same `artworkFlipAngle` that
+/// rotates the artwork card. By the time the flip finishes the
+/// bars match the new song's palette — visible continuity with
+/// the small pill's WaveformView that takes over after dismiss.
 private struct TrackChangedEqualizer: View {
-    let accent: Color
-    // Alcove screenshots (user-supplied) show 4 noticeably thicker
-    // lavender bars with tighter spacing than my earlier 1.8/1.6.
-    // Bumped to 2.5/1.4 — bars now read as solid energy lines, not
-    // hairlines.
+    /// Bar color at the START of the flip (artworkFlipAngle = 0°).
+    /// Should be the OLD song's dominant color.
+    let fromAccent: Color
+    /// Bar color at the END of the flip (artworkFlipAngle = 180°).
+    /// Should be the NEW song's dominant color.
+    let toAccent: Color
+    /// 0...1 progress through the flip. SwiftUI animates this
+    /// alongside the artwork rotation, so the lerped color rolls
+    /// continuously across the transition.
+    let flipProgress: Double
+
     private let barCount = 4
     private let barWidth: CGFloat = 2.5
     private let barSpacing: CGFloat = 1.4
 
+    /// LRGB-space lerp between two SwiftUI Colors. Samples each
+    /// Color's RGB components via NSColor, interpolates linearly,
+    /// rebuilds. Computed per body re-eval — fast enough that
+    /// firing on every TimelineView tick (~30Hz × 0.7s flip = ~20
+    /// allocations per transition) is invisible perf-wise.
+    private var barAccent: Color {
+        let t = max(0.0, min(1.0, flipProgress))
+        let nsA = NSColor(fromAccent).usingColorSpace(.sRGB) ?? .white
+        let nsB = NSColor(toAccent).usingColorSpace(.sRGB) ?? .white
+        let r = nsA.redComponent + (nsB.redComponent - nsA.redComponent) * CGFloat(t)
+        let g = nsA.greenComponent + (nsB.greenComponent - nsA.greenComponent) * CGFloat(t)
+        let b = nsA.blueComponent + (nsB.blueComponent - nsA.blueComponent) * CGFloat(t)
+        return Color(NSColor(
+            srgbRed: r, green: g, blue: b, alpha: 1.0
+        ))
+    }
+
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
+            let accent = barAccent
             HStack(alignment: .center, spacing: barSpacing) {
                 ForEach(0..<barCount, id: \.self) { i in
                     let phase = sin(t * 5.5 + Double(i) * 0.95) +

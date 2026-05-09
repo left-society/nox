@@ -367,6 +367,14 @@ struct VideosGridView: View {
         guard let text = NSPasteboard.general.string(forType: .string),
               let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
               url.scheme == "http" || url.scheme == "https" else { return }
+        // Gate on the downloadable-host allowlist before surfacing
+        // the pill. Without this, pasting any URL while focused on
+        // the Videos tab popped a "Download this video" affordance
+        // for plain web pages, which then failed when tapped (no
+        // yt-dlp extractor matches). User report 2026-05-09: "video
+        // section sometimes it's getting download somethings which
+        // are really not a downlaod thing."
+        guard VideoDropScanner.isDownloadableURL(url) else { return }
         // ⌘V on the videos tab: surface the URL via the pending-
         // video pill (with a Download button) rather than auto-
         // downloading. Per the user's spec: NOTHING downloads

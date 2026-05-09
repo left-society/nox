@@ -31,6 +31,46 @@ enum VideoDropScanner {
         "soundcloud.com"
     ]
 
+    /// File-share hosts that yt-dlp's extractors can pull from
+    /// directly — same silent download path as YouTube. Limited to
+    /// what yt-dlp actually handles: Drive and Dropbox. Mega /
+    /// Frame.io / WeTransfer / Box / OneDrive / iCloud are NOT
+    /// here because there's no silent path — they'd require popping
+    /// a browser tab, which the user explicitly rejected ("instead
+    /// of downloading, it's opening a new tab. Can we avoid that?").
+    static let fileShareHosts: Set<String> = [
+        "drive.google.com", "www.drive.google.com",
+        "dropbox.com", "www.dropbox.com"
+    ]
+
+    /// Single source of truth for "is this URL something the
+    /// download pill should offer to download." Used by every entry
+    /// point that funnels URLs into `setPendingVideo` (drop-catcher,
+    /// ⌘V on Videos tab, ⌥⌘V hotkey, clipboard auto-detect).
+    ///
+    /// Without this gate we had a bug 2026-05-09 where any remote
+    /// URL — Google Docs, news articles, anything — could surface
+    /// the download pill. The candidate would fail when the user
+    /// actually tapped Download (yt-dlp returns "no extractor"),
+    /// but the pill itself appearing was already wrong.
+    static func isDownloadableHost(_ host: String) -> Bool {
+        let h = host.lowercased()
+        if videoHosts.contains(h) { return true }
+        // Match Drive/Dropbox via suffix so subdomains (drive.google.com)
+        // resolve correctly without enumerating every variant.
+        if h.hasSuffix("drive.google.com") { return true }
+        if h.hasSuffix("dropbox.com") { return true }
+        return false
+    }
+
+    /// Convenience overload — pulls the host out of a URL and runs
+    /// the allowlist check. Returns false for nil hosts (file://,
+    /// data://, malformed URLs).
+    static func isDownloadableURL(_ url: URL) -> Bool {
+        guard let host = url.host else { return false }
+        return isDownloadableHost(host)
+    }
+
     static let chromeSourceURL = NSPasteboard.PasteboardType("org.chromium.source-url")
     static let webURLsWithTitles = NSPasteboard.PasteboardType("WebURLsWithTitlesPboardType")
     static let htmlType = NSPasteboard.PasteboardType("public.html")
@@ -96,14 +136,14 @@ enum VideoDropScanner {
             }
         }
 
-        if let urls = pb.readObjects(forClasses: [NSURL.self]) as? [URL] {
-            for url in urls {
-                if !url.isFileURL, (url.scheme == "http" || url.scheme == "https") {
-                    return .remoteURL(url.absoluteString)
-                }
-            }
-        }
-
+        // No final unrestricted catch-all. Earlier versions returned
+        // the first remote http/https URL on the pasteboard regardless
+        // of host, which surfaced the "Download this video" pill for
+        // generic web pages (news articles, Google Docs, etc.) when
+        // the user dragged a link into nox. The early branches above
+        // already cover every legitimate video source via
+        // `isDownloadableHost`; if none of them matched, this drag
+        // wasn't a video.
         return nil
     }
 

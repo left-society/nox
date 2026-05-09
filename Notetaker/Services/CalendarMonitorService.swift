@@ -188,6 +188,20 @@ final class CalendarMonitorService: ObservableObject {
         }
     }
 
+    /// True iff at least one Google-account calendar is configured
+    /// in macOS Calendar.app. Used by the Live calendar pane: when
+    /// the user picks "Notion Calendar" as the source but doesn't
+    /// have a Google account hooked up, we show a CTA explaining
+    /// how to add one rather than just rendering an empty day.
+    /// Permissive substring match so different EKSource.title
+    /// representations ("Google", "user@gmail.com" via Google) all
+    /// register correctly.
+    var hasGoogleCalendar: Bool {
+        store.calendars(for: .event).contains { cal in
+            cal.source.title.localizedCaseInsensitiveContains("google")
+        }
+    }
+
     /// Re-read upcoming events. Diffs against the last snapshot
     /// and only fires `onUpcomingChange` on actual transitions to
     /// keep AppDelegate's pill setter from spamming the same
@@ -282,6 +296,19 @@ final class CalendarMonitorService: ObservableObject {
             end: endOfDay,
             calendars: calendars
         )
+        // Calendar source filter (2026-05-09).
+        //   • "apple" (default) → all events flow through, same set
+        //     Apple Calendar.app shows.
+        //   • "notion" → narrow to events from Google-account
+        //     calendars. Notion Calendar is a frontend on Google
+        //     Calendar, so this is what Notion users actually want.
+        // Source title check is permissive (case-insensitive
+        // "google" substring) because EKSource.title varies a bit
+        // — sometimes "Google", sometimes the user's email — but
+        // always contains "google" for Google CalDAV accounts.
+        let source = UserDefaults.standard.string(
+            forKey: "noxCalendarSource"
+        ) ?? "apple"
         let raw = store.events(matching: predicate)
             .filter { event in
                 // Drop declined invites — same logic the meeting
@@ -290,6 +317,16 @@ final class CalendarMonitorService: ObservableObject {
                 // we keep the event.
                 let me = event.attendees?.first(where: { $0.isCurrentUser })
                 return (me?.participantStatus ?? .accepted) != .declined
+            }
+            .filter { event in
+                // Source-based filter. "apple" passes everything;
+                // "notion" requires the underlying calendar source
+                // to look like a Google account.
+                guard source == "notion" else { return true }
+                guard let srcTitle = event.calendar?.source.title else {
+                    return false
+                }
+                return srcTitle.localizedCaseInsensitiveContains("google")
             }
             .sorted { a, b in
                 // All-day events first, then chronological.

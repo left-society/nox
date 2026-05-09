@@ -151,6 +151,26 @@ enum SettingsKey {
     /// mode" and stacking them would be confusing.
     static let noxStudyMode = "noxStudyMode"
 
+    /// User-chosen input device for dictation. Stored as
+    /// `AVCaptureDevice.uniqueID`. Nil → use the system default
+    /// (the device selected in System Settings → Sound → Input).
+    /// Set when the user picks a mic from the post-failure prompt
+    /// that fires after a silent recording — meaning the system
+    /// default failed (typically a Bluetooth headset routed
+    /// through HFP) and the user explicitly chose a fallback.
+    /// Honored by `DictationRecorder.preferredInputDevice()`.
+    static let dictationInputDeviceUID = "dictationInputDeviceUID"
+
+    /// Calendar source preference for the Live → calendar pane.
+    /// String values: `"apple"` (default — show all events from
+    /// EventKit, the same set Apple Calendar.app shows) or
+    /// `"notion"` (show only events from Google-account calendars,
+    /// since Notion Calendar is a Google Calendar frontend under
+    /// the hood). Switching sources is a UI filter — both options
+    /// flow through the same EventKit pipeline; "notion" mode just
+    /// narrows the displayed set to Google sources.
+    static let noxCalendarSource = "noxCalendarSource"
+
     /// Hide the notch HUD from screen recordings (`NSWindow.sharingType
     /// = .none`). Default false (visible). Inspired by SuperIsland.
     static let hideFromScreenRecordings = "hideFromScreenRecordings"

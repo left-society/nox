@@ -2,17 +2,30 @@ import Foundation
 import Combine
 import AppKit
 
-/// Pomodoro-style countdown timer bound to a Focus session. The
-/// user picks a duration from the Focus detail panel (15 / 25 / 45 /
-/// 90 min or custom), the timer counts down, the panel chimes +
-/// pops at zero. Pause/resume keeps the user in control if they
-/// step away mid-session.
+/// Pomodoro-style countdown timer bound to either a Focus session
+/// or a Study session. The user picks a duration from the matching
+/// detail panel (15 / 25 / 45 / 90 min or custom), the timer counts
+/// down, the panel chimes + pops at zero. Pause/resume keeps the
+/// user in control if they step away mid-session.
+///
+/// **Two flavours, one type.** Originally this was `FocusTimer`
+/// only. When Study mode got the same Pomodoro affordance, rather
+/// than copy-pasting ~250 lines of state-machine code we
+/// parameterised this single class on a `Kind` and exposed two
+/// pre-built singletons:
+///   • `SessionTimerService.focus` — Focus dashboard's countdown
+///   • `SessionTimerService.study` — Study dashboard's countdown
+/// Each instance has its own UserDefaults storage key and its own
+/// `.expired` `Notification.Name`, so they persist + dispatch
+/// independently. Mode-mutex (Focus toggle off → Focus timer stops,
+/// same for Study) is wired at the AppDelegate level.
 ///
 /// **Distinct from `TimerService`** — that one observes the macOS
 /// Clock app's timer (when the user starts one via Siri / Control
 /// Centre / the Clock app itself) and surfaces it as a transient
-/// notch pill. This service is *internal* to the Focus dashboard
-/// and only runs when the user explicitly starts one from there.
+/// notch pill. This service is *internal* to nox's own session
+/// dashboards and only runs when the user explicitly starts one
+/// from there.
 ///
 /// **Persistence:** UserDefaults snapshot on every state change,
 /// hydrated on init. Survives panel-close *and* app-quit, so a 25-
@@ -31,11 +44,28 @@ import AppKit
 ///   └──acknowledge── expired ◀───────┘ (only via running) │
 /// ```
 ///
-/// All access is `@MainActor`. Consumers (PanelRootView, dashboard,
+/// All access is `@MainActor`. Consumers (PanelRootView, dashboards,
 /// AppDelegate) are already on main, no queue-hopping needed.
 @MainActor
-final class FocusTimerService: ObservableObject {
-    static let shared = FocusTimerService()
+final class SessionTimerService: ObservableObject {
+
+    /// Which session mode this timer instance is bound to. Picks the
+    /// storage key + the expiry notification name + the user-facing
+    /// label string in error fallbacks.
+    enum Kind {
+        case focus
+        case study
+    }
+
+    /// Singleton for the Focus session timer. Same instance lives
+    /// for the app's lifetime; SwiftUI views observe it via
+    /// `@ObservedObject`.
+    static let focus = SessionTimerService(kind: .focus)
+
+    /// Singleton for the Study session timer.
+    static let study = SessionTimerService(kind: .study)
+
+    let kind: Kind
 
     /// Where the timer is in its lifecycle. SwiftUI switches the
     /// dashboard's timer card on this — chips when idle, big
@@ -48,8 +78,8 @@ final class FocusTimerService: ObservableObject {
     }
 
     /// Current state. `@Published` so SwiftUI re-renders on every
-    /// transition. AppDelegate's recompute also reads this on Focus
-    /// falling-edge to auto-stop a running timer.
+    /// transition. AppDelegate's recompute also reads this on
+    /// session falling-edge to auto-stop a running timer.
     @Published private(set) var state: TimerState = .idle
 
     /// Total duration the user picked when they hit start. Stays
@@ -69,12 +99,14 @@ final class FocusTimerService: ObservableObject {
     /// current leg's `now - startedAt` to this gives total elapsed.
     @Published private(set) var elapsedAtPause: TimeInterval = 0
 
-    // MARK: - Persistence
+    // MARK: - Per-instance configuration
     //
-    // One UserDefaults key holds a JSON snapshot — simpler than
-    // four parallel keys, and atomic on read/write so we can't end
-    // up with partial state on crash.
-    private static let storageKey = "noxFocusTimerSnapshot"
+    // These differ between Focus and Study so the two timers don't
+    // share state or step on each other. Set in init based on `kind`.
+
+    private let storageKey: String
+    private let expiredNotificationName: Notification.Name
+    private let modeLabel: String   // "Focus" / "Study" — used in fallback notification copy
 
     private struct Snapshot: Codable {
         let state: TimerState
@@ -94,11 +126,22 @@ final class FocusTimerService: ObservableObject {
     /// Hook for the panel to "vibrate" (run its expand-pop-retract
     /// morph cycle) when the timer expires. AppDelegate hangs the
     /// real implementation off this in init — we keep the closure
-    /// here so FocusTimerService doesn't directly depend on
+    /// here so the service doesn't directly depend on
     /// PanelWindowController.
     var onExpire: (() -> Void)?
 
-    private init() {
+    private init(kind: Kind) {
+        self.kind = kind
+        switch kind {
+        case .focus:
+            self.storageKey = "noxFocusTimerSnapshot"
+            self.expiredNotificationName = .focusTimerExpired
+            self.modeLabel = "Focus"
+        case .study:
+            self.storageKey = "noxStudyTimerSnapshot"
+            self.expiredNotificationName = .studyTimerExpired
+            self.modeLabel = "Study"
+        }
         hydrate()
         // If we hydrated into .running, the timer was running when
         // the app last quit. Restart the ticker so expiry detection
@@ -158,8 +201,8 @@ final class FocusTimerService: ObservableObject {
     }
 
     /// Stop the timer entirely. Used for the "Stop" button (running
-    /// or paused) and as the auto-cleanup when Focus mode turns
-    /// off mid-session.
+    /// or paused) and as the auto-cleanup when the bound mode (Focus
+    /// or Study) turns off mid-session.
     func stop() {
         state = .idle
         targetDuration = 0
@@ -251,7 +294,9 @@ final class FocusTimerService: ObservableObject {
         // Audible "done" — same Glass sound the macOS-Clock-bound
         // TimerService uses, so users hear a familiar chime.
         // Skipped if the user has flipped Settings → Timer →
-        // Sound on finish off (default true).
+        // Sound on finish off (default true). The setting key is
+        // shared between Focus and Study timers — one toggle, both
+        // chime states.
         let soundEnabled = UserDefaults.standard.object(
             forKey: "noxFocusTimerSoundOnFinish"
         ) as? Bool ?? true
@@ -260,19 +305,20 @@ final class FocusTimerService: ObservableObject {
         }
 
         // Visual: panel "vibrates" (its standard event-morph
-        // animation). Wired up by AppDelegate at init.
+        // animation). Wired up by AppDelegate at init, separately
+        // for each instance.
         onExpire?()
 
         // Internal NotificationCenter post so other parts of the
         // app (analytics, future macOS-banner integration) can
-        // observe the expiry without coupling to FocusTimerService
+        // observe the expiry without coupling to this service
         // directly. Today the chime + panel vibrate above are the
         // only user-facing signals; UN banner support is a future
         // enhancement gated behind a permission flow.
         NotificationCenter.default.post(
-            name: .focusTimerExpired,
+            name: expiredNotificationName,
             object: nil,
-            userInfo: ["duration": targetDuration]
+            userInfo: ["duration": targetDuration, "kind": modeLabel]
         )
     }
 
@@ -286,13 +332,13 @@ final class FocusTimerService: ObservableObject {
             elapsedAtPause: elapsedAtPause
         )
         if let data = try? JSONEncoder().encode(snap) {
-            UserDefaults.standard.set(data, forKey: Self.storageKey)
+            UserDefaults.standard.set(data, forKey: storageKey)
         }
     }
 
     private func hydrate() {
         guard let data = UserDefaults.standard.data(
-            forKey: Self.storageKey
+            forKey: storageKey
         ),
         let snap = try? JSONDecoder().decode(Snapshot.self, from: data)
         else { return }
@@ -303,10 +349,26 @@ final class FocusTimerService: ObservableObject {
     }
 }
 
+/// Backwards-compat typealias — the original API was
+/// `FocusTimerService.shared`. Kept so existing call sites that
+/// reference the old name keep compiling without a mass rename.
+/// New code should call `SessionTimerService.focus` /
+/// `SessionTimerService.study` directly.
+typealias FocusTimerService = SessionTimerService
+
+extension SessionTimerService {
+    /// Backwards-compat shim. Aliases `SessionTimerService.focus`.
+    static var shared: SessionTimerService { focus }
+}
+
 extension Notification.Name {
-    /// Fired by FocusTimerService when a timer reaches zero.
-    /// AppDelegate observes this to (a) pop a notification banner
-    /// and (b) trigger the panel's expand-pop-retract morph for
-    /// the visual "vibrate" the user requested.
+    /// Fired by `SessionTimerService.focus` when its timer reaches
+    /// zero. AppDelegate observes this to trigger the panel's
+    /// expand-pop-retract morph for the Focus dashboard.
     static let focusTimerExpired = Notification.Name("noxFocusTimerExpired")
+
+    /// Fired by `SessionTimerService.study` when its timer reaches
+    /// zero. Separate from the Focus notification so consumers can
+    /// disambiguate which dashboard to surface.
+    static let studyTimerExpired = Notification.Name("noxStudyTimerExpired")
 }

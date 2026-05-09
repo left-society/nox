@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import SwiftUI
 import Combine
 import ServiceManagement
@@ -132,7 +133,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     func pillHasAnyAnchor() -> Bool {
         guard let panel = panelController else { return false }
-        if panel.presenter.nowPlaying != nil { return true }
+        // Music anchor: actively playing, NOT just "we have cached
+        // track metadata." `presenter.nowPlaying` is intentionally
+        // sticky (the slab shows the last-played track for hover-
+        // and-resume even hours after pause), so checking `!= nil`
+        // would keep the resting pill anchored forever once any
+        // music has been played in the session.
+        //
+        // Using `nowPlaying?.isPlaying == true` matches the
+        // `effectivelyPlaying` signal `updatePillVisibility` uses
+        // to schedule the 1.5s retract debounce — without this
+        // alignment, the debounce fires but `exitRestingMode()` is
+        // gated out by the stale anchor and the pill never closes.
+        // (User-reported bug 2026-05-09: "notch is not closing
+        // when music is stopped.")
+        if panel.presenter.nowPlaying?.isPlaying == true { return true }
         if UserDefaults.standard.bool(forKey: SettingsKey.noxFocusMode) {
             return true
         }
@@ -219,8 +234,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Focus session — without an active session it has no
         // surface to live in.
         if !(muteByQuiet || muteByFocus)
-            && FocusTimerService.shared.isActive {
-            FocusTimerService.shared.stop()
+            && SessionTimerService.focus.isActive {
+            SessionTimerService.focus.stop()
+        }
+        // Same auto-cleanup for the Study timer. Turning Study OFF
+        // mid-timer should not leave a phantom countdown ticking
+        // somewhere the user can't see. `studyOn` is computed above
+        // from `noxStudyMode`.
+        if !studyOn && SessionTimerService.study.isActive {
+            SessionTimerService.study.stop()
         }
 
         // Resting-pill lifecycle. When quiet is active and there's
@@ -649,26 +671,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             timerCancellables.insert(cancellable)
             timerService = timer
 
-            // Focus countdown timer (Pomodoro-style, in-Focus-only).
-            // Distinct from `TimerService` above (which observes the
-            // macOS Clock app's timer) — this one is fully internal,
-            // bound to a Focus session, with pause/resume controls
-            // and persistence across app restart.
+            // Focus + Study countdown timers (Pomodoro-style, bound
+            // to their respective sessions). Distinct from
+            // `TimerService` above (which observes the macOS Clock
+            // app's timer) — these are fully internal, with
+            // pause/resume controls and persistence across app
+            // restart. Each instance has its own UserDefaults
+            // snapshot key + its own expiry notification name; the
+            // class behind them is the same `SessionTimerService`.
             //
             // Wire `onExpire` so the panel "vibrates" (its standard
-            // event-morph cycle) when a timer hits zero. We push a
-            // `.timerFinished` system event, which causes the panel
-            // to expand → display the Timer-finished pill → retract.
-            // Same surface treatment as the macOS-Clock-bound
-            // TimerService for visual consistency.
-            FocusTimerService.shared.onExpire = { [weak self] in
+            // event-morph cycle) when either timer hits zero. We
+            // push a `.timerFinished` system event, which causes
+            // the panel to expand → display the Timer-finished pill
+            // → retract. Same surface treatment as the
+            // macOS-Clock-bound TimerService for visual consistency.
+            //
+            // The chime itself is fired inside SessionTimerService
+            // (NSSound Glass) — keeping it there means the service
+            // stays self-contained for headless use.
+            let onTimerExpire: () -> Void = { [weak self] in
                 guard let panel = self?.panelController else { return }
                 panel.enterRestingMode()
                 panel.presenter.setPendingSystemEvent(.timerFinished)
-                // The chime itself is fired inside FocusTimerService
-                // (NSSound Glass) — keeping it there means the
-                // service stays self-contained for headless use.
             }
+            SessionTimerService.focus.onExpire = onTimerExpire
+            SessionTimerService.study.onExpire = onTimerExpire
 
             // Focus/DND auto-hide. Spin up the watcher in idle
             // mode — we don't request authorization until the user
@@ -1402,6 +1430,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DictationOrchestrator.dlog("UI ⇒ error: \(msg)")
             }
         }
+        // Wire the silent-recording mic picker. Fires only when a
+        // recording came back with empty transcript AND the peak
+        // audio level was effectively zero AND duration ≥ 2s — see
+        // `DictationOrchestrator.maybeFireSilentRecordingPrompt`.
+        // Common cause is a Bluetooth headset routed through HFP
+        // returning silence to AVCaptureSession. We let the user
+        // pick a different input device and remember the choice.
+        dictation.onSilentRecordingPrompt = { [weak self] deviceName in
+            self?.showDictationMicPicker(currentDeviceName: deviceName)
+        }
         dictation.configure(serviceConfig: AppDelegate.loadDictationConfig())
         // Default to FN-HOLD (press to start, release to stop) — what
         // the user explicitly asked for: "I press on Fn; it kind of
@@ -1667,6 +1705,94 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func presentOnboarding() {
         onboardingManager.present()
+    }
+
+    /// Show an NSAlert listing every available audio input device so
+    /// the user can pick a working one when their current mic
+    /// captures silence. Triggered by
+    /// `DictationOrchestrator.onSilentRecordingPrompt`. Whichever
+    /// device they tap gets persisted to
+    /// `SettingsKey.dictationInputDeviceUID`; the next recording
+    /// uses it via `DictationRecorder.preferredInputDevice()`.
+    ///
+    /// Common case: user has Bluetooth headphones connected (Sony
+    /// WH-, AirPods, Bose QC, etc.). macOS routes the audio session
+    /// through HFP, which delivers silent or telephony-grade audio
+    /// and Whisper returns empty. Picking the built-in mic from
+    /// this prompt fixes it for every future recording.
+    func showDictationMicPicker(currentDeviceName: String) {
+        // Snapshot the current device list. Filter to inputs only —
+        // some pseudo-devices (Aggregate / Loopback) show up but
+        // are usually outputs or virtual.
+        let session = AVCaptureDevice.DiscoverySession(
+            deviceTypes: DictationRecorder.discoverableMicTypes(),
+            mediaType: .audio,
+            position: .unspecified
+        )
+        let devices = session.devices
+
+        let alert = NSAlert()
+        alert.messageText = "We didn't catch any audio"
+        alert.informativeText = """
+            \(currentDeviceName) didn't capture sound during your last \
+            recording. This often happens with Bluetooth headphones \
+            (HFP audio mode is silent on the input side).
+
+            Try a different microphone for dictation:
+            """
+        alert.alertStyle = .informational
+
+        // Add up to 4 device buttons, plus Cancel. The button
+        // ordering on NSAlert is right-to-left: the LAST button
+        // added becomes the leftmost (the default-on-Return one),
+        // so we want our most-likely-good option (built-in) to be
+        // added LAST when present.
+        //
+        // Sort: built-in first in the list, then USB/wired, then
+        // BT-looking devices last.
+        let sorted = devices.sorted { a, b in
+            let aBuiltin = a.localizedName.lowercased().contains("built-in")
+                || a.localizedName.lowercased().contains("macbook")
+            let bBuiltin = b.localizedName.lowercased().contains("built-in")
+                || b.localizedName.lowercased().contains("macbook")
+            if aBuiltin != bBuiltin { return aBuiltin }
+            return a.localizedName < b.localizedName
+        }
+
+        // Cap to 4 devices in the alert — NSAlert with 6+ buttons
+        // overflows on smaller screens. If the user has more, the
+        // top 4 (after sort) are the most likely picks anyway.
+        let buttonable = Array(sorted.prefix(4))
+        for device in buttonable {
+            alert.addButton(withTitle: device.localizedName)
+        }
+        alert.addButton(withTitle: "Cancel")
+
+        // Bring the app forward so the alert isn't behind whatever
+        // app the user was dictating into. The .accessory activation
+        // policy means modals can land in the background otherwise.
+        if #available(macOS 14, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+
+        let response = alert.runModal()
+        let firstButton = NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        let buttonIndex = response.rawValue - firstButton
+
+        // Cancel pressed — clear the index out of range / negative
+        // path. Don't change saved UID, just bail.
+        guard buttonIndex >= 0, buttonIndex < buttonable.count else {
+            DictationOrchestrator.dlog("mic picker: user cancelled")
+            return
+        }
+
+        let chosen = buttonable[buttonIndex]
+        UserDefaults.standard.set(chosen.uniqueID, forKey: SettingsKey.dictationInputDeviceUID)
+        DictationOrchestrator.dlog(
+            "mic picker: user chose \(chosen.localizedName) (uid=\(chosen.uniqueID))"
+        )
     }
 
     /// Opens (or refocuses) the Settings window. Builds the SwiftUI tree
@@ -2145,6 +2271,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             if let urlString = await BrowserURLService.currentTabURL(),
                let url = URL(string: urlString) {
+                // Gate on the same downloadable-host allowlist
+                // VideoDropScanner uses for drag/paste paths. Without
+                // this, ⌥⌘V on a non-video page (Google Docs, news
+                // article, etc.) popped the "Download this video"
+                // pill and led to a confusing yt-dlp failure when
+                // tapped. User report 2026-05-09: "in the video
+                // section sometimes it's getting download somethings
+                // which are really not a downlaod thing."
+                guard VideoDropScanner.isDownloadableURL(url) else {
+                    NSLog("nox: ⌥⌘V — \(urlString) host not in download allowlist; ignoring")
+                    return
+                }
                 NSLog("nox: got URL=\(urlString) — surfacing pending-video pill")
                 panel.presenter.setPendingVideo(url)
                 panel.enterRestingMode()
@@ -2215,27 +2353,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !trimmed.contains("\n"), !trimmed.contains(" ") else { return nil }
 
         let normalized = trimmed.hasPrefix("http") ? trimmed : "https://" + trimmed
-        guard let url = URL(string: normalized),
-              let host = url.host?.lowercased()
-        else { return nil }
-
-        if VideoDropScanner.videoHosts.contains(host) { return url }
-        if Self.isYtdlpFileHost(host) { return url }
-        return nil
-    }
-
-    /// File-share hosts that yt-dlp's extractors can pull from
-    /// directly — same silent download path as YouTube etc., no
-    /// browser tab involved. Limited to what yt-dlp actually
-    /// handles: Drive and Dropbox. Mega/Frame.io/WeTransfer/Box/
-    /// OneDrive/iCloud are deliberately NOT here because there is
-    /// no silent path — they'd have required popping a browser tab,
-    /// which the user explicitly rejected ("instead of downloading,
-    /// it's opening a new tab. Can we avoid that?").
-    private static func isYtdlpFileHost(_ host: String) -> Bool {
-        if host.hasSuffix("drive.google.com") { return true }
-        if host.hasSuffix("dropbox.com") { return true }
-        return false
+        guard let url = URL(string: normalized) else { return nil }
+        // Single source of truth for "is this URL downloadable"
+        // lives in VideoDropScanner.isDownloadableURL — same
+        // allowlist used by drag/paste/hotkey paths.
+        return VideoDropScanner.isDownloadableURL(url) ? url : nil
     }
 
     /// Route the pill's Download tap to yt-dlp via VideoStore. Both

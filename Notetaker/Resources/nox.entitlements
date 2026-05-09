@@ -67,5 +67,27 @@
     -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
+
+    <!--
+        2026-05-09 — Calendar access for DMG-installed builds.
+        Same pattern as the audio-input entitlement above: shipped
+        hardened-runtime non-sandboxed builds were silently no-op'ing
+        on `EKEventStore.requestFullAccessToEvents(...)` even though
+        Info.plist has `NSCalendarsFullAccessUsageDescription`.
+        Multiple users on the DMG reported "Connect Calendar does
+        nothing" while the dev build worked fine — TCC treats them
+        as different binaries because Xcode's debug-launch path
+        bypasses some hardening checks.
+
+        The personal-information.calendars entitlement is documented
+        as sandbox-only by Apple, but the audio-input precedent
+        (also "sandbox-only" per docs) shows that for hardened-
+        runtime non-sandboxed apps it's still the discriminator
+        TCC uses. Including it does no harm on builds where it
+        wouldn't otherwise be required, and unblocks users on
+        builds where it IS required.
+    -->
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
 </dict>
 </plist>

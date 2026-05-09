@@ -156,6 +156,30 @@ final class DictationOrchestrator: ObservableObject {
     // Cancellable task for the in-flight transcription
     private var transcriptionTask: Task<Void, Never>?
 
+    /// Wall-clock when the current recording started — used to
+    /// compute duration in `handleRecordingReady` so we can decide
+    /// whether to fire the silent-recording prompt. Reset on every
+    /// `startRecording`. Nil between sessions.
+    private var recordingStartedAt: Date?
+
+    /// Max audio level observed during the current recording. Reset
+    /// at start, updated on every `onLevelUpdate` tick. If this
+    /// stays near zero for the entire recording, the mic captured
+    /// silence — likely a Bluetooth headset routed through HFP that
+    /// macOS isn't actually streaming from. Drives the silent-
+    /// recording prompt.
+    private var maxRecordingLevel: Float = 0
+
+    /// Fired by the orchestrator after a recording ends with an
+    /// empty transcript AND clear evidence the mic captured no
+    /// audio (peak level near zero, duration ≥2s). AppDelegate
+    /// shows an NSAlert offering to switch input devices and
+    /// persists the chosen UID to
+    /// `SettingsKey.dictationInputDeviceUID` so the next recording
+    /// uses it. Skipped on legitimate "user changed their mind"
+    /// silent recordings via the duration + level gates above.
+    var onSilentRecordingPrompt: ((_ deviceName: String) -> Void)?
+
     /// Debug file logger. NSLog from Swift apps doesn't reliably
     /// reach the unified `log show` predicate filter on modern
     /// macOS, which makes diagnosing dictation failures from
@@ -182,6 +206,12 @@ final class DictationOrchestrator: ObservableObject {
         Self.dlog("DictationOrchestrator init")
         recorder.onLevelUpdate = { [weak self] level in
             guard let self = self else { return }
+            // Track peak level across the whole recording — drives
+            // the silent-recording detector in
+            // `handleRecordingReady`.
+            if level > self.maxRecordingLevel {
+                self.maxRecordingLevel = level
+            }
             if case .recording = self.state {
                 self.setState(.recording(level: level))
             }
@@ -348,6 +378,13 @@ final class DictationOrchestrator: ObservableObject {
             return
         }
         Self.dlog("🎙️ startRecording — muting system audio, calling recorder.startRecording()")
+        // Reset per-session metrics that the silent-recording
+        // detector reads in handleRecordingReady. Doing this here
+        // (not in handleRecordingReady) means a recording that
+        // never produces a file — e.g. failed mid-flight — also
+        // gets a clean slate for the next attempt.
+        recordingStartedAt = Date()
+        maxRecordingLevel = 0
         // Mute the system audio output (NOT the source app) so any
         // playing video / song keeps streaming silently. Restored
         // in handleRecordingReady / cancel / failure paths.
@@ -463,8 +500,10 @@ final class DictationOrchestrator: ObservableObject {
                 await MainActor.run {
                     guard let self = self else { return }
                     Self.dlog("✅ transcript: \"\(text.prefix(120))\" (\(text.count) chars)")
-                    if !text.isEmpty {
+                    if !text.isEmpty && !Self.isWhisperHallucination(text) {
                         self.onTranscriptReady?(text)
+                    } else {
+                        self.maybeFireSilentRecordingPrompt()
                     }
                     self.setStateAndNotify(.idle)
                 }
@@ -482,6 +521,91 @@ final class DictationOrchestrator: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Decides whether to fire the silent-recording prompt. Two
+    /// possible firing paths, both gated on duration ≥ 2s so we
+    /// never pop a dialog on a legitimate "user just bumped Fn":
+    ///
+    ///   PATH A — Truly silent recording:
+    ///   Peak audio level < 0.005 across the whole recording. Real
+    ///   speech — even quiet — registers at least 0.05 peak. Below
+    ///   that, the mic wasn't capturing anything (HFP-routed BT
+    ///   headset, muted hardware switch, app-level mute, etc.).
+    ///
+    ///   PATH B — Whisper hallucination on garbage input:
+    ///   Whisper returns artifact strings like "[wind howling]",
+    ///   "[silence]", "Thank you for watching" when audio is too
+    ///   muffled/distorted to decode. Some BT mics produce audible
+    ///   waveforms that aren't actually speech (compressed buzz),
+    ///   so PATH A wouldn't catch them — but the resulting
+    ///   transcript is still useless. Detection is by callers
+    ///   (`isWhisperHallucination` check at the transcript site)
+    ///   passing-through to this method.
+    ///
+    /// Either path → fire the prompt. AppDelegate shows an NSAlert
+    /// listing input devices and the user picks a working one.
+    @MainActor
+    private func maybeFireSilentRecordingPrompt() {
+        guard let started = recordingStartedAt else { return }
+        let duration = Date().timeIntervalSince(started)
+        let peak = maxRecordingLevel
+        Self.dlog(
+            "silent-recording check: duration=\(String(format: "%.2f", duration))s peak=\(String(format: "%.4f", peak))"
+        )
+        guard duration >= 2.0 else { return }
+        // Resolve current device name for the prompt copy ("Your
+        // current mic — WH-1000XM6 — captured no audio…").
+        let deviceName = DictationRecorder.preferredInputDevice()?.localizedName
+            ?? "current microphone"
+        Self.dlog("⚠️ silent/garbage recording — firing mic picker prompt for device '\(deviceName)'")
+        onSilentRecordingPrompt?(deviceName)
+    }
+
+    /// Detects Whisper hallucination markers — artifacts the model
+    /// emits when it can't decode the audio cleanly. These are
+    /// returned as confident-looking transcripts ("[wind howling]",
+    /// "Thank you for watching", "you") even though there's no real
+    /// speech in the input. Treating them as failures lets us route
+    /// to the silent-recording prompt and offer the user a different
+    /// mic.
+    ///
+    /// Patterns checked:
+    ///   • Bracketed annotations: `[wind howling]`, `[silence]`,
+    ///     `[music]`, `[applause]`, `[no audio]`, etc. — any string
+    ///     wrapped in `[...]` with nothing else.
+    ///   • Exact-match common hallucinations: "you", "yeah",
+    ///     "Thank you.", "Bye.", "Thanks for watching." — Whisper
+    ///     emits these on near-silent input when it picks up faint
+    ///     ambient noise.
+    static func isWhisperHallucination(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return true }
+        // Bracketed annotation: starts and ends with brackets, no
+        // other content. e.g. "[wind howling]", "[silence]".
+        if trimmed.hasPrefix("[") && trimmed.hasSuffix("]")
+            && !trimmed.contains(where: { !($0.isLetter || $0.isWhitespace || $0 == "[" || $0 == "]" || $0 == "-") }) {
+            return true
+        }
+        // Exact-match short hallucinations Whisper emits on
+        // near-silence. Compared case-insensitive, with trailing
+        // punctuation stripped, so "Thank you" and "Thank you."
+        // both match.
+        let normalized = trimmed
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".,!?"))
+            .lowercased()
+        let knownArtifacts: Set<String> = [
+            "you",
+            "yeah",
+            "thank you",
+            "thanks",
+            "thanks for watching",
+            "thank you for watching",
+            "bye",
+            "okay",
+            "ok"
+        ]
+        return knownArtifacts.contains(normalized)
     }
 
     private func handleRecordingFailure(error: Error) {

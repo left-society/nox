@@ -181,12 +181,17 @@ final class DictationRecorder: NSObject {
         let session = AVCaptureSession()
         session.sessionPreset = .high
 
-        // Microphone selection. `AVCaptureDevice.default(for: .audio)`
-        // returns the user's preferred system input device — the one
-        // selected in System Settings → Sound → Input. This is more
-        // reliable than enumerating via DiscoverySession and picking
-        // `.first`.
-        guard let device = AVCaptureDevice.default(for: .audio) else {
+        // Microphone selection. We prefer the user's explicit
+        // choice (`SettingsKey.dictationInputDeviceUID`, written by
+        // the post-silent-recording picker prompt) over the system
+        // default. The system default is the OS's choice; the
+        // explicit UID is the user's choice for THIS app after
+        // they hit a problem with the OS choice (typically a
+        // Bluetooth headset routed through HFP returning silence
+        // to Whisper). Falls back to the system default if no UID
+        // is saved or the saved device is currently unavailable
+        // (unplugged USB mic, BT headphones disconnected, etc.).
+        guard let device = Self.preferredInputDevice() else {
             failOnSessionQueue(DictationRecorderError.noMicrophone)
             return
         }
@@ -300,6 +305,46 @@ final class DictationRecorder: NSObject {
         DispatchQueue.main.async { [weak self] in
             self?.onRecordingFailure?(error)
         }
+    }
+
+    /// Look up the user-chosen input device by saved UID; fall back
+    /// to system default if the saved choice is missing or the
+    /// device is no longer connected. Reading from UserDefaults
+    /// every time (not caching) means a Settings change or picker
+    /// prompt response takes effect on the very next recording.
+    static func preferredInputDevice() -> AVCaptureDevice? {
+        if let uid = UserDefaults.standard.string(forKey: "dictationInputDeviceUID"),
+           !uid.isEmpty {
+            // DiscoverySession is the authoritative way to look up
+            // a device by uniqueID — `AVCaptureDevice(uniqueID:)`
+            // exists but it's been finicky on some macOS revisions.
+            let session = AVCaptureDevice.DiscoverySession(
+                deviceTypes: discoverableMicTypes(),
+                mediaType: .audio,
+                position: .unspecified
+            )
+            if let match = session.devices.first(where: { $0.uniqueID == uid }) {
+                return match
+            }
+            // Saved device isn't currently connected — silently fall
+            // through to the system default. We don't clear the
+            // saved UID; the user will probably reconnect it later
+            // and we want to honor their choice when they do.
+            DictationOrchestrator.dlog(
+                "recorder: saved input UID \(uid) not currently available; using system default"
+            )
+        }
+        return AVCaptureDevice.default(for: .audio)
+    }
+
+    /// AVCaptureDevice.DeviceType list compatible across macOS
+    /// versions we ship to. Used by both the picker enumeration in
+    /// AppDelegate and the saved-UID lookup above.
+    static func discoverableMicTypes() -> [AVCaptureDevice.DeviceType] {
+        if #available(macOS 14, *) {
+            return [.microphone, .external]
+        }
+        return [.builtInMicrophone, .externalUnknown]
     }
 }
 
