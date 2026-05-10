@@ -97,6 +97,7 @@
 		A9518BBFE8601B16A7F4B893 /* NoteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE8C4545B6EB30E073A8D77E /* NoteStore.swift */; };
 		A9536CA4EE17C7CF54562EB9 /* MediaRemoteAdapterService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C31BA8766D55CD5B624A2524 /* MediaRemoteAdapterService.swift */; };
 		A9761E0D07D7B9244A40A158 /* SettingsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7EE28A91D3862C54C913D98 /* SettingsWindow.swift */; };
+		KSCAP000001A1B2C3D4E5 /* KeyShortcutCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = KSCAP000002A1B2C3D4E5 /* KeyShortcutCapture.swift */; };
 		ABCE220794892E752DD6D3B1 /* NowPlayingPillView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E0BED164D7AFFA6B737096 /* NowPlayingPillView.swift */; };
 		B16464DEF3028FDC6FF850EB /* NotesListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AF23A9CA540FCB310042CA3 /* NotesListView.swift */; };
 		B1B67D9C44CF3B54A6521D41 /* MediaRemoteAdapter.framework in Resources */ = {isa = PBXBuildFile; fileRef = 911068681947405C03A4623D /* MediaRemoteAdapter.framework */; };
@@ -257,6 +258,7 @@
 		D5E0BED164D7AFFA6B737096 /* NowPlayingPillView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingPillView.swift; sourceTree = "<group>"; };
 		D6222E97003C8B52CDA01AC5 /* mediaremote-adapter.pl */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text; path = "mediaremote-adapter.pl"; sourceTree = "<group>"; };
 		D7EE28A91D3862C54C913D98 /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindow.swift; sourceTree = "<group>"; };
+		KSCAP000002A1B2C3D4E5 /* KeyShortcutCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyShortcutCapture.swift; sourceTree = "<group>"; };
 		DC413C8739634F519E4E392A /* OnboardingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		CLNF1A2B3C4D5E6F70123456 /* CleanOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleanOnboardingView.swift; sourceTree = "<group>"; };
 		DE8C4545B6EB30E073A8D77E /* NoteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteStore.swift; sourceTree = "<group>"; };
@@ -511,6 +513,7 @@
 			isa = PBXGroup;
 			children = (
 				D7EE28A91D3862C54C913D98 /* SettingsWindow.swift */,
+				KSCAP000002A1B2C3D4E5 /* KeyShortcutCapture.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -743,6 +746,7 @@
 				SPPILL000001A1B2C3D4E5 /* ScriptPreviewPill.swift in Sources */,
 				TPPILL000001A1B2C3D4E5 /* TeleprompterPillBody.swift in Sources */,
 				A9761E0D07D7B9244A40A158 /* SettingsWindow.swift in Sources */,
+				KSCAP000001A1B2C3D4E5 /* KeyShortcutCapture.swift in Sources */,
 				2A3E5F59B43C598866A4D112 /* SystemAudioWatcher.swift in Sources */,
 				AA00CAFE0001SVW000000001 /* SystemVolumeWatcher.swift in Sources */,
 				31028C6DBDCCD15C6178C005 /* ThumbnailCache.swift in Sources */,
@@ -836,14 +840,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 25;
+				CURRENT_PROJECT_VERSION = 26;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = Notetaker/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.9.15;
+				MARKETING_VERSION = 1.9.16;
 				PRODUCT_BUNDLE_IDENTIFIER = app.trynox;
 				PRODUCT_NAME = nox;
 				SDKROOT = macosx;
@@ -874,14 +878,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 25;
+				CURRENT_PROJECT_VERSION = 26;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = Notetaker/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.9.15;
+				MARKETING_VERSION = 1.9.16;
 				PRODUCT_BUNDLE_IDENTIFIER = app.trynox;
 				PRODUCT_NAME = nox;
 				SDKROOT = macosx;

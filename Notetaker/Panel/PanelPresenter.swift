@@ -856,18 +856,19 @@ final class PanelPresenter: ObservableObject {
         pendingVideoTimer = nil
     }
 
-    /// Tabs to show in the segmented bar, in display order. Music
-    /// only appears when something is actively playing — when nothing
-    /// is playing the bar is the original 4-tab strip and the user
-    /// never sees a "Music" segment that does nothing.
+    /// Tabs to show in the segmented bar, in display order. Live
+    /// (`.music`) is now ALWAYS visible — it's the home for Focus,
+    /// Study, the calendar pill, and the music card. Hiding it when
+    /// nothing was playing meant first-install users never saw any
+    /// of those features (Focus/Study toggles, calendar nudges,
+    /// session stats — all stuck behind a tab they couldn't open).
+    /// User report 2026-05-09: "when user first installs they don't
+    /// see the live menu."
     ///
     /// Script (1.9.10): always visible — teleprompter is a tool the
     /// user goes to deliberately. Sits at the right end of the bar.
     var visibleTabs: [PanelTab] {
-        var tabs: [PanelTab] = []
-        if nowPlaying != nil { tabs.append(.music) }
-        tabs.append(contentsOf: [.notes, .images, .videos, .files, .script])
-        return tabs
+        [.music, .notes, .images, .videos, .files, .script]
     }
 }
 

@@ -649,14 +649,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // the hardware cutout = visually invisible, but the
             // window is alive and registered for dragged types.
             panelController?.parkAtNotchHidden()
-            // Eagerly warm up the on-device Whisper model so the
-            // first dictation doesn't pay the ~5-10s Core ML
-            // compile + ANE engine selection cost. Cache hits
-            // resolve in <1s; cache miss kicks off the ~466 MB
-            // small.en download in the background. Either way,
-            // by the time the user triggers dictation the
-            // pipeline is ready.
-            Task.detached(priority: .background) {
+            // Eagerly warm up the on-device Whisper model. Two paths
+            // converge here:
+            //   • New install where the user TAPPED Download in the
+            //     onboarding voice-model row → already triggered
+            //     prepare(); this call is a no-op (await coalesces).
+            //   • New install where the user SKIPPED that row → silent
+            //     fallback. We still want the model on disk so first
+            //     dictation works without a wait.
+            // Priority is `.utility` (not `.background`) because
+            // `.background` is heavily throttled by macOS and a
+            // 466 MB cache miss can take 10+ minutes — the user might
+            // hit the dictation hotkey long before. `.utility` is
+            // "user-visible work that doesn't block UI" and gets a
+            // fair share of the network/CPU.
+            Task.detached(priority: .utility) {
                 await LocalWhisperService.shared.prepare()
             }
             // Lock-screen music card: a second NSPanel attached to
@@ -896,7 +903,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 panel.enterRestingMode()
                 HapticFeedback.generic()
             }
-            airDrop.start()
+            // 2026-05-10 — gated on onboardingCompletedV2. The
+            // first FSEvents seed iterates `~/Downloads` and
+            // `~/Desktop` via `FileManager.contentsOfDirectory(...)`,
+            // which on macOS Sonoma+ pops the "Files & Folders"
+            // TCC dialog for non-sandboxed apps. Without this gate,
+            // a brand-new install hits two system prompts ("nox
+            // would like to access files in your Downloads /
+            // Desktop folder") BEFORE the welcome window has even
+            // had a chance to render — exactly the "permissions
+            // asked before onboarding" pattern the user reported.
+            // For already-onboarded users this is unchanged: start
+            // immediately so AirDrop pills work from the very first
+            // file. First-launch users get this kicked on by
+            // `startTCCDeferredServices()` once onboarding finishes.
+            if UserDefaults.standard.bool(forKey: "onboardingCompletedV2") {
+                airDrop.start()
+            }
             airDropWatcher = airDrop
 
             // System volume HUD. CoreAudio property listener on the
@@ -1162,7 +1185,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let screenshots = ScreenshotWatcher { [weak self] url in
             self?.handleNewScreenshot(at: url)
         }
-        screenshots.start()
+        // 2026-05-10 — gated on onboardingCompletedV2. Same TCC
+        // hazard as AirDropWatcher: the FSEvents seed iterates the
+        // user's screenshot directory (default `~/Desktop`) via
+        // `FileManager.contentsOfDirectory(...)`, which on macOS
+        // Sonoma+ pops the "Files & Folders" dialog for the Desktop
+        // folder. Holding off until onboarding completes keeps the
+        // welcome flow's per-permission explainers as the FIRST
+        // thing the user sees. `startTCCDeferredServices()` flips
+        // this on once onboarding finishes.
+        if UserDefaults.standard.bool(forKey: "onboardingCompletedV2") {
+            screenshots.start()
+        }
         self.screenshotWatcher = screenshots
 
         // Cursor-into-notch → two-stage hover gesture, matching what
@@ -1517,7 +1551,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // why we need it; `startTCCDeferredServices()` then installs
         // the tap.
         if UserDefaults.standard.bool(forKey: "onboardingCompletedV2") {
-            dictation.setHotkeyMode(savedMode)
+            // Pull the saved custom shortcut alongside the mode. For
+            // .fnToggle / .fnHold the params are ignored; for
+            // .customToggle they're what RegisterEventHotKey uses to
+            // bind the user's chosen combo.
+            let customKeyCode = UInt32(UserDefaults.standard.integer(
+                forKey: SettingsKey.dictationCustomKeyCode
+            ))
+            let customModifiers = UInt32(UserDefaults.standard.integer(
+                forKey: SettingsKey.dictationCustomModifiers
+            ))
+            dictation.setHotkeyMode(
+                savedMode,
+                customKeyCode: customKeyCode,
+                customModifiers: customModifiers
+            )
         }
 
         // In-app dictation entry point: views (note editor mic
@@ -1733,10 +1781,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Automation / Apple Events permission prompt the first
         // time it queries Spotify or Music while either is running.
         notchOrchestrator?.start()
+        // AirDropWatcher and ScreenshotWatcher both seed by listing
+        // `~/Downloads` / `~/Desktop` via FileManager, which on
+        // macOS Sonoma+ trips the Files & Folders TCC dialog for
+        // non-sandboxed apps. Held back at launch (see the gated
+        // start() calls) so the prompts land AFTER the user has
+        // walked through onboarding's mic / accessibility / calendar
+        // explainers, not before. start() is idempotent on both.
+        airDropWatcher?.start()
+        screenshotWatcher?.start()
         // installFnKeyTap → AXIsProcessTrustedWithOptions(prompt=true)
         // is the call that pops the Accessibility permission dialog.
         if let mode = dictationPendingHotkeyMode {
-            dictationOrchestrator?.setHotkeyMode(mode)
+            // Pull saved custom shortcut params alongside the mode —
+            // matches the eager-init path so first-launch and
+            // already-onboarded users get identical behavior.
+            let customKeyCode = UInt32(UserDefaults.standard.integer(
+                forKey: SettingsKey.dictationCustomKeyCode
+            ))
+            let customModifiers = UInt32(UserDefaults.standard.integer(
+                forKey: SettingsKey.dictationCustomModifiers
+            ))
+            dictationOrchestrator?.setHotkeyMode(
+                mode,
+                customKeyCode: customKeyCode,
+                customModifiers: customModifiers
+            )
             dictationPendingHotkeyMode = nil
         }
     }

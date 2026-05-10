@@ -175,6 +175,21 @@ enum SettingsKey {
     /// fragmented-deep-work cadence Focus mode targets.
     static let dailyStudyGoalMinutes = "dailyStudyGoalMinutes"
 
+    /// Carbon keyCode for the user's custom dictation hotkey when
+    /// `dictationHotkeyMode == "custom_toggle"`. Captured by the
+    /// KeyShortcutCapture component in Settings → Dictation → Hotkey.
+    /// Stored as Int because Carbon expects UInt32 but
+    /// UserDefaults' int storage is widest-fits-all. Default 0
+    /// means "not yet captured" — orchestrator no-ops the
+    /// registration in that state and the user falls back to
+    /// the always-installed ⌘⇧D backup.
+    static let dictationCustomKeyCode = "dictationCustomKeyCode"
+
+    /// Carbon modifier flags (cmdKey | shiftKey | optionKey |
+    /// controlKey, OR'd together) for the user's custom dictation
+    /// hotkey. 0 = no modifiers. Captured alongside the keyCode.
+    static let dictationCustomModifiers = "dictationCustomModifiers"
+
     /// Calendar source preference for the Live → calendar pane.
     /// String values: `"apple"` (default — show all events from
     /// EventKit, the same set Apple Calendar.app shows) or
@@ -1306,6 +1321,8 @@ private struct DictationSettings: View {
     // and the next launch loaded toggle mode silently — so "hold to talk"
     // stopped working with no visible cause.
     @AppStorage("dictationHotkeyMode") private var hotkeyModeRaw: String = "fn_hold"
+    @AppStorage(SettingsKey.dictationCustomKeyCode) private var customKeyCode: Int = 0
+    @AppStorage(SettingsKey.dictationCustomModifiers) private var customModifiers: Int = 0
     @AppStorage("dictationCustomVocabulary") private var customVocabulary: String = ""
 
     @State private var keyValidationStatus: ValidationStatus = .untested
@@ -1404,15 +1421,31 @@ private struct DictationSettings: View {
             SettingsCard {
                 GroupTitle(title: "Hotkey")
                 SettingsRow(title: "Trigger",
-                            subtitle: "Hold-to-talk = press and hold to record, release to stop. Tap-to-toggle = press once to start, again to stop.") {
+                            subtitle: "Hold-to-talk = press and hold to record, release to stop. Tap-to-toggle = press once to start, again to stop. Custom shortcut works for keyboards without an Fn key.") {
                     Picker("", selection: $hotkeyModeRaw) {
                         Text("Tap Fn (toggle)").tag("fn_toggle")
                         Text("Hold Fn").tag("fn_hold")
-                        Text("Custom (⌘⇧D)").tag("custom_toggle")
+                        Text("Custom shortcut").tag("custom_toggle")
                     }
                     .labelsHidden()
                     .frame(width: 220)
                     .onChange(of: hotkeyModeRaw) { _ in reapplyHotkey() }
+                }
+                // Custom-shortcut binder — only visible when the user
+                // picked the custom mode. Click to record any key
+                // combo (any modifiers + any key, including F-keys for
+                // people on non-Apple keyboards).
+                if hotkeyModeRaw == "custom_toggle" {
+                    Divider().background(SettingsTheme.rowDivider)
+                    SettingsRow(title: "Shortcut",
+                                subtitle: "Click to record any modifier + key combo. Works on any keyboard, no Fn key required.") {
+                        KeyShortcutCapture(
+                            keyCode: $customKeyCode,
+                            modifiers: $customModifiers
+                        )
+                        .onChange(of: customKeyCode) { _ in reapplyHotkey() }
+                        .onChange(of: customModifiers) { _ in reapplyHotkey() }
+                    }
                 }
                 Divider().background(SettingsTheme.rowDivider)
                 Text("⌘⇧D backup is always installed. Works regardless of which trigger you pick. If Fn doesn't fire, ⌘⇧D will.")
@@ -1583,7 +1616,14 @@ private struct DictationSettings: View {
 
     private func reapplyHotkey() {
         guard let mode = DictationOrchestrator.HotkeyMode(rawValue: hotkeyModeRaw) else { return }
-        AppDelegate.shared?.dictationOrchestrator?.setHotkeyMode(mode)
+        // For .customToggle, pass the saved keyCode + modifiers so the
+        // Carbon registration uses the user's binding. For Fn modes,
+        // the params are ignored (orchestrator branches on mode).
+        AppDelegate.shared?.dictationOrchestrator?.setHotkeyMode(
+            mode,
+            customKeyCode: UInt32(customKeyCode),
+            customModifiers: UInt32(customModifiers)
+        )
     }
 }
 

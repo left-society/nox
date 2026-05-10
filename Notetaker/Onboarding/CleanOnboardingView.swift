@@ -514,6 +514,8 @@ private struct PermissionsPage: View {
                 PermissionRow(kind: .accessibility)
                 Hairline()
                 PermissionRow(kind: .calendar)
+                Hairline()
+                PermissionRow(kind: .voiceModel)
             }
             .padding(.horizontal, 56)
             .opacity(visible ? 1 : 0)
@@ -540,13 +542,14 @@ private struct PermissionsPage: View {
 }
 
 private enum PermissionKind {
-    case microphone, accessibility, calendar
+    case microphone, accessibility, calendar, voiceModel
 
     var iconName: String {
         switch self {
         case .microphone:    return "mic.fill"
         case .accessibility: return "accessibility"
         case .calendar:      return "calendar"
+        case .voiceModel:    return "waveform"
         }
     }
 
@@ -555,6 +558,7 @@ private enum PermissionKind {
         case .microphone:    return "Microphone"
         case .accessibility: return "Accessibility"
         case .calendar:      return "Calendar"
+        case .voiceModel:    return "Voice model"
         }
     }
 
@@ -566,6 +570,8 @@ private enum PermissionKind {
             return "Listen for the dictation hotkey, paste at cursor."
         case .calendar:
             return "Show your next meeting in the notch."
+        case .voiceModel:
+            return "On-device Whisper, ~466 MB. Skip to download silently in background."
         }
     }
 
@@ -574,10 +580,13 @@ private enum PermissionKind {
     /// "Required" pill next to the title (SuperIsland reference).
     /// Calendar is fully optional — meeting pill stays hidden if
     /// not granted, but everything else still works.
+    /// Voice model is also optional: if the user skips, the eager
+    /// background download in AppDelegate kicks in after onboarding
+    /// completes and the model lands silently.
     var isRequired: Bool {
         switch self {
         case .microphone, .accessibility: return true
-        case .calendar: return false
+        case .calendar, .voiceModel: return false
         }
     }
 }
@@ -589,7 +598,7 @@ private struct PermissionRow: View {
     @State private var status: PermissionStatus = .notDetermined
     @State private var hovered = false
 
-    enum PermissionStatus { case notDetermined, granted, denied }
+    enum PermissionStatus { case notDetermined, downloading, granted, denied }
 
     var body: some View {
         HStack(spacing: 14) {
@@ -648,20 +657,33 @@ private struct PermissionRow: View {
 
     @ViewBuilder
     private var actionButton: some View {
-        if status == .granted {
+        switch status {
+        case .granted:
             HStack(spacing: 5) {
                 Image(systemName: "checkmark")
                     .font(.system(size: 10, weight: .heavy))
-                Text("Granted")
+                Text(kind == .voiceModel ? "Ready" : "Granted")
                     .font(.system(size: 11.5, weight: .semibold))
             }
             .foregroundStyle(NoxBrand.granted)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(Capsule().fill(NoxBrand.granted.opacity(0.13)))
-        } else {
+        case .downloading:
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(NoxBrand.purple)
+                Text("Downloading…")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(NoxBrand.purple)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(NoxBrand.purple.opacity(0.10)))
+        case .notDetermined, .denied:
             Button(action: handleAllow) {
-                Text(status == .denied ? "Open Settings" : "Allow")
+                Text(buttonLabel)
                     .font(.system(size: 11.5, weight: .semibold))
                     .foregroundStyle(NoxBrand.purple)
                     .padding(.horizontal, 12)
@@ -676,6 +698,18 @@ private struct PermissionRow: View {
         }
     }
 
+    /// Voice-model row uses different copy than permission rows: the
+    /// CTA reads "Download" not "Allow" (it's not a permission — it's
+    /// a network fetch), and the failure case reads "Try again" since
+    /// there's no Settings pane to send the user to. All other rows
+    /// keep the original Allow / Open Settings shape.
+    private var buttonLabel: String {
+        if status == .denied {
+            return kind == .voiceModel ? "Try again" : "Open Settings"
+        }
+        return kind == .voiceModel ? "Download" : "Allow"
+    }
+
     // MARK: System calls
 
     private func handleAllow() {
@@ -683,6 +717,39 @@ private struct PermissionRow: View {
         case .microphone:    requestMic()
         case .accessibility: requestAccessibility()
         case .calendar:      requestCalendar()
+        case .voiceModel:    startVoiceModelDownload()
+        }
+    }
+
+    /// Kick off `LocalWhisperService.prepare()` and observe its
+    /// `isReady` / `isLoading` flags via a poll. WhisperKit doesn't
+    /// expose granular byte-level progress, so the row shows an
+    /// indeterminate "Downloading..." state with a spinner until
+    /// `isReady` flips true. The actual file write happens to
+    /// `~/Documents/huggingface/...` and HuggingFace's transport
+    /// layer is what actually moves bytes — we just await its
+    /// completion.
+    ///
+    /// `LocalWhisperService` is an actor so all property reads need
+    /// `await`. We hop to a Task and use `await` to fetch the
+    /// state, then write to `status` on the MainActor.
+    private func startVoiceModelDownload() {
+        Task { @MainActor in
+            let alreadyReady = await LocalWhisperService.shared.isReady
+            if alreadyReady {
+                status = .granted
+                return
+            }
+            status = .downloading
+            await LocalWhisperService.shared.prepare()
+            let nowReady = await LocalWhisperService.shared.isReady
+            if nowReady {
+                status = .granted
+            } else {
+                // prepare() failed — surface as denied so the row
+                // shows a "Try again" / "Open Settings" affordance.
+                status = .denied
+            }
         }
     }
 
@@ -811,6 +878,44 @@ private struct PermissionRow: View {
             } else {
                 status = (s == .authorized) ? .granted
                        : (s == .denied || s == .restricted ? .denied : .notDetermined)
+            }
+        case .voiceModel:
+            // LocalWhisperService is an actor; hop async to read its
+            // isReady/isLoading flags. Three resolved states:
+            //   • isReady → cached model loaded → "Ready"
+            //   • isLoading → eager prepare from AppDelegate is mid-
+            //     download right now → reflect that as "Downloading…"
+            //     so the user sees consistent state with the silent
+            //     background path
+            //   • neither → "Download" CTA
+            Task { @MainActor in
+                let isReady = await LocalWhisperService.shared.isReady
+                let isLoading = await LocalWhisperService.shared.isLoading
+                if isReady {
+                    status = .granted
+                } else if isLoading {
+                    status = .downloading
+                    pollVoiceModelReadyState()
+                } else {
+                    status = .notDetermined
+                }
+            }
+        }
+    }
+
+    /// While `LocalWhisperService.prepare()` runs in the background,
+    /// poll its `isReady` flag once a second so the row can flip from
+    /// "Downloading…" to "Ready" without the user needing to interact.
+    /// Stops once the model resolves either way.
+    private func pollVoiceModelReadyState() {
+        Task { @MainActor in
+            while await LocalWhisperService.shared.isLoading {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+            if await LocalWhisperService.shared.isReady {
+                status = .granted
+            } else if status == .downloading {
+                status = .denied
             }
         }
     }

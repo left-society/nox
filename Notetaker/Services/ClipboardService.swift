@@ -166,6 +166,14 @@ final class ScreenshotWatcher: NSObject {
     }
 
     func start() {
+        // Idempotent: a second start() call after the first stream
+        // is up would silently leak the existing FSEventStream and
+        // double-fire callbacks. AirDropWatcher.start() already
+        // guards on `streams.isEmpty`; this mirrors that pattern
+        // so `startTCCDeferredServices()` can call start() without
+        // worrying about whether the eager-init path already did.
+        guard stream == nil else { return }
+
         // Seed seenPaths with everything currently in the watched
         // directory so we don't fire onNewScreenshot for pre-existing
         // files when the stream warms up.

@@ -2560,18 +2560,25 @@ private struct GoalRingDay: View {
             Text(label)
                 .font(.system(size: 10, weight: isToday ? .semibold : .medium))
                 .foregroundStyle(isToday ? .white : .white.opacity(0.55))
-                // 2026-05-09: lineLimit(1) + minimumScaleFactor +
-                // tightened horizontal padding (6 → 3). The goal
-                // hero card column gets ~38–42pt per day at the
-                // current panel width; 3-letter labels like "Mon"
-                // / "Wed" used to wrap onto two lines ("Mo / n",
-                // "We / d") with the looser 6pt padding because
-                // text + 12pt total padding exceeded the available
-                // width. Hard cap to one line + slight scale-down
-                // headroom keeps every day legible without breaking.
+                // 2026-05-09: lineLimit(1) + tightened horizontal
+                // padding (6 → 3). The goal hero card column gets
+                // ~38–42pt per day at the current panel width;
+                // 3-letter labels like "Mon" / "Wed" used to wrap
+                // onto two lines ("Mo / n", "We / d") with the
+                // looser 6pt padding. Hard cap to one line ensures
+                // they never break.
+                //
+                // 2026-05-09 perf: `minimumScaleFactor(0.85)` and
+                // `fixedSize` were dropped after the user reported
+                // dashboard-open lag. `minimumScaleFactor` triggers
+                // SwiftUI to attempt MULTIPLE layout passes per
+                // label trying to find a size that fits — for 7
+                // GoalRingDay instances during the open animation's
+                // repeated layout, that's a measurable perf hit.
+                // The 3pt padding alone gives enough headroom that
+                // day labels never overflow; the scale-factor
+                // belt-and-suspenders is no longer needed.
                 .lineLimit(1)
-                .minimumScaleFactor(0.85)
-                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 3)
                 .padding(.vertical, 1)
                 .background(
@@ -2951,9 +2958,25 @@ struct LiveFocusDetailPanel: View {
     @ViewBuilder
     private func goalHeroContent(now: Date) -> some View {
         let goal = max(5, dailyFocusGoal)
-        let goalsHit = tracker.goalsCompletedThisWeek(goal: goal, now: now)
+        // 2026-05-09 perf: compute the 7-day data ONCE, derive
+        // every aggregate from it. Previously the body called
+        // `goalsCompletedThisWeek` (internally loops 7 ×
+        // dayMinutes), `totalMinutesThisWeek` (loops 7 more
+        // times), AND the `ForEach` loop (7 more dayMinutes calls
+        // + 7 dayLabel calls). Per-body-eval cost: 21+ tracker
+        // calls + 7 DateFormatter operations. Multiplied by the
+        // open animation's repeated body evals = noticeable lag
+        // on dashboard open. Now: 7 dayMinutes calls + 7 dayLabel
+        // calls, derived aggregates are O(1).
+        let perDay: [(minutes: Int, label: String)] = (0..<7).map { i in
+            let daysAgo = 6 - i
+            let mins = tracker.dayMinutes(daysAgo: daysAgo, now: now)
+            let label = dayLabel(daysAgo: daysAgo, now: now)
+            return (mins, label)
+        }
+        let goalsHit = perDay.reduce(0) { $0 + ($1.minutes >= goal ? 1 : 0) }
         let goalsPct = Int((Double(goalsHit) / 7.0 * 100).rounded())
-        let weekTotal = tracker.totalMinutesThisWeek(now: now)
+        let weekTotal = perDay.reduce(0) { $0 + $1.minutes }
         let weekAvg = weekTotal / 7
         // Avg-vs-goal ratio for the footer ring artwork. Caps at 1
         // so a power week doesn't render an overflowed ring.
@@ -3006,13 +3029,12 @@ struct LiveFocusDetailPanel: View {
             // ── 7-day ring strip ─────────────────────────────────
             HStack(spacing: 4) {
                 ForEach(0..<7, id: \.self) { i in
-                    let daysAgo = 6 - i
-                    let isToday = daysAgo == 0
-                    let mins = tracker.dayMinutes(daysAgo: daysAgo, now: now)
-                    let progress = min(1.0, Double(mins) / Double(goal))
+                    let isToday = i == 6
+                    let day = perDay[i]
+                    let progress = min(1.0, Double(day.minutes) / Double(goal))
                     GoalRingDay(
-                        label: dayLabel(daysAgo: daysAgo, now: now),
-                        minutes: mins,
+                        label: day.label,
+                        minutes: day.minutes,
                         progress: progress,
                         isToday: isToday,
                         accent: DS.Color.accent,
@@ -3095,18 +3117,37 @@ struct LiveFocusDetailPanel: View {
         }
     }
 
-    /// Two-character day-of-week label ("Sun", "Mon", ...) for a
+    /// Three-letter day-of-week label ("Sun", "Mon", ...) for a
     /// given offset from `now`. Uses the user's current calendar so
     /// the week boundary respects locale settings.
+    ///
+    /// **Perf:** uses a cached static formatter. The earlier
+    /// implementation allocated a fresh `DateFormatter` per call,
+    /// and the dashboard calls this 7 times per body eval —
+    /// `DateFormatter()` is one of the slowest things to allocate
+    /// in Swift (~2-5ms each, locale + calendar setup + format
+    /// parse). User reported the dashboard's open animation was
+    /// laggy; the 7×N formatter allocations during the open
+    /// transition's repeated layout passes were a major chunk of
+    /// the lag budget. Static formatter = one alloc for the app's
+    /// lifetime, sub-microsecond per call after that.
     private func dayLabel(daysAgo: Int, now: Date) -> String {
         let cal = Calendar.current
         guard let d = cal.date(byAdding: .day, value: -daysAgo, to: now) else {
             return ""
         }
+        return Self.weekdayFormatter.string(from: d)
+    }
+
+    /// Shared `EEE` formatter — see `dayLabel(daysAgo:now:)` for
+    /// rationale.
+    private static let weekdayFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "EEE"
-        return f.string(from: d)
-    }
+        f.calendar = Calendar.current
+        f.locale = Locale.current
+        return f
+    }()
 
     /// Compact human-readable minutes — "53m", "2h 5m", "12h 4m".
     /// Used in both the per-day time labels and the footer
@@ -4154,9 +4195,20 @@ struct LiveStudyDetailPanel: View {
     @ViewBuilder
     private func goalHeroContent(now: Date) -> some View {
         let goal = max(5, dailyStudyGoal)
-        let goalsHit = tracker.goalsCompletedThisWeek(goal: goal, now: now)
+        // 2026-05-09 perf: same de-duplication fix the Focus dash
+        // got. Compute the 7-day data once, derive every aggregate
+        // from it. Cuts tracker calls per body eval from 21+ down
+        // to 7. See LiveFocusDetailPanel's matching site for the
+        // full rationale.
+        let perDay: [(minutes: Int, label: String)] = (0..<7).map { i in
+            let daysAgo = 6 - i
+            let mins = tracker.dayMinutes(daysAgo: daysAgo, now: now)
+            let label = dayLabel(daysAgo: daysAgo, now: now)
+            return (mins, label)
+        }
+        let goalsHit = perDay.reduce(0) { $0 + ($1.minutes >= goal ? 1 : 0) }
         let goalsPct = Int((Double(goalsHit) / 7.0 * 100).rounded())
-        let weekTotal = tracker.totalMinutesThisWeek(now: now)
+        let weekTotal = perDay.reduce(0) { $0 + $1.minutes }
         let weekAvg = weekTotal / 7
         let avgVsGoal = min(1.0, Double(weekAvg) / Double(goal))
 
@@ -4203,13 +4255,12 @@ struct LiveStudyDetailPanel: View {
 
             HStack(spacing: 4) {
                 ForEach(0..<7, id: \.self) { i in
-                    let daysAgo = 6 - i
-                    let isToday = daysAgo == 0
-                    let mins = tracker.dayMinutes(daysAgo: daysAgo, now: now)
-                    let progress = min(1.0, Double(mins) / Double(goal))
+                    let isToday = i == 6
+                    let day = perDay[i]
+                    let progress = min(1.0, Double(day.minutes) / Double(goal))
                     GoalRingDay(
-                        label: dayLabel(daysAgo: daysAgo, now: now),
-                        minutes: mins,
+                        label: day.label,
+                        minutes: day.minutes,
                         progress: progress,
                         isToday: isToday,
                         accent: DS.Color.accent,
