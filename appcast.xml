@@ -6,6 +6,19 @@
         <description>nox app updates</description>
         <language>en</language>
         <item>
+            <title>nox 1.9.15</title>
+            <pubDate>Sun, 10 May 2026 20:22:07 +0600</pubDate>
+            <sparkle:version>25</sparkle:version>
+            <sparkle:shortVersionString>1.9.15</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://trynox.app/release-notes-1.9.15.html</sparkle:releaseNotesLink>
+            <enclosure
+                url="https://github.com/left-society/nox/releases/download/v1.9.15/nox.1.9.15.dmg"
+                length="75866687"
+                type="application/octet-stream"
+                sparkle:edSignature="qEoDbVS1lInmaUnJ+gc3+gnUdMH8VYraRhNSDojJzKo/7FVz4U521EBaNELbc0gwfiYCk4bc5QPIEUqUZr+iCg==" />
+        </item>
+        <item>
             <title>nox 1.9.14</title>
             <pubDate>Sun, 10 May 2026 05:07:47 +0600</pubDate>
             <sparkle:version>24</sparkle:version>
