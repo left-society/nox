@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Focus / Study panel — RiseUp redesign</title>
+<style>
+  :root {
+    --bg: #0d0d0f;
+    --slab: #1a1a1d;
+    --slab-edge: rgba(255,255,255,0.06);
+    --text: #ffffff;
+    --text-mute: rgba(255,255,255,0.55);
+    --text-faint: rgba(255,255,255,0.40);
+    --text-dim: rgba(255,255,255,0.28);
+    --accent: #a78bfa;
+    --accent-2: #8b5cf6;
+    --accent-soft: rgba(167,139,250,0.18);
+    --accent-glow: rgba(167,139,250,0.10);
+    --book: #f4c060;
+    --book-soft: rgba(244,192,96,0.18);
+    --book-glow: rgba(244,192,96,0.10);
+  }
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "SF Pro Display", "SF Pro Text", system-ui, sans-serif;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    padding: 56px 32px 96px;
+    background:
+      radial-gradient(circle at 20% 0%, rgba(149,108,231,0.12), transparent 60%),
+      radial-gradient(circle at 80% 30%, rgba(139,92,246,0.10), transparent 50%),
+      var(--bg);
+    min-height: 100vh;
+  }
+  .page-head {
+    max-width: 1280px;
+    margin: 0 auto 48px;
+  }
+  .eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  h1 {
+    font-size: 38px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0 0 14px;
+  }
+  .lede {
+    font-size: 16px;
+    line-height: 1.5;
+    color: var(--text-mute);
+    max-width: 780px;
+    margin: 0;
+  }
+  .row {
+    max-width: 1280px;
+    margin: 0 auto 56px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+  }
+  .row.single { grid-template-columns: minmax(0, 580px); justify-content: center; }
+  .row-head {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 4px;
+  }
+  .row-head h2 {
+    font-size: 22px;
+    margin: 0;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .row-head .meta {
+    color: var(--text-faint);
+    font-size: 13px;
+  }
+  /* ─────── Slab chrome ─────── */
+  .slab {
+    background: var(--slab);
+    border-radius: 28px;
+    padding: 18px 18px 20px;
+    box-shadow:
+      0 24px 48px rgba(0,0,0,0.4),
+      0 0 0 0.5px rgba(255,255,255,0.06);
+    position: relative;
+  }
+  .slab-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px 16px;
+  }
+  .slab-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .slab-brand .o {
+    width: 14px; height: 14px;
+    border: 1.5px solid var(--accent);
+    border-radius: 50%;
+  }
+  .slab-tabs {
+    display: flex;
+    gap: 18px;
+    font-size: 13px;
+    color: var(--text-mute);
+  }
+  .slab-tabs .active {
+    color: white;
+    font-weight: 600;
+    border-bottom: 1.5px solid var(--accent);
+    padding-bottom: 2px;
+  }
+  .slab-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .pill-btn {
+    padding: 4px 10px;
+    border: 0.5px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    color: var(--text-mute);
+    font-size: 11px;
+    background: rgba(255,255,255,0.04);
+  }
+  /* ─────── Hero card ─────── */
+  .hero-card {
+    margin: 8px 4px 0;
+    background:
+      linear-gradient(180deg, var(--accent-glow) 0%, rgba(0,0,0,0) 60%),
+      rgba(255,255,255,0.04);
+    border: 0.5px solid var(--slab-edge);
+    border-radius: 18px;
+    padding: 18px 20px 16px;
+  }
+  .hero-card.study {
+    background:
+      linear-gradient(180deg, var(--book-glow) 0%, rgba(0,0,0,0) 60%),
+      rgba(255,255,255,0.04);
+  }
+  .hero-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .icon-tile {
+    width: 34px; height: 34px;
+    border-radius: 10px;
+    background: var(--accent-soft);
+    display: grid;
+    place-items: center;
+    color: var(--accent);
+    font-size: 16px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .hero-card.study .icon-tile {
+    background: var(--book-soft);
+    color: var(--book);
+  }
+  .hero-text {
+    flex: 1;
+    min-width: 0;
+  }
+  .goal-title {
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.25;
+    margin: 0;
+  }
+  .goal-sub {
+    font-size: 11.5px;
+    color: var(--text-faint);
+    margin-top: 2px;
+  }
+  .goal-progress {
+    font-size: 11.5px;
+    color: var(--text-mute);
+    margin-top: 6px;
+  }
+  .goal-progress strong {
+    color: white;
+    font-weight: 600;
+  }
+  .more-btn {
+    color: var(--text-faint);
+    font-size: 16px;
+    letter-spacing: 0.2em;
+    line-height: 1;
+    cursor: default;
+    padding: 4px 0 0 4px;
+  }
+  /* ─────── Day strip ─────── */
+  .divider {
+    height: 0.5px;
+    background: rgba(255,255,255,0.08);
+    margin: 14px 0 12px;
+  }
+  .day-strip {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+  }
+  .day {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+  }
+  .day .label {
+    font-size: 11px;
+    color: var(--text-mute);
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 8px;
+  }
+  .day.today .label {
+    color: white;
+    font-weight: 600;
+    border: 0.5px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.04);
+  }
+  .ring {
+    width: 36px; height: 36px;
+    position: relative;
+  }
+  .ring svg { display: block; }
+  .ring-glyph {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 13px;
+  }
+  .day .time {
+    font-size: 10.5px;
+    color: var(--text-mute);
+    font-variant-numeric: tabular-nums;
+  }
+  .day.today .time {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .hero-card.study .day.today .time {
+    color: var(--book);
+  }
+  .day.miss .time { color: var(--text-dim); }
+  /* ─────── Footer ─────── */
+  .hero-footer {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 0.5px solid rgba(255,255,255,0.06);
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    align-items: center;
+    gap: 10px;
+  }
+  .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 4px;
+  }
+  .stat:not(:last-child) {
+    border-right: 0.5px solid rgba(255,255,255,0.08);
+  }
+  .stat .big {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .big .unit {
+    font-size: 12px;
+    color: var(--text-faint);
+    font-weight: 500;
+    margin-left: 2px;
+  }
+  .stat .small {
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+  .footer-ring {
+    width: 56px; height: 56px;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .footer-ring .glyph {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 18px;
+    color: var(--accent);
+  }
+  .hero-card.study .footer-ring .glyph {
+    color: var(--book);
+  }
+  /* ─────── Controls strip ─────── */
+  .controls {
+    margin: 14px 4px 0;
+    background: rgba(255,255,255,0.04);
+    border: 0.5px solid var(--slab-edge);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .ctrl-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 14px;
+  }
+  .ctrl-row + .ctrl-row {
+    border-top: 0.5px solid rgba(255,255,255,0.05);
+  }
+  .ctrl-glyph {
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    display: grid;
+    place-items: center;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  .ctrl-row.muted .ctrl-glyph {
+    background: rgba(255,255,255,0.06);
+    color: var(--text-mute);
+  }
+  .ctrl-text {
+    flex: 1;
+    font-size: 13px;
+  }
+  .ctrl-text .sub {
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-top: 1px;
+  }
+  .switch {
+    width: 36px; height: 20px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.10);
+    position: relative;
+    transition: background 0.16s;
+  }
+  .switch.on { background: var(--accent); }
+  .hero-card.study + .controls .switch.on,
+  .study-controls .switch.on { background: var(--book); }
+  .switch::after {
+    content: "";
+    position: absolute;
+    width: 16px; height: 16px;
+    background: white;
+    border-radius: 50%;
+    top: 2px;
+    left: 2px;
+    transition: transform 0.16s;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  }
+  .switch.on::after { transform: translateX(16px); }
+  /* ─────── Back row ─────── */
+  .back-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 500;
+    margin: 4px 8px 12px;
+  }
+  .hero-card.study + .controls .ctrl-glyph {
+    background: var(--book-soft);
+    color: var(--book);
+  }
+  /* ─────── Before card ─────── */
+  .before-shot {
+    background: var(--slab);
+    border-radius: 24px;
+    padding: 14px;
+    box-shadow:
+      0 16px 32px rgba(0,0,0,0.35),
+      0 0 0 0.5px rgba(255,255,255,0.05);
+    opacity: 0.85;
+  }
+  .before-shot .before-card {
+    background: rgba(255,255,255,0.04);
+    border: 0.5px solid var(--slab-edge);
+    border-radius: 14px;
+    padding: 14px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .before-shot .stub-icon {
+    width: 38px; height: 38px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.08);
+    display: grid;
+    place-items: center;
+    color: var(--text-mute);
+  }
+  .before-shot .stub-text small {
+    display: block;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .before-shot .stub-text .head { font-size: 16px; font-weight: 600; }
+  .before-shot .stub-text .sub { font-size: 11px; color: var(--text-mute); }
+  .before-shot .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .before-shot .stub-stat {
+    background: rgba(255,255,255,0.04);
+    border: 0.5px solid var(--slab-edge);
+    border-radius: 14px;
+    padding: 12px;
+  }
+  .before-shot .stub-stat small {
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--text-faint);
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .before-shot .stub-stat .big {
+    font-size: 22px;
+    font-weight: 700;
+    margin-top: 4px;
+  }
+  .before-shot .stub-stat .sub {
+    font-size: 10px;
+    color: var(--text-faint);
+  }
+  .before-shot .ctrl-block {
+    background: rgba(255,255,255,0.04);
+    border: 0.5px solid var(--slab-edge);
+    border-radius: 14px;
+    padding: 12px 14px;
+    color: var(--text-mute);
+    font-size: 11px;
+  }
+  /* ─────── Notes ─────── */
+  .notes {
+    max-width: 1280px;
+    margin: 0 auto;
+    color: var(--text-mute);
+    font-size: 14px;
+    line-height: 1.6;
+    padding: 32px;
+    background: rgba(255,255,255,0.03);
+    border: 0.5px solid var(--slab-edge);
+    border-radius: 16px;
+  }
+  .notes h3 {
+    font-size: 16px;
+    color: white;
+    margin: 0 0 12px;
+    font-weight: 600;
+  }
+  .notes ul { margin: 0; padding-left: 20px; }
+  .notes li { margin-bottom: 8px; }
+  .notes b { color: white; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <div class="eyebrow">Focus + Study panel · RiseUp inspired</div>
+  <h1>One card. The whole week, at a glance.</h1>
+  <p class="lede">
+    Replaces the four stacked cards (hero / today / week / controls) with a single composed card built around a goal.
+    Per-day rings show progress, today is pill-highlighted, the footer aggregates totals — same data, way less noise.
+  </p>
+</div>
+
+<!-- ────────── Before vs After header ────────── -->
+<div class="row">
+  <div class="row-head">
+    <h2>Before → After</h2>
+    <span class="meta">left: current 4-card stack · right: new single-card composition</span>
+  </div>
+
+  <!-- BEFORE -->
+  <div class="before-shot">
+    <div class="before-card">
+      <div class="stub-icon">☾</div>
+      <div class="stub-text">
+        <small>Focus off</small>
+        <div class="head">Tap toggle below to start</div>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="stub-stat">
+        <small>Total · today</small>
+        <div class="big">2<span style="font-size:13px;color:var(--text-faint);font-weight:500"> min</span></div>
+        <div class="sub">Nice work</div>
+      </div>
+      <div class="stub-stat">
+        <small>This week</small>
+        <div class="big">13<span style="font-size:13px;color:var(--text-faint);font-weight:500"> min</span></div>
+        <div class="sub" style="display:flex;gap:5px;align-items:flex-end;height:18px;margin-top:6px">
+          <span style="width:6px;height:3px;background:rgba(255,255,255,0.10);border-radius:3px"></span>
+          <span style="width:6px;height:3px;background:rgba(255,255,255,0.10);border-radius:3px"></span>
+          <span style="width:6px;height:3px;background:rgba(255,255,255,0.10);border-radius:3px"></span>
+          <span style="width:6px;height:3px;background:rgba(255,255,255,0.10);border-radius:3px"></span>
+          <span style="width:6px;height:3px;background:rgba(255,255,255,0.10);border-radius:3px"></span>
+          <span style="width:6px;height:14px;background:var(--accent);opacity:0.55;border-radius:3px"></span>
+          <span style="width:6px;height:6px;background:var(--accent);border-radius:3px"></span>
+        </div>
+      </div>
+    </div>
+    <div class="ctrl-block">
+      ☾  Focus mode &nbsp;&nbsp;&nbsp;⚪︎<br>
+      🔕 Auto-hide pills during Focus &nbsp;&nbsp;&nbsp;🟣
+    </div>
+  </div>
+
+  <!-- AFTER (Focus) -->
+  <div class="slab">
+    <div class="slab-head">
+      <div class="slab-brand"><div class="o"></div>nox</div>
+      <div class="slab-tabs"><span class="active">live</span><span>notes</span><span>images</span><span>videos</span><span>files</span><span>script</span></div>
+      <div class="slab-actions"><span class="pill-btn">⌥</span><span class="pill-btn">Space</span><span class="pill-btn">⚙︎</span></div>
+    </div>
+    <div class="back-row">‹&nbsp;Live</div>
+
+    <div class="hero-card">
+      <div class="hero-head">
+        <div class="icon-tile">☾</div>
+        <div class="hero-text">
+          <div class="goal-title">Focus at least 60 min today</div>
+          <div class="goal-sub">Last 7 days</div>
+          <div class="goal-progress">Weekly progress: <strong>4 of 7 goals</strong> completed (57%)</div>
+        </div>
+        <div class="more-btn">⋯</div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="day-strip">
+        <!-- Sun: 42m / goal 60 = 70% -->
+        <div class="day">
+          <div class="label">Sun</div>
+          <div class="ring">
+            <svg viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2.5"/>
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(167,139,250,0.55)" stroke-width="2.5"
+                      stroke-dasharray="94.2" stroke-dashoffset="28.3" stroke-linecap="round" transform="rotate(-90 18 18)"/>
+            </svg>
+            <div class="ring-glyph">☾</div>
+          </div>
+          <div class="time">42m</div>
+        </div>
+        <!-- Mon: 90m / goal 60 = ✓ over -->
+        <div class="day">
+          <div class="label">Mon</div>
+          <div class="ring">
+            <svg viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2.5"/>
+              <circle cx="18" cy="18" r="15" fill="none" stroke="var(--accent)" stroke-width="2.5"
+                      stroke-dasharray="94.2" stroke-dashoffset="0" stroke-linecap="round" transform="rotate(-90 18 18)"/>
+            </svg>
+            <div class="ring-glyph" style="color:var(--accent)">☾</div>
+          </div>
+          <div class="time" style="color:white;font-weight:600">90m</div>
+        </div>
+        <!-- Tue: 85m / goal 60 = ✓ -->
+        <div class="day">
+          <div class="label">Tue</div>
+          <div class="ring">
+            <svg viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2.5"/>
+              <circle cx="18" cy="18" r="15" fill="none" stroke="var(--accent)" stroke-width="2.5"
+                      stroke-dasharray="94.2" stroke-dashoffset="0" stroke-linecap="round" transform="rotate(-90 18 18)"/>
+            </svg>
+            <div class="ring-glyph" style="color:var(--accent)">☾</div>
+          </div>
+          <div class="time" style="color:white;font-weight:600">85m</div>
+        </div>
+        <!-- Wed: 35m -->
+        <div class="day miss">
+          <div class="label">Wed</div>
+          <div class="ring">
+            <svg viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2.5"/>
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(167,139,250,0.45)" stroke-width="2.5"
+                      stroke-dasharray="94.2" stroke-dashoffset="39.2" stroke-linecap="round" transform="rotate(-90 18 18)"/>
+            </svg>
+            <div class="ring-glyph" style="opacity:0.5">☾</div>
+          </div>
+          <div class="time">35m</div>
+        </div>
+        <!-- Thu: today, 62m / goal 60 = ✓ -->
+        <div class="day today">
+          <div class="label">Thu</div>
+          <div class="ring">
+            <svg viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2.5"/>
+              <circle cx="18" cy="18" r="15" fill="none" stroke="var(--accent)" stroke-width="2.5"
+                      stroke-dasharray="94.2" stroke-dashoffset="0" stroke-linecap="round" transform="rotate(-90 18 18)"/>
+            </svg>
+            <div class="ring-glyph" style="color:var(--accent)">☾</div>
+          </div>
+          <div class="time">62m</div>
+        </div>
+        <!-- Fri: 45m -->
+        <div class="day miss">
+          <div class="label">Fri</div>
+          <div class="ring">
+            <svg viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2.5"/>
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(167,139,250,0.55)" stroke-width="2.5"
+                      stroke-dasharray="94.2" stroke-dashoffset="23.6" stroke-linecap="round" transform="rotate(-90 18 18)"/>
+            </svg>
+            <div class="ring-glyph" style="opacity:0.55">☾</div>
+          </div>
+          <div class="time">45m</div>
+        </div>
+        <!-- Sat: 58m -->
+        <div class="day">
+          <div class="label">Sat</div>
+          <div class="ring">
+            <svg viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2.5"/>
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(167,139,250,0.55)" stroke-width="2.5"
+                      stroke-dasharray="94.2" stroke-dashoffset="3.1" stroke-linecap="round" transform="rotate(-90 18 18)"/>
+            </svg>
+            <div class="ring-glyph" style="opacity:0.7">☾</div>
+          </div>
+          <div class="time">58m</div>
+        </div>
+      </div>
+
+      <div class="hero-footer">
+        <div class="stat">
+          <div class="big">6h 17<span class="unit">m</span></div>
+          <div class="small">Total this week</div>
+        </div>
+        <div class="stat">
+          <div class="big">53<span class="unit">m</span></div>
+          <div class="small">Avg daily</div>
+        </div>
+        <div class="footer-ring">
+          <svg viewBox="0 0 56 56">
+            <circle cx="28" cy="28" r="22" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="3"/>
+            <circle cx="28" cy="28" r="22" fill="none" stroke="var(--accent)" stroke-width="3"
+                    stroke-dasharray="138.2" stroke-dashoffset="59.4" stroke-linecap="round" transform="rotate(-90 28 28)"/>
+          </svg>
+          <div class="glyph">☾</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="ctrl-row">
+        <div class="ctrl-glyph">☾</div>
+        <div class="ctrl-text">
+          Focus mode
+          <div class="sub">Quiet pills + persistent indicator</div>
+        </div>
+        <div class="switch on"></div>
+      </div>
+      <div class="ctrl-row muted">
+        <div class="ctrl-glyph">🔕</div>
+        <div class="ctrl-text">
+          Auto-hide pills during Focus
+          <div class="sub">Suppress charging, AirDrop, Bluetooth, etc.</div>
+        </div>
+        <div class="switch on"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ────────── Same design, Study mode ────────── -->
+<div class="row single">
+  <div class="row-head">
+    <h2>Same composition, Study mode</h2>
+    <span class="meta">swap the icon, swap the goal copy, swap the accent — that's it</span>
+  </div>
+
+  <div class="slab">
+    <div class="slab-head">
+      <div class="slab-brand"><div class="o"></div>nox</div>
+      <div class="slab-tabs"><span class="active">live</span><span>notes</span><span>images</span><span>videos</span><span>files</span><span>script</span></div>
+      <div class="slab-actions"><span class="pill-btn">⌥</span><span class="pill-btn">Space</span><span class="pill-btn">⚙︎</span></div>
+    </div>
+    <div class="back-row" style="color:var(--book)">‹&nbsp;Live</div>
+
+    <div class="hero-card study">
+      <div class="hero-head">
+        <div class="icon-tile">📖</div>
+        <div class="hero-text">
+          <div class="goal-title">Study at least 90 min today</div>
+          <div class="goal-sub">Last 7 days</div>
+          <div class="goal-progress">Weekly progress: <strong>3 of 7 goals</strong> completed (43%)</div>
+        </div>
+        <div class="more-btn">⋯</div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="day-strip">
+        <div class="day miss">
+          <div class="label">Sun</div>
+          <div class="ring">
+            <svg viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2.5"/>
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(244,192,96,0.45)" stroke-width="2.5"
+                      stroke-dasharray="94.2" stroke-dashoffset="55.4" stroke-linecap="round" transform="rotate(-90 18 18)"/>
+            </svg>
+            <div class="ring-glyph" style="opacity:0.5">📖</div>
+          </div>
+          <div class="time">36m</div>
+        </div>
+        <div class="day">
+          <div class="label">Mon</div>
+          <div class="ring">
+            <svg viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2.5"/>
+              <circle cx="18" cy="18" r="15" fill="none" stroke="var(--book)" stroke-width="2.5"
+                      stroke-dasharray="94.2" stroke-dashoffset="0" stroke-linecap="round" transform="rotate(-90 18 18)"/>
+            </svg>
+            <div class="ring-glyph" style="color:var(--book)">📖</div>
+          </div>
+          <div class="time" style="color:white;font-weight:600">2h 5m</div>
+        </div>
+        <div class="day">
+          <div class="label">Tue</div>
+          <div class="ring">
+            <svg viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2.5"/>
+              <circle cx="18" cy="18" r="15" fill="none" stroke="var(--book)" stroke-width="2.5"
+                      stroke-dasharray="94.2" stroke-dashoffset="0" stroke-linecap="round" transform="rotate(-90 18 18)"/>
+            </svg>
+            <div class="ring-glyph" style="color:var(--book)">📖</div>
+          </div>
+          <div class="time" style="color:white;font-weight:600">1h 38m</div>
+        </div>
+        <div class="day miss">
+          <div class="label">Wed</div>
+          <div class="ring">
+            <svg viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2.5"/>
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(244,192,96,0.45)" stroke-width="2.5"
+                      stroke-dasharray="94.2" stroke-dashoffset="65.9" stroke-linecap="round" transform="rotate(-90 18 18)"/>
+            </svg>
+            <div class="ring-glyph" style="opacity:0.5">📖</div>
+          </div>
+          <div class="time">28m</div>
+        </div>
+        <div class="day today">
+          <div class="label">Thu</div>
+          <div class="ring">
+            <svg viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2.5"/>
+              <circle cx="18" cy="18" r="15" fill="none" stroke="var(--book)" stroke-width="2.5"
+                      stroke-dasharray="94.2" stroke-dashoffset="0" stroke-linecap="round" transform="rotate(-90 18 18)"/>
+            </svg>
+            <div class="ring-glyph" style="color:var(--book)">📖</div>
+          </div>
+          <div class="time">1h 32m</div>
+        </div>
+        <div class="day miss">
+          <div class="label">Fri</div>
+          <div class="ring">
+            <svg viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2.5"/>
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(244,192,96,0.55)" stroke-width="2.5"
+                      stroke-dasharray="94.2" stroke-dashoffset="48.0" stroke-linecap="round" transform="rotate(-90 18 18)"/>
+            </svg>
+            <div class="ring-glyph" style="opacity:0.55">📖</div>
+          </div>
+          <div class="time">44m</div>
+        </div>
+        <div class="day miss">
+          <div class="label">Sat</div>
+          <div class="ring">
+            <svg viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2.5"/>
+              <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(244,192,96,0.45)" stroke-width="2.5"
+                      stroke-dasharray="94.2" stroke-dashoffset="62.8" stroke-linecap="round" transform="rotate(-90 18 18)"/>
+            </svg>
+            <div class="ring-glyph" style="opacity:0.5">📖</div>
+          </div>
+          <div class="time">30m</div>
+        </div>
+      </div>
+
+      <div class="hero-footer">
+        <div class="stat">
+          <div class="big">7h 53<span class="unit">m</span></div>
+          <div class="small">Total this week</div>
+        </div>
+        <div class="stat">
+          <div class="big">1h 7<span class="unit">m</span></div>
+          <div class="small">Avg daily</div>
+        </div>
+        <div class="footer-ring">
+          <svg viewBox="0 0 56 56">
+            <circle cx="28" cy="28" r="22" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="3"/>
+            <circle cx="28" cy="28" r="22" fill="none" stroke="var(--book)" stroke-width="3"
+                    stroke-dasharray="138.2" stroke-dashoffset="84.5" stroke-linecap="round" transform="rotate(-90 28 28)"/>
+          </svg>
+          <div class="glyph">📖</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls study-controls">
+      <div class="ctrl-row">
+        <div class="ctrl-glyph" style="background:var(--book-soft);color:var(--book)">📖</div>
+        <div class="ctrl-text">
+          Study mode
+          <div class="sub">Persistent indicator + session tracking</div>
+        </div>
+        <div class="switch on"></div>
+      </div>
+      <div class="ctrl-row">
+        <div class="ctrl-glyph" style="background:var(--book-soft);color:var(--book)">🎯</div>
+        <div class="ctrl-text">
+          Daily goal
+          <div class="sub">90 min today · tap to change</div>
+        </div>
+        <div style="color:var(--book);font-size:13px;font-weight:600">90m ›</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ────────── Notes ────────── -->
+<div class="notes">
+  <h3>What's different from the current panel</h3>
+  <ul>
+    <li><b>One card, not four.</b> The hero / today-tile / week-tile / controls stack collapses into a single composed card. Less visual fragmentation, more breathing room around what matters.</li>
+    <li><b>Goal-first framing.</b> "<i>Focus at least 60 min today</i>" gives every number on the card a purpose. Without a goal, "23 min today" is just a number — with one, it's progress toward something.</li>
+    <li><b>Per-day rings replace the bar sparkline.</b> Each ring fills proportionally to how close that day was to the goal. Filled = hit. Partial = progress. Empty = miss. Reads at-a-glance the way the bar chart never did.</li>
+    <li><b>Today is pill-highlighted.</b> Subtle border + brighter accent on the time. Eye lands on "Thu" without scanning.</li>
+    <li><b>Footer aggregates instead of repeating.</b> Total this week + Avg daily + a hero ring artwork = three pieces of info, no competing focal points.</li>
+    <li><b>Controls drop to a thin strip below.</b> The toggles aren't the headline — the data is. Toggles get smaller iconographic rows so they read as utility, not main content.</li>
+    <li><b>"Daily goal" becomes a tappable row.</b> Currently we hardcode 60 min. Letting the user set their own goal makes the rings personal, not arbitrary.</li>
+  </ul>
+</div>
+
+</body>
+</html>

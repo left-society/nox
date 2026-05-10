@@ -122,10 +122,14 @@ final class PanelWindowController {
     /// bottom. 360pt restores comfortable headroom.
     static let innerPanelHeightMusic: CGFloat = 360
 
-    /// Inner slab height for a given active tab. Single source of truth
-    /// for the per-tab sizing — `openSlabFrame(for:tab:)` uses it on
-    /// open, and `handleActiveTabChange(to:)` uses it to animate the
-    /// resize when the user switches tabs while the panel is open.
+    /// Inner slab height for a given active tab. Single source of
+    /// truth for the per-tab sizing — `openSlabFrame(for:tab:)` uses
+    /// it on open, and `handleActiveTabChange(to:)` uses it to
+    /// animate the resize when the user switches tabs while the
+    /// panel is open. Per-tab overrides only — drill-in detail
+    /// panels (Focus / Study dashboards) must fit inside the host
+    /// tab's height; growing the slab on drill-in was rejected by
+    /// the user 2026-05-09 ("you are expanding the wrong thing").
     static func innerPanelHeight(for tab: PanelTab) -> CGFloat {
         switch tab {
         case .music: return innerPanelHeightMusic
@@ -719,11 +723,23 @@ final class PanelWindowController {
                 guard let presenter, let environment else { return }
                 switch candidate {
                 case .localFile(let url):
+                    // Local file drops save directly — no download
+                    // step needed since we already have the bytes.
                     _ = try? environment.videoStore.saveLocalFile(url)
+                    presenter.activeTab = .videos
                 case .remoteURL(let s):
-                    _ = environment.videoStore.startDownload(url: s)
+                    // 2026-05-09: drag-and-drop of a remote video URL
+                    // used to auto-start the download here. User has
+                    // been explicit on this point ("It's still auto
+                    // downloading some stuffs" — they want zero
+                    // surprise downloads). Surface the pending-video
+                    // pill instead so the user gets a Download button
+                    // they have to tap explicitly. Same UX as ⌘V on
+                    // the Videos tab and the ⌥⌘V hotkey.
+                    if let url = URL(string: s) {
+                        presenter.setPendingVideo(url)
+                    }
                 }
-                presenter.activeTab = .videos
             },
             onImage: { [weak presenter, weak environment] data, mime in
                 guard let presenter, let environment else { return }
@@ -886,6 +902,7 @@ final class PanelWindowController {
             .sink { [weak self] newTab in
                 self?.handleActiveTabChange(to: newTab)
             }
+
 
         // 2026-05-04 (user feedback: "the end point seems lower
         // in pt"): shadow opacity fade is now decoupled from the
@@ -2267,11 +2284,15 @@ final class PanelWindowController {
             presenter.activeTab = .images
         case .videos(let url):
             if url.isFileURL {
+                // Local file → save directly (we have the bytes).
                 _ = try? environment.videoStore.saveLocalFile(url)
+                presenter.activeTab = .videos
             } else {
-                _ = environment.videoStore.startDownload(url: url.absoluteString)
+                // Remote URL → surface pending-video pill, don't
+                // auto-download. Matches the user's explicit
+                // "nothing downloads without a tap" rule.
+                presenter.setPendingVideo(url)
             }
-            presenter.activeTab = .videos
         case .files(let urls):
             environment.fileStore.stage(urls: urls)
             presenter.activeTab = .files

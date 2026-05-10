@@ -161,6 +161,20 @@ enum SettingsKey {
     /// Honored by `DictationRecorder.preferredInputDevice()`.
     static let dictationInputDeviceUID = "dictationInputDeviceUID"
 
+    /// User's daily Focus minute goal. Drives the per-day rings on
+    /// the Focus dashboard's hero card (each ring fills toward
+    /// this value) and the "X of 7 goals completed" weekly framing.
+    /// Default 60 — a reasonable single-pomodoro-plus session most
+    /// users can hit on a working day. Tappable to change from the
+    /// dashboard's "Daily goal" row.
+    static let dailyFocusGoalMinutes = "dailyFocusGoalMinutes"
+
+    /// User's daily Study minute goal. Sibling to the Focus goal;
+    /// default 90 since study sessions tend to be longer-form
+    /// (reading, problem sets, deep learning) than the
+    /// fragmented-deep-work cadence Focus mode targets.
+    static let dailyStudyGoalMinutes = "dailyStudyGoalMinutes"
+
     /// Calendar source preference for the Live → calendar pane.
     /// String values: `"apple"` (default — show all events from
     /// EventKit, the same set Apple Calendar.app shows) or

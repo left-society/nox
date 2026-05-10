@@ -6,6 +6,16 @@ final class PanelPresenter: ObservableObject {
     @Published var isShown: Bool = false
     @Published var activeTab: PanelTab = .notes
 
+    /// True while the user has drilled into a Live-tab detail panel
+    /// (Focus dashboard, Study dashboard, future Battery / Weather).
+    /// MusicPanelView writes this whenever its `expandedLivePanel`
+    /// state flips. PanelWindowController observes via Combine sink
+    /// and grows the slab from default 480pt → 580pt so the
+    /// composed hero card + ring strip + footer + controls strip
+    /// fit without clipping. Returns false (and shrinks the slab)
+    /// when the user backs out to the Live home view.
+    @Published var liveDetailExpanded: Bool = false
+
     /// Progress 0–1 during a two-finger trackpad close-swipe.
     /// Driven by PanelWindowController's gesture handler. SwiftUI
     /// views read this to apply progressive blur, scale, and tint

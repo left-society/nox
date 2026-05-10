@@ -2010,11 +2010,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Focus, leaving the user blind to song changes.
                 // Banner now fires regardless of Focus.
                 let predictedTrackKey = "\(info.title)|\(info.artist)"
+                // Defense in depth — even if real MediaRemote
+                // somehow publishes a now-playing event for a known
+                // utility app (Discord, Slack, Teams, Zoom, etc.),
+                // never fire a track-change banner for it. Pairs
+                // with `SystemAudioWatcher.isUtilityAudioSource`
+                // which filters at the synthetic-publish layer; this
+                // catches the path where MR itself emits.
+                let isUtility = info.sourceBundleID
+                    .map { SystemAudioWatcher.isUtilityAudioSource($0) }
+                    ?? false
                 let willFireBanner = !info.title.isEmpty
                     && predictedTrackKey != lastAnnouncedTrackKey
                     && info.isPlaying
                     && panel.presenter.isResting
                     && !panel.presenter.isShown
+                    && !isUtility
                 if willFireBanner {
                     panel.presenter.trackChangedFiring = true
                     // Capture the OLD artwork BEFORE updating nowPlaying.

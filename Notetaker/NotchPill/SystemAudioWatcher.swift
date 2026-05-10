@@ -218,6 +218,27 @@ final class SystemAudioWatcher {
 
         let app = chosen.1
         let bundleID = app.bundleIdentifier ?? "unknown"
+
+        // Communication / utility apps that produce frequent short
+        // audio (notification chimes, voice-call ducks, ringtones)
+        // should NOT be published as a now-playing source. Without
+        // this filter, every Discord ping / Slack notification fires
+        // a track-change banner with "Discord Helper (Renderer)" as
+        // the title — confusing and noisy. User report 2026-05-09:
+        // "it's still getting that discord render helper notifications
+        // in it." Real music apps (Spotify, Apple Music, browsers
+        // playing actual content) bypass this filter.
+        if Self.isUtilityAudioSource(bundleID) {
+            // Treat as if no audio was flowing for the now-playing
+            // pipeline. Clear last-published so subsequent legitimate
+            // emissions still register as fresh.
+            if lastPublishedBundleID != nil {
+                lastPublishedBundleID = nil
+                onChange?(nil)
+            }
+            return
+        }
+
         if bundleID == lastPublishedBundleID {
             // Same app, no change. Skip publish to avoid view churn.
             return
@@ -240,6 +261,40 @@ final class SystemAudioWatcher {
             infoTimestamp: Date()
         )
         onChange?(info)
+    }
+
+    /// Bundle IDs of apps whose audio is almost always notification
+    /// chimes, voice-call ducks, or other transient noise — never
+    /// "music" the user wants to see in a now-playing pill. Adding
+    /// to this list is one-way: filtering an app here means it'll
+    /// never trigger a track-change banner OR show as the now-playing
+    /// source from CoreAudio synthesis. Real music streamed from any
+    /// of these (rare — e.g. Discord screen-share with audio) would
+    /// be silently filtered out, which is the right tradeoff.
+    static func isUtilityAudioSource(_ bundleID: String) -> Bool {
+        let denylist: Set<String> = [
+            // Discord — main app + helper variants. macOS aggregates
+            // the helper process under the parent bundle ID via
+            // `bundleIDForPID`'s parent-walk, so the canonical ID is
+            // what shows up here. Listed both forms defensively.
+            "com.hnc.Discord",
+            "com.hnc.Discord.helper",
+            "com.hnc.Discord.helper.Renderer",
+            // Slack — message ping audio, voice-call join chimes.
+            "com.tinyspeck.slackmacgap",
+            // Microsoft Teams — desktop client + new web-app variant.
+            "com.microsoft.teams",
+            "com.microsoft.teams2",
+            // Zoom — meeting-join chimes, mute-toggle clicks.
+            "us.zoom.xos",
+            // WhatsApp — message ping audio.
+            "net.whatsapp.WhatsApp",
+            "WhatsApp",
+            // Telegram — message + call sounds.
+            "ru.keepcoder.Telegram",
+            "org.telegram.desktop"
+        ]
+        return denylist.contains(bundleID)
     }
 
     // MARK: - CoreAudio enumeration

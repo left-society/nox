@@ -465,7 +465,12 @@ struct MusicPanelView: View {
             // Focus on.
             statusPill(
                 label: "Focus",
-                systemImage: liveFocusPillActive ? "moon.fill" : "moon",
+                // Bolt instead of moon — keeps the lock-in motif
+                // consistent across the Live status row, the
+                // dashboard hero, and the controls toggle. Moon
+                // implied DND/quiet (passive); bolt implies energy
+                // / actively engaged (the actual Focus mood).
+                systemImage: liveFocusPillActive ? "bolt.fill" : "bolt",
                 isActive: liveFocusPillActive,
                 onToggle: {
                     withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
@@ -492,7 +497,12 @@ struct MusicPanelView: View {
             // toggle path.
             statusPill(
                 label: "Study",
-                systemImage: noxStudyMode ? "book.closed.fill" : "book.closed",
+                // Lightbulb instead of book — same lock-in motif
+                // shift Focus got. The book glyph read as static
+                // ("a book on a shelf"); lightbulb reads as
+                // "actively learning right now," which is what
+                // Study mode actually means in nox.
+                systemImage: noxStudyMode ? "lightbulb.fill" : "lightbulb",
                 isActive: noxStudyMode,
                 onToggle: {
                     withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
@@ -2454,6 +2464,167 @@ private struct MusicControlButton: View {
 /// from INFocusStatusCenter): active Focus name (Personal / Work),
 /// timestamp Focus turned on, voice-transcription suppression
 /// toggle.
+
+/// Single day cell in the redesigned hero card's 7-day ring strip.
+/// Composes a label + a ring (filled proportional to progress) +
+/// the day's minute count. Shared between the Focus and Study
+/// dashboards — the only difference is the accent color and glyph
+/// passed in by the parent.
+///
+/// Visual states:
+///   • progress >= 1 → ring fully filled with `accent` at full
+///     opacity, glyph + time both colored. Reads as "goal hit."
+///   • 0 < progress < 1 → ring partially filled with `accent` at
+///     50% opacity, glyph dimmed. Reads as "in progress / missed."
+///   • progress == 0 → ring is just the muted track, glyph at low
+///     opacity. Reads as "no activity."
+///   • isToday → label gets a pill border + brighter text. Today is
+///     always the rightmost cell so the eye lands there naturally.
+/// Stepper button that supports macOS-style press-and-hold ramping.
+/// Single tap fires `apply(1)` — increments cleanly through 1, 2,
+/// 3, 4, 5… so the user can dial in an exact value. Press-and-hold
+/// kicks in after a 350 ms grace period: starts auto-firing
+/// `apply(5)` every 80 ms so the value scrubs quickly through long
+/// distances without endless tapping. Release at any point cancels.
+///
+/// User report 2026-05-09: "Timer is not counting from 1-2-3-4-5,
+/// it's counting from 1-6-11 like this. So can we do it like when
+/// a user is pressing on this continuously it can go quick like 5
+/// at a time but when user is only clicking it will grow number by
+/// 1?" — exactly this two-mode behavior.
+private struct PressAndHoldStepper: View {
+    let systemImage: String
+    /// Caller does the math + clamping. Receives a positive
+    /// magnitude (1 for tap, 5 for held-repeat); apply the sign
+    /// inside the closure for minus vs plus.
+    let apply: (Int) -> Void
+
+    @State private var isPressed = false
+    @State private var didFireTap = false
+    @State private var repeatTask: Task<Void, Never>?
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 9, weight: .heavy))
+            .foregroundStyle(.white.opacity(isPressed ? 1.0 : 0.78))
+            .frame(width: 22, height: 22)
+            .contentShape(Rectangle())
+            .scaleEffect(isPressed ? 0.92 : 1.0)
+            .animation(.easeOut(duration: 0.10), value: isPressed)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        guard !isPressed else { return }
+                        isPressed = true
+                        didFireTap = true
+                        // Initial tap fires +1 immediately so a
+                        // single click feels responsive.
+                        apply(1)
+                        // After a short grace period, escalate to
+                        // fast-repeat mode firing +5 every 80 ms.
+                        // 350 ms is the sweet spot — long enough
+                        // that an intentional tap doesn't trigger
+                        // the ramp, short enough that holding
+                        // doesn't feel sluggish.
+                        repeatTask = Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 350_000_000)
+                            while !Task.isCancelled {
+                                apply(5)
+                                try? await Task.sleep(nanoseconds: 80_000_000)
+                            }
+                        }
+                    }
+                    .onEnded { _ in
+                        isPressed = false
+                        didFireTap = false
+                        repeatTask?.cancel()
+                        repeatTask = nil
+                    }
+            )
+    }
+}
+
+private struct GoalRingDay: View {
+    let label: String
+    let minutes: Int
+    let progress: Double
+    let isToday: Bool
+    let accent: Color
+    let glyph: String
+
+    private var hit: Bool { progress >= 1.0 }
+    private var hasActivity: Bool { progress > 0 }
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Text(label)
+                .font(.system(size: 10, weight: isToday ? .semibold : .medium))
+                .foregroundStyle(isToday ? .white : .white.opacity(0.55))
+                // 2026-05-09: lineLimit(1) + minimumScaleFactor +
+                // tightened horizontal padding (6 → 3). The goal
+                // hero card column gets ~38–42pt per day at the
+                // current panel width; 3-letter labels like "Mon"
+                // / "Wed" used to wrap onto two lines ("Mo / n",
+                // "We / d") with the looser 6pt padding because
+                // text + 12pt total padding exceeded the available
+                // width. Hard cap to one line + slight scale-down
+                // headroom keeps every day legible without breaking.
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 3)
+                .padding(.vertical, 1)
+                .background(
+                    isToday
+                    ? AnyView(
+                        Capsule()
+                            .strokeBorder(.white.opacity(0.18), lineWidth: 0.5)
+                            .background(Capsule().fill(.white.opacity(0.04)))
+                    )
+                    : AnyView(EmptyView())
+                )
+
+            ZStack {
+                Circle()
+                    .stroke(.white.opacity(0.10), lineWidth: 2.2)
+                Circle()
+                    .trim(from: 0, to: max(0.001, progress))
+                    .stroke(
+                        accent.opacity(hit ? 1.0 : (hasActivity ? 0.55 : 0.0)),
+                        style: StrokeStyle(lineWidth: 2.2, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                Image(systemName: glyph)
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(
+                        accent.opacity(hit ? 1.0 : (hasActivity ? 0.55 : 0.40))
+                    )
+            }
+            .frame(width: 26, height: 26)
+
+            Text(timeLabel)
+                .font(.system(size: 9.5, weight: hit ? .semibold : .medium))
+                .foregroundStyle(timeColor)
+                .monospacedDigit()
+        }
+    }
+
+    private var timeColor: Color {
+        if isToday { return accent }
+        if hit { return .white }
+        if hasActivity { return .white.opacity(0.55) }
+        return .white.opacity(0.30)
+    }
+
+    private var timeLabel: String {
+        if minutes < 60 { return "\(minutes)m" }
+        let h = minutes / 60
+        let m = minutes % 60
+        if m == 0 { return "\(h)h" }
+        return "\(h)h \(m)m"
+    }
+}
+
 struct LiveFocusDetailPanel: View {
     @EnvironmentObject var presenter: PanelPresenter
     @AppStorage(SettingsKey.respectFocusMode) private var respectFocusMode: Bool = true
@@ -2515,17 +2686,209 @@ struct LiveFocusDetailPanel: View {
         //
         // Outer spacing 8pt — back to the pre-timer rhythm now
         // that we're not packing in a fourth row.
-        VStack(alignment: .leading, spacing: 8) {
+        // 2026-05-09 redesign — RiseUp-inspired single composed card
+        // for the goal hero, plus a dedicated Pomodoro timer strip
+        // below it (preset chips → countdown ring when running),
+        // plus a single-row controls strip at the bottom.
+        // Mockup: docs/focus-redesign-riseup.html.
+        // 2026-05-09 layout — two-column composition. Goal hero card
+        // takes the left ~60%, timer + controls stack on the right
+        // ~40%. User direction: "focus the whole thing can be a bit
+        // more smaller so right side have place and in that place we
+        // can put timer section horizontally — and underit the rest."
+        // Saves vertical room (no third stacked card) so the panel
+        // fits comfortably in the regular Live slab without growing.
+        VStack(alignment: .leading, spacing: 6) {
             backRow
-            heroCard
-            statsGrid
-            controlsCard
+            HStack(alignment: .top, spacing: 8) {
+                goalHeroCard
+                    .layoutPriority(2)
+                VStack(spacing: 6) {
+                    timerStrip
+                    controlsStrip
+                    Spacer(minLength: 0)
+                }
+                // 2026-05-09 width fix: 180 → 220. Old width forced
+                // the timer chip row to wrap onto two lines (15m/25m
+                // top, 45m/90m/+ bottom) which read as "broken
+                // layout." 220pt fits the full row: ⏱ Timer prefix
+                // (~55pt) + 4 chips × ~30pt + 4 gaps × 6pt + "+"
+                // (~28pt) ≈ 235pt minus internal card padding.
+                .frame(width: 220)
+            }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, DS.Spacing.md)
-        .padding(.top, 4)
-        .padding(.bottom, 10)
+        .padding(.top, 2)
+        .padding(.bottom, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Pomodoro timer strip — sits in the right column above the
+    /// controls strip. Three
+    /// states driven by `focusTimer.state`:
+    ///   • idle → preset chips (15 / 25 / 45 / 90 min) + custom-
+    ///     duration "+" button. Tap a chip to start a Pomodoro at
+    ///     that length; tap "+" to expand into a stepper editor.
+    ///   • running / paused → compact countdown row (mini ring +
+    ///     remaining time + pause/resume + stop).
+    ///   • expired → restart prompt + Done.
+    /// Reuses the existing `customTimerExpanded`, `commitCustomTimer`,
+    /// `durationChip`, `customTimerEditor`, and `focusTimer.*`
+    /// helpers that were previously embedded inside the hero card.
+    @ViewBuilder
+    private var timerStrip: some View {
+        TimelineView(.periodic(from: .now, by: 1.0)) { context in
+            timerStripContent(now: context.date)
+        }
+    }
+
+    @ViewBuilder
+    private func timerStripContent(now: Date) -> some View {
+        let state = focusTimer.state
+        Group {
+            switch state {
+            case .idle:
+                timerIdleRow
+            case .running, .paused:
+                timerRunningRow(now: now, paused: state == .paused)
+            case .expired:
+                timerExpiredRow
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(.white.opacity(0.07), lineWidth: 0.6)
+        )
+        .animation(.spring(response: 0.34, dampingFraction: 0.78), value: state)
+    }
+
+    /// Idle state — chip strip wrapped to 2 rows for the narrow
+    /// right column. Top row: label + 15/25 chips. Bottom row:
+    /// 45/90 chips + custom `+` button. When the user taps `+` the
+    /// whole strip morphs to the custom-duration editor.
+    private var timerIdleRow: some View {
+        if customTimerExpanded {
+            AnyView(customTimerEditor)
+        } else {
+            AnyView(
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "timer")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(DS.Color.accent.opacity(0.85))
+                        Text("Timer")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.78))
+                        Spacer(minLength: 0)
+                        durationChip(minutes: 15)
+                        durationChip(minutes: 25)
+                    }
+                    HStack(spacing: 5) {
+                        Spacer(minLength: 0)
+                        durationChip(minutes: 45)
+                        durationChip(minutes: 90)
+                        customExpandChip
+                    }
+                }
+            )
+        }
+    }
+
+    /// Running / paused state — compact countdown row. Smaller than
+    /// the original hero version (32pt ring vs 56pt) so it fits in
+    /// a single strip without competing with the goal card above.
+    private func timerRunningRow(now: Date, paused: Bool) -> some View {
+        let remaining = focusTimer.remaining(now: now)
+        let progress = focusTimer.progress(now: now)
+        return HStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .stroke(.white.opacity(0.08), lineWidth: 2.5)
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(
+                        DS.Color.accent.opacity(paused ? 0.45 : 0.95),
+                        style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .animation(.linear(duration: 0.5), value: progress)
+                Image(systemName: paused ? "pause.fill" : "timer")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(paused ? .white.opacity(0.55) : DS.Color.accent)
+            }
+            .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text(paused ? "PAUSED" : "FOCUS ON")
+                    .font(.system(size: 8.5, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundStyle(paused ? .yellow.opacity(0.85) : DS.Color.accent)
+                Text(formatCountdown(remaining))
+                    .font(.system(size: 14, weight: .bold).monospacedDigit())
+                    .foregroundStyle(paused ? .white.opacity(0.55) : .white)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                if paused { focusTimer.resume() }
+                else { focusTimer.pause() }
+            } label: {
+                Image(systemName: paused ? "play.fill" : "pause.fill")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(DS.Color.accent.opacity(0.55)))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(paused ? "Resume timer" : "Pause timer")
+
+            Button {
+                focusTimer.stop()
+            } label: {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(.white.opacity(0.08)))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Stop timer")
+        }
+    }
+
+    /// Expired state — celebration + ack. Tapping the chip resets
+    /// the timer to .idle and the strip flips back to the chip row
+    /// so the user can start another.
+    private var timerExpiredRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(DS.Color.accent)
+            Text("Session done")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+            Spacer(minLength: 0)
+            Button {
+                focusTimer.acknowledge()
+            } label: {
+                Text("Done")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(DS.Color.accent.opacity(0.45)))
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     /// Opens System Settings → Focus pane via the public URL scheme.
@@ -2564,6 +2927,277 @@ struct LiveFocusDetailPanel: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Back to Live")
+    }
+
+    // MARK: - Goal hero card (RiseUp redesign)
+
+    /// User-configurable daily Focus goal. Default 60 min — stored
+    /// in `SettingsKey.dailyFocusGoalMinutes`. Tappable from the
+    /// "Daily goal" controls row to change. Drives the per-day
+    /// rings (each fills `dayMinutes / goal`) and the "X of 7
+    /// goals completed" subtext.
+    @AppStorage(SettingsKey.dailyFocusGoalMinutes) private var dailyFocusGoal: Int = 60
+
+    /// Single composed hero card holding the goal headline, weekly
+    /// progress, the 7-day ring strip, and aggregate footer. One
+    /// card → one focal point, vs the old four-card stack that had
+    /// the user's eye bouncing between disconnected stat tiles.
+    private var goalHeroCard: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            goalHeroContent(now: context.date)
+        }
+    }
+
+    @ViewBuilder
+    private func goalHeroContent(now: Date) -> some View {
+        let goal = max(5, dailyFocusGoal)
+        let goalsHit = tracker.goalsCompletedThisWeek(goal: goal, now: now)
+        let goalsPct = Int((Double(goalsHit) / 7.0 * 100).rounded())
+        let weekTotal = tracker.totalMinutesThisWeek(now: now)
+        let weekAvg = weekTotal / 7
+        // Avg-vs-goal ratio for the footer ring artwork. Caps at 1
+        // so a power week doesn't render an overflowed ring.
+        let avgVsGoal = min(1.0, Double(weekAvg) / Double(goal))
+
+        VStack(alignment: .leading, spacing: 0) {
+            // ── Header: icon + goal copy + weekly progress ────────
+            HStack(alignment: .top, spacing: 12) {
+                // 2026-05-09 icon swap: was a static moon SF Symbol
+                // ("Focus" mode used to read as "quiet/sleep" via
+                // moon iconography). User feedback on the redesign:
+                // "since it's for lock in, why does the logo look
+                // like this?" Reusing the existing animated
+                // `FocusWorkingHero` (anime character at a laptop,
+                // head bob + typing motion) — already on-brand for
+                // the "locked in / actively focused" state. Animation
+                // pauses + dims when Focus is OFF.
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(DS.Color.accent.opacity(isInFocusState ? 0.22 : 0.14))
+                    FocusWorkingHero(active: isInFocusState)
+                        .frame(width: 26, height: 26)
+                }
+                .frame(width: 32, height: 32)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Focus at least \(goal) min today")
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    HStack(spacing: 0) {
+                        Text("\(goalsHit) of 7 goals")
+                            .foregroundStyle(.white)
+                            .fontWeight(.semibold)
+                        Text(" this week (\(goalsPct)%)")
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
+                    .font(.system(size: 10.5))
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.bottom, 10)
+
+            Rectangle()
+                .fill(.white.opacity(0.06))
+                .frame(height: 0.5)
+                .padding(.bottom, 6)
+
+            // ── 7-day ring strip ─────────────────────────────────
+            HStack(spacing: 4) {
+                ForEach(0..<7, id: \.self) { i in
+                    let daysAgo = 6 - i
+                    let isToday = daysAgo == 0
+                    let mins = tracker.dayMinutes(daysAgo: daysAgo, now: now)
+                    let progress = min(1.0, Double(mins) / Double(goal))
+                    GoalRingDay(
+                        label: dayLabel(daysAgo: daysAgo, now: now),
+                        minutes: mins,
+                        progress: progress,
+                        isToday: isToday,
+                        accent: DS.Color.accent,
+                        // Bolt = "energy / locked in" feel. Moon
+                        // read as "DND / quiet" which conflicted
+                        // with Focus's actual intent (deep work,
+                        // user is actively engaged). Bolt also
+                        // intensifies as the ring fills — reads as
+                        // "this day's session was charged."
+                        glyph: "bolt.fill"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+            }
+
+            // ── Footer: total / avg / hero ring ──────────────────
+            Rectangle()
+                .fill(.white.opacity(0.06))
+                .frame(height: 0.5)
+                .padding(.top, 6)
+                .padding(.bottom, 6)
+
+            HStack(spacing: 10) {
+                footerStat(big: formatMinutesShort(weekTotal), small: "Total this week")
+                Rectangle()
+                    .fill(.white.opacity(0.08))
+                    .frame(width: 0.5, height: 26)
+                footerStat(big: formatMinutesShort(weekAvg), small: "Avg daily")
+                Spacer(minLength: 4)
+                ZStack {
+                    Circle()
+                        .stroke(.white.opacity(0.10), lineWidth: 2.5)
+                    Circle()
+                        .trim(from: 0, to: avgVsGoal)
+                        .stroke(DS.Color.accent,
+                                style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(DS.Color.accent)
+                }
+                .frame(width: 36, height: 36)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            DS.Color.accent.opacity(isInFocusState ? 0.16 : 0.08),
+                            DS.Color.accent.opacity(0.02)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(
+                    DS.Color.accent.opacity(isInFocusState ? 0.26 : 0.10),
+                    lineWidth: 0.6
+                )
+        )
+        .animation(.spring(response: 0.34, dampingFraction: 0.78),
+                   value: isInFocusState)
+    }
+
+    /// Compact "Total / Avg" cell used in the hero footer.
+    private func footerStat(big: String, small: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(big)
+                .font(.system(size: 16, weight: .bold).monospacedDigit())
+                .foregroundStyle(.white)
+            Text(small)
+                .font(.system(size: 9.5))
+                .foregroundStyle(.white.opacity(0.45))
+        }
+    }
+
+    /// Two-character day-of-week label ("Sun", "Mon", ...) for a
+    /// given offset from `now`. Uses the user's current calendar so
+    /// the week boundary respects locale settings.
+    private func dayLabel(daysAgo: Int, now: Date) -> String {
+        let cal = Calendar.current
+        guard let d = cal.date(byAdding: .day, value: -daysAgo, to: now) else {
+            return ""
+        }
+        let f = DateFormatter()
+        f.dateFormat = "EEE"
+        return f.string(from: d)
+    }
+
+    /// Compact human-readable minutes — "53m", "2h 5m", "12h 4m".
+    /// Used in both the per-day time labels and the footer
+    /// aggregates so the visual rhythm stays consistent.
+    private func formatMinutesShort(_ minutes: Int) -> String {
+        if minutes < 60 { return "\(minutes)m" }
+        let h = minutes / 60
+        let m = minutes % 60
+        if m == 0 { return "\(h)h" }
+        return "\(h)h \(m)m"
+    }
+
+    /// Slim utility strip below the hero card — Focus mode toggle +
+    /// daily-goal stepper. Drops the previous full-height controls
+    /// card; toggles read as utility now, not main content.
+    /// Two-row controls strip sized for the narrow right column.
+    /// Row 1: Focus mode toggle (icon + label + switch). Row 2:
+    /// Daily-goal pill that cycles through preset minutes on tap.
+    /// Cycling through 15/30/60/90/120 updates the per-day rings
+    /// in real-time.
+    private var controlsStrip: some View {
+        VStack(spacing: 4) {
+            Button {
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                    noxFocusMode.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    // Bolt instead of moon — same lock-in motif
+                    // shift the ring glyphs got. The toggle reads
+                    // as "energy on / energy off" now, which is
+                    // the correct Focus mood vs. moon's "DND" feel.
+                    Image(systemName: isInFocusState ? "bolt.fill" : "bolt")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(isInFocusState
+                                         ? DS.Color.accent
+                                         : Color.white.opacity(0.55))
+                    Text("Focus")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(.white)
+                    Spacer(minLength: 0)
+                    Toggle("", isOn: Binding(
+                        get: { noxFocusMode },
+                        set: { newValue in
+                            withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                                noxFocusMode = newValue
+                            }
+                        }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .tint(DS.Color.accent)
+                    .scaleEffect(0.65)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                let steps = [15, 30, 60, 90, 120]
+                let current = max(5, dailyFocusGoal)
+                let nextIdx = (steps.firstIndex(where: { $0 > current }) ?? 0)
+                dailyFocusGoal = steps[nextIdx]
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "target")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.45))
+                    Text("Goal \(dailyFocusGoal)m")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(DS.Color.accent)
+                        .monospacedDigit()
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 2)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(.white.opacity(0.07), lineWidth: 0.6)
+        )
     }
 
     /// Live-running hero card — animated moon, "FOCUS ON" label,
@@ -2829,10 +3463,12 @@ struct LiveFocusDetailPanel: View {
                 .padding(.trailing, 2)
 
             // Stepper-style cluster: − [N] + with the number
-            // editable inline.
+            // editable inline. The −/+ buttons use
+            // PressAndHoldStepper: single tap = ±1, press-and-hold
+            // ramps to ±5 every 80 ms after a 350 ms grace.
             HStack(spacing: 0) {
-                stepperButton(systemImage: "minus") {
-                    customTimerMinutes = max(1, customTimerMinutes - 5)
+                PressAndHoldStepper(systemImage: "minus") { delta in
+                    customTimerMinutes = max(1, customTimerMinutes - delta)
                 }
 
                 TextField("", value: Binding(
@@ -2846,8 +3482,8 @@ struct LiveFocusDetailPanel: View {
                 .frame(width: 30)
                 .onSubmit { commitCustomTimer() }
 
-                stepperButton(systemImage: "plus") {
-                    customTimerMinutes = min(300, customTimerMinutes + 5)
+                PressAndHoldStepper(systemImage: "plus") { delta in
+                    customTimerMinutes = min(300, customTimerMinutes + delta)
                 }
             }
             .padding(.horizontal, 2)
@@ -3462,17 +4098,459 @@ struct LiveStudyDetailPanel: View {
     let onBack: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        // 2026-05-09 redesign — same two-column composition as the
+        // Focus dashboard. Goal hero on the left, controls stacked
+        // on the right. Study doesn't currently have a Pomodoro
+        // timer (the SessionTimerService.study exists but no UI
+        // surfaces it yet) so the right column is just the
+        // controls strip; if/when we add a Study timer it slots
+        // right in above controlsStrip with the same shape Focus uses.
+        VStack(alignment: .leading, spacing: 6) {
             backRow
-            heroCard
-            statsGrid
-            controlsCard
+            HStack(alignment: .top, spacing: 8) {
+                goalHeroCard
+                    .layoutPriority(2)
+                VStack(spacing: 6) {
+                    // 2026-05-09: Study now has the same Pomodoro
+                    // timer strip Focus does — driven by
+                    // `SessionTimerService.study` (its own
+                    // UserDefaults snapshot, separate from Focus's).
+                    // Sits above the controls strip in parity with
+                    // the Focus dashboard's right column.
+                    timerStrip
+                    controlsStrip
+                    Spacer(minLength: 0)
+                }
+                // Right-column width 180 → 220 to fit the timer
+                // chip row in one line (matches the Focus panel's
+                // sizing). Without the bump, the Timer prefix +
+                // four chips + custom button forced a two-line
+                // wrap that read as broken layout.
+                .frame(width: 220)
+            }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, DS.Spacing.md)
-        .padding(.top, 4)
-        .padding(.bottom, 10)
+        .padding(.top, 2)
+        .padding(.bottom, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    // MARK: - Goal hero card (RiseUp redesign)
+
+    /// User-configurable daily Study goal. Default 90 min — slightly
+    /// higher than Focus's 60 since study sessions tend to be longer-
+    /// form (reading, problem sets, deep learning) than the
+    /// fragmented-deep-work cadence Focus targets. Tappable from the
+    /// "Daily goal" row to cycle through 30/60/90/120/180.
+    @AppStorage(SettingsKey.dailyStudyGoalMinutes) private var dailyStudyGoal: Int = 90
+
+    private var goalHeroCard: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            goalHeroContent(now: context.date)
+        }
+    }
+
+    @ViewBuilder
+    private func goalHeroContent(now: Date) -> some View {
+        let goal = max(5, dailyStudyGoal)
+        let goalsHit = tracker.goalsCompletedThisWeek(goal: goal, now: now)
+        let goalsPct = Int((Double(goalsHit) / 7.0 * 100).rounded())
+        let weekTotal = tracker.totalMinutesThisWeek(now: now)
+        let weekAvg = weekTotal / 7
+        let avgVsGoal = min(1.0, Double(weekAvg) / Double(goal))
+
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                // 2026-05-09 icon swap (parity with Focus's
+                // FocusWorkingHero swap): the static book SF Symbol
+                // is replaced with the existing animated `StudyHero`
+                // illustration (breathing book + soft glow). Same
+                // character users see in the resting Study pill, so
+                // dashboard reads as continuous with the pill rather
+                // than a different icon set.
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(DS.Color.accent.opacity(noxStudyMode ? 0.22 : 0.14))
+                    StudyHero(active: noxStudyMode)
+                        .frame(width: 26, height: 26)
+                }
+                .frame(width: 32, height: 32)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Study at least \(goal) min today")
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    HStack(spacing: 0) {
+                        Text("\(goalsHit) of 7 goals")
+                            .foregroundStyle(.white)
+                            .fontWeight(.semibold)
+                        Text(" this week (\(goalsPct)%)")
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
+                    .font(.system(size: 10.5))
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.bottom, 10)
+
+            Rectangle()
+                .fill(.white.opacity(0.06))
+                .frame(height: 0.5)
+                .padding(.bottom, 6)
+
+            HStack(spacing: 4) {
+                ForEach(0..<7, id: \.self) { i in
+                    let daysAgo = 6 - i
+                    let isToday = daysAgo == 0
+                    let mins = tracker.dayMinutes(daysAgo: daysAgo, now: now)
+                    let progress = min(1.0, Double(mins) / Double(goal))
+                    GoalRingDay(
+                        label: dayLabel(daysAgo: daysAgo, now: now),
+                        minutes: mins,
+                        progress: progress,
+                        isToday: isToday,
+                        accent: DS.Color.accent,
+                        // Lightbulb = "insight / actively learning"
+                        // — Study's counterpart to Focus's bolt.
+                        // Both glyphs read as energy, but in their
+                        // respective modes (lock-in vs learning).
+                        // The literal book glyph repeated 7 times
+                        // read as static iconography; lightbulb
+                        // intensifies as the day's ring fills,
+                        // matching how you'd describe a productive
+                        // study day ("things lit up today").
+                        glyph: "lightbulb.fill"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+            }
+
+            Rectangle()
+                .fill(.white.opacity(0.06))
+                .frame(height: 0.5)
+                .padding(.top, 6)
+                .padding(.bottom, 6)
+
+            HStack(spacing: 10) {
+                footerStat(big: formatMinutesShort(weekTotal), small: "Total this week")
+                Rectangle()
+                    .fill(.white.opacity(0.08))
+                    .frame(width: 0.5, height: 26)
+                footerStat(big: formatMinutesShort(weekAvg), small: "Avg daily")
+                Spacer(minLength: 4)
+                ZStack {
+                    Circle()
+                        .stroke(.white.opacity(0.10), lineWidth: 2.5)
+                    Circle()
+                        .trim(from: 0, to: avgVsGoal)
+                        .stroke(DS.Color.accent,
+                                style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                    Image(systemName: "lightbulb.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(DS.Color.accent)
+                }
+                .frame(width: 36, height: 36)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            DS.Color.accent.opacity(noxStudyMode ? 0.16 : 0.08),
+                            DS.Color.accent.opacity(0.02)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(
+                    DS.Color.accent.opacity(noxStudyMode ? 0.26 : 0.10),
+                    lineWidth: 0.6
+                )
+        )
+        .animation(.spring(response: 0.34, dampingFraction: 0.78),
+                   value: noxStudyMode)
+    }
+
+    private func footerStat(big: String, small: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(big)
+                .font(.system(size: 16, weight: .bold).monospacedDigit())
+                .foregroundStyle(.white)
+            Text(small)
+                .font(.system(size: 9.5))
+                .foregroundStyle(.white.opacity(0.45))
+        }
+    }
+
+    private func dayLabel(daysAgo: Int, now: Date) -> String {
+        let cal = Calendar.current
+        guard let d = cal.date(byAdding: .day, value: -daysAgo, to: now) else {
+            return ""
+        }
+        let f = DateFormatter()
+        f.dateFormat = "EEE"
+        return f.string(from: d)
+    }
+
+    private func formatMinutesShort(_ minutes: Int) -> String {
+        if minutes < 60 { return "\(minutes)m" }
+        let h = minutes / 60
+        let m = minutes % 60
+        if m == 0 { return "\(h)h" }
+        return "\(h)h \(m)m"
+    }
+
+    // MARK: - Pomodoro timer strip (mirror of Focus's)
+
+    /// Pomodoro-style timer strip for Study sessions. Same three-
+    /// state shape as Focus's `timerStrip`: idle (chip strip),
+    /// running/paused (countdown row + pause/stop), expired
+    /// (celebration + Done). Backed by `studyTimer` instead of
+    /// `focusTimer`. UI helpers (durationChip, customTimerEditor,
+    /// stepperButton, commitCustomTimer, formatCountdown) are
+    /// already defined on this struct from earlier work — only the
+    /// strip + state-row helpers are new here.
+    private var timerStrip: some View {
+        TimelineView(.periodic(from: .now, by: 1.0)) { context in
+            timerStripContent(now: context.date)
+        }
+    }
+
+    @ViewBuilder
+    private func timerStripContent(now: Date) -> some View {
+        let state = studyTimer.state
+        Group {
+            switch state {
+            case .idle:
+                timerIdleRow
+            case .running, .paused:
+                timerRunningRow(now: now, paused: state == .paused)
+            case .expired:
+                timerExpiredRow
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(.white.opacity(0.07), lineWidth: 0.6)
+        )
+        .animation(.spring(response: 0.34, dampingFraction: 0.78), value: state)
+    }
+
+    /// Idle state — two-row chip layout (parallel to Focus's). Top
+    /// row: label + 15/25 chips. Bottom row: 45/90 + custom `+`.
+    /// Tapping `+` morphs the strip into the custom-duration editor.
+    private var timerIdleRow: some View {
+        if customTimerExpanded {
+            AnyView(customTimerEditor)
+        } else {
+            AnyView(
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "timer")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(DS.Color.accent.opacity(0.85))
+                        Text("Timer")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.78))
+                        Spacer(minLength: 0)
+                        durationChip(minutes: 15)
+                        durationChip(minutes: 25)
+                    }
+                    HStack(spacing: 5) {
+                        Spacer(minLength: 0)
+                        durationChip(minutes: 45)
+                        durationChip(minutes: 90)
+                        customExpandChip
+                    }
+                }
+            )
+        }
+    }
+
+    /// Running / paused state — compact countdown row reading
+    /// "STUDY ON" / "PAUSED" eyebrow above the MM:SS countdown.
+    private func timerRunningRow(now: Date, paused: Bool) -> some View {
+        let remaining = studyTimer.remaining(now: now)
+        let progress = studyTimer.progress(now: now)
+        return HStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .stroke(.white.opacity(0.08), lineWidth: 2.5)
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(
+                        DS.Color.accent.opacity(paused ? 0.45 : 0.95),
+                        style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .animation(.linear(duration: 0.5), value: progress)
+                Image(systemName: paused ? "pause.fill" : "timer")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(paused ? .white.opacity(0.55) : DS.Color.accent)
+            }
+            .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text(paused ? "PAUSED" : "STUDY ON")
+                    .font(.system(size: 8.5, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundStyle(paused ? .yellow.opacity(0.85) : DS.Color.accent)
+                Text(formatCountdown(remaining))
+                    .font(.system(size: 14, weight: .bold).monospacedDigit())
+                    .foregroundStyle(paused ? .white.opacity(0.55) : .white)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                if paused { studyTimer.resume() }
+                else { studyTimer.pause() }
+            } label: {
+                Image(systemName: paused ? "play.fill" : "pause.fill")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(DS.Color.accent.opacity(0.55)))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(paused ? "Resume timer" : "Pause timer")
+
+            Button {
+                studyTimer.stop()
+            } label: {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(.white.opacity(0.08)))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Stop timer")
+        }
+    }
+
+    /// Expired state — celebration + Done button. Tapping Done
+    /// resets the timer to .idle and the strip flips back to the
+    /// chip row so the user can start another.
+    private var timerExpiredRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(DS.Color.accent)
+            Text("Session done")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+            Spacer(minLength: 0)
+            Button {
+                studyTimer.acknowledge()
+            } label: {
+                Text("Done")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(DS.Color.accent.opacity(0.45)))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    /// Two-row controls strip sized for the narrow right column.
+    /// Mirrors Focus's controlsStrip shape — Study toggle row + goal
+    /// pill row. Cycle through 30/60/90/120/180 by tapping the goal.
+    private var controlsStrip: some View {
+        VStack(spacing: 4) {
+            Button {
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                    if !noxStudyMode {
+                        noxFocusMode = false
+                    }
+                    noxStudyMode.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    // Lightbulb — Study counterpart to Focus's bolt
+                    // in the parallel controlsStrip. Both read as
+                    // "actively engaged energy," differentiated
+                    // only by what kind of work mode they signal.
+                    Image(systemName: noxStudyMode ? "lightbulb.fill" : "lightbulb")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(noxStudyMode
+                                         ? DS.Color.accent
+                                         : Color.white.opacity(0.55))
+                    Text("Study")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(.white)
+                    Spacer(minLength: 0)
+                    Toggle("", isOn: Binding(
+                        get: { noxStudyMode },
+                        set: { newValue in
+                            withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                                if newValue { noxFocusMode = false }
+                                noxStudyMode = newValue
+                            }
+                        }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .tint(DS.Color.accent)
+                    .scaleEffect(0.65)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                let steps = [30, 60, 90, 120, 180]
+                let current = max(5, dailyStudyGoal)
+                let nextIdx = (steps.firstIndex(where: { $0 > current }) ?? 0)
+                dailyStudyGoal = steps[nextIdx]
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "target")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.45))
+                    Text("Goal \(dailyStudyGoal)m")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(DS.Color.accent)
+                        .monospacedDigit()
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 2)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(.white.opacity(0.07), lineWidth: 0.6)
+        )
     }
 
     private var backRow: some View {
@@ -3880,8 +4958,8 @@ struct LiveStudyDetailPanel: View {
                 .padding(.trailing, 2)
 
             HStack(spacing: 0) {
-                stepperButton(systemImage: "minus") {
-                    customTimerMinutes = max(1, customTimerMinutes - 5)
+                PressAndHoldStepper(systemImage: "minus") { delta in
+                    customTimerMinutes = max(1, customTimerMinutes - delta)
                 }
 
                 TextField("", value: Binding(
@@ -3895,8 +4973,8 @@ struct LiveStudyDetailPanel: View {
                 .frame(width: 30)
                 .onSubmit { commitCustomTimer() }
 
-                stepperButton(systemImage: "plus") {
-                    customTimerMinutes = min(300, customTimerMinutes + 5)
+                PressAndHoldStepper(systemImage: "plus") { delta in
+                    customTimerMinutes = min(300, customTimerMinutes + delta)
                 }
             }
             .padding(.horizontal, 2)

@@ -207,6 +207,40 @@ final class FocusSessionTracker: ObservableObject {
     /// "in progress" subtext on the today tile.
     var isSessionActive: Bool { sessionStartDate != nil }
 
+    /// Minutes for a specific day relative to `now`. `daysAgo == 0`
+    /// is today (and includes the live session contribution if any),
+    /// `daysAgo == 6` is six days back. Used by the redesigned hero
+    /// card's per-day rings — each ring fills `dayMinutes / dailyGoal`.
+    func dayMinutes(daysAgo: Int, now: Date = Date()) -> Int {
+        let cal = Calendar.current
+        guard let day = cal.date(byAdding: .day, value: -daysAgo, to: now) else {
+            return 0
+        }
+        let key = dayFormatter.string(from: day)
+        let stored = minutesByDay[key] ?? 0
+        if daysAgo == 0, let start = sessionStartDate {
+            return stored + Int(now.timeIntervalSince(start) / 60)
+        }
+        return stored
+    }
+
+    /// Count of days in the rolling 7-day window where the user hit
+    /// (or exceeded) their daily goal. Drives the "4 of 7 goals
+    /// completed (57%)" subtext on the redesigned hero card. Today
+    /// counts if the live total has already crossed the goal —
+    /// gives the user immediate positive reinforcement the moment
+    /// they cross the line, not after the session ends.
+    func goalsCompletedThisWeek(goal: Int, now: Date = Date()) -> Int {
+        guard goal > 0 else { return 0 }
+        var hit = 0
+        for offset in 0..<7 {
+            if dayMinutes(daysAgo: offset, now: now) >= goal {
+                hit += 1
+            }
+        }
+        return hit
+    }
+
     /// 7-element array, one bar per day. Index 0 = oldest (6 days
     /// ago), index 6 = today. Today's bucket includes the live
     /// session contribution so it grows in real time. Mirror of
