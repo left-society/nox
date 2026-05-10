@@ -840,14 +840,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 26;
+				CURRENT_PROJECT_VERSION = 27;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = Notetaker/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.9.16;
+				MARKETING_VERSION = 1.9.17;
 				PRODUCT_BUNDLE_IDENTIFIER = app.trynox;
 				PRODUCT_NAME = nox;
 				SDKROOT = macosx;
@@ -878,14 +878,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 26;
+				CURRENT_PROJECT_VERSION = 27;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = Notetaker/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.9.16;
+				MARKETING_VERSION = 1.9.17;
 				PRODUCT_BUNDLE_IDENTIFIER = app.trynox;
 				PRODUCT_NAME = nox;
 				SDKROOT = macosx;

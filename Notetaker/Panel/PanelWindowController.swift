@@ -1151,7 +1151,12 @@ final class PanelWindowController {
         guard let raw = UserDefaults.standard.string(forKey: "defaultTabRaw"),
               raw != "last" else { return }
         switch raw {
-        case "music": if presenter.nowPlaying != nil { presenter.activeTab = .music }
+        // 2026-05-11: removed `nowPlaying != nil` gate. The Live tab
+        // (`.music`) is no longer hidden when nothing's playing — it
+        // owns Focus / Study / calendar / lock-screen pane too — so a
+        // user who picked "Live" as their default tab should land on
+        // Live regardless of playback state.
+        case "music": presenter.activeTab = .music
         case "notes": presenter.activeTab = .notes
         case "images": presenter.activeTab = .images
         case "videos": presenter.activeTab = .videos

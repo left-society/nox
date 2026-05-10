@@ -133,6 +133,24 @@ actor LocalWhisperService {
         prepareTask = nil
     }
 
+    /// Drop the loaded pipeline so the next `transcribe()` call
+    /// re-runs `prepare()` and picks up a freshly-changed
+    /// `preferredModel`. Cheap on subsequent loads — Core ML
+    /// caches the compiled model on disk after first download
+    /// (~1-2s vs. the initial ~30-60s). Idempotent.
+    ///
+    /// Called from Settings → Voice when the user picks a
+    /// different Whisper model size, so they don't have to
+    /// restart the app to get the new model.
+    func invalidate() {
+        pipeline = nil
+        isReady = false
+        lastError = nil
+        prepareTask?.cancel()
+        prepareTask = nil
+        NSLog("nox: LocalWhisper invalidated — next transcribe() will re-prepare")
+    }
+
     private func runPrepare() async {
         isLoading = true
         lastError = nil

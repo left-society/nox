@@ -4,7 +4,19 @@ import AppKit
 @MainActor
 final class PanelPresenter: ObservableObject {
     @Published var isShown: Bool = false
-    @Published var activeTab: PanelTab = .notes
+    /// 2026-05-11: first-launch landing tab is now `.music` (Live).
+    /// Was `.notes`, but Live is the new home — it surfaces Focus,
+    /// Study, the calendar pill, the music card, and the lock-screen
+    /// pane. Users on fresh installs were reporting "Live section
+    /// doesn't show" because they landed on Notes and didn't notice
+    /// the small "live" tab to the left. Defaulting to Live makes
+    /// the headline content the first thing they see. Existing
+    /// installs see the same change on next open — same direction
+    /// the rest of the app has been moving. The auto-bounce in
+    /// `nowPlaying`'s didSet still hops to `.notes` if music stops
+    /// while the user is on Live, so the empty-state UX they saw
+    /// before is preserved.
+    @Published var activeTab: PanelTab = .music
 
     /// True while the user has drilled into a Live-tab detail panel
     /// (Focus dashboard, Study dashboard, future Battery / Weather).
@@ -221,19 +233,17 @@ final class PanelPresenter: ObservableObject {
     /// the actual UI updates when body output is identical.
     /// Combine subscribers that need stricter dedup can chain
     /// `.removeDuplicates()` on `$nowPlaying`.
-    @Published var nowPlaying: NowPlayingInfo? {
-        didSet {
-            // Auto-collapse: if music stops mid-session and we were
-            // showing the music tab, hop to notes. Without this the
-            // user is stuck staring at an empty music page until they
-            // manually switch tabs — bad UX, and the segmented bar
-            // would also drop the .music segment, making the active
-            // tab effectively orphaned.
-            if nowPlaying == nil && activeTab == .music {
-                activeTab = .notes
-            }
-        }
-    }
+    @Published var nowPlaying: NowPlayingInfo?
+    // 2026-05-11: removed the auto-bounce off `.music` when
+    // `nowPlaying` went nil. Earlier the bounce existed because the
+    // music tab was hidden when no playback was happening, so an
+    // active `.music` tab + no music = orphaned tab. Live (`.music`)
+    // is now ALWAYS visible AND has real empty-state content
+    // (Focus/Study/calendar), so staying on Live when music stops is
+    // the right behaviour. Users were reporting "Live section doesn't
+    // show on first install" — partially this bounce was reflecting
+    // them BACK to Notes whenever MediaRemote emitted its initial nil
+    // snapshot at launch, undoing the now-default `.music` landing.
 
     /// Forwards play/pause/skip taps from MusicPanelView to whoever
     /// owns MediaRemoteService (currently NotchOrchestrator, wired up

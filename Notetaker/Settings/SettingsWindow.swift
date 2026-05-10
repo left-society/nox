@@ -1325,6 +1325,28 @@ private struct DictationSettings: View {
     @AppStorage(SettingsKey.dictationCustomModifiers) private var customModifiers: Int = 0
     @AppStorage("dictationCustomVocabulary") private var customVocabulary: String = ""
 
+    // 2026-05-11 — voice engine + model + mic device pickers (user
+    // request: "voice detection user should be able to have what
+    // they want"). The infrastructure was already wired through
+    // the rest of the codebase (see `loadDictationConfig`,
+    // `LocalWhisperService.preferredModel`, `DictationRecorder
+    // .preferredInputDevice`); these bindings just expose it as
+    // proper UI instead of leaving the choices as hidden defaults.
+    //
+    // Default `useLocalWhisper = true` for fresh installs — privacy
+    // wins, no API key needed, works offline. Cloud Groq stays one
+    // toggle away for users who want max accuracy on accents or
+    // long-form recording.
+    @AppStorage("dictationUseLocalWhisper") private var useLocalWhisper: Bool = true
+    @AppStorage("Notetaker.localWhisperModel") private var localWhisperModelRaw: String =
+        LocalWhisperService.ModelSize.small.rawValue
+    @AppStorage("dictationInputDeviceUID") private var inputDeviceUID: String = ""
+
+    /// Snapshot of currently-discoverable mic devices. Refreshed on
+    /// appear; static enough thereafter (the user isn't going to be
+    /// hot-swapping mics inside the Settings window).
+    @State private var availableInputDevices: [AVCaptureDevice] = []
+
     @State private var keyValidationStatus: ValidationStatus = .untested
     @State private var validateTask: Task<Void, Never>?
 
@@ -1347,9 +1369,82 @@ private struct DictationSettings: View {
                 .foregroundStyle(.white.opacity(0.7))
                 .fixedSize(horizontal: false, vertical: true)
 
-            // PROVIDER + API KEY
+            // ENGINE — local (on-device WhisperKit) vs cloud (Groq/
+            // OpenAI/Custom). Local is private, free, works offline;
+            // cloud is faster and slightly more accurate on accented
+            // speech. When local is picked, the model picker below
+            // chooses the size/speed tradeoff. When cloud is picked,
+            // the provider card further down handles endpoint + key.
             SettingsCard {
-                GroupTitle(title: "Transcription provider")
+                GroupTitle(title: "Voice engine")
+                SettingsRow(title: "Engine",
+                            subtitle: useLocalWhisper
+                                ? "On-device. Private, free, works offline. Slower on the bigger models but no audio leaves your Mac."
+                                : "Cloud. Sends audio to your provider. Faster, slightly more accurate, needs an API key.") {
+                    Picker("", selection: $useLocalWhisper) {
+                        Text("On-device (private)").tag(true)
+                        Text("Cloud (faster)").tag(false)
+                    }
+                    .labelsHidden()
+                    .frame(width: 220)
+                    .onChange(of: useLocalWhisper) { _ in reapply() }
+                }
+                if useLocalWhisper {
+                    Divider().background(SettingsTheme.rowDivider)
+                    SettingsRow(title: "Whisper model",
+                                subtitle: "Bigger = more accurate, more disk + RAM. Tiny / Base run instantly even on M1; Medium is best for accents but takes ~1.4 GB and ~2× the inference time.") {
+                        Picker("", selection: $localWhisperModelRaw) {
+                            ForEach(LocalWhisperService.ModelSize.allCases, id: \.rawValue) { size in
+                                Text(size.displayName).tag(size.rawValue)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 220)
+                        .onChange(of: localWhisperModelRaw) { _ in
+                            // Pipeline holds the previous model in
+                            // memory; invalidate so the next dictation
+                            // re-prepares with the new selection.
+                            // Disk-cached models reload in ~1-2s.
+                            Task { await LocalWhisperService.shared.invalidate() }
+                            reapply()
+                        }
+                    }
+                }
+            }
+
+            // MICROPHONE — explicit input-device picker. Common
+            // failure mode: user has Bluetooth headphones connected,
+            // macOS routes audio through HFP (telephony-grade,
+            // sometimes silent), Whisper returns empty. Picking
+            // built-in mic here fixes it for every future recording.
+            // Empty UID = "system default" — what the recorder uses
+            // when nothing is saved.
+            SettingsCard {
+                GroupTitle(title: "Microphone")
+                SettingsRow(title: "Input device",
+                            subtitle: "Pick the mic nox should record from. \"System default\" follows whatever macOS Sound settings is using right now.") {
+                    Picker("", selection: $inputDeviceUID) {
+                        Text("System default").tag("")
+                        ForEach(availableInputDevices, id: \.uniqueID) { device in
+                            Text(device.localizedName).tag(device.uniqueID)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 240)
+                }
+            }
+            .onAppear { refreshAvailableInputDevices() }
+
+            // PROVIDER + API KEY — drives the cloud engine when
+            // selected, AND drives the cleanup LLM (which runs for
+            // BOTH engines — Whisper-on-device + LLM-cleanup-in-cloud
+            // is a common combo for users who want privacy-preserving
+            // transcription but still want polished output). Subtitle
+            // reflects which role it's playing.
+            SettingsCard {
+                GroupTitle(title: useLocalWhisper
+                           ? "Cleanup provider (optional)"
+                           : "Transcription provider")
                 SettingsRow(title: "Provider",
                             subtitle: "Groq is free and fast. OpenAI requires a paid account. Custom lets you point at any OpenAI-compatible endpoint.") {
                     Picker("", selection: $provider) {
@@ -1624,6 +1719,22 @@ private struct DictationSettings: View {
             customKeyCode: UInt32(customKeyCode),
             customModifiers: UInt32(customModifiers)
         )
+    }
+
+    /// Snapshot every microphone macOS currently exposes so the
+    /// "Input device" picker has rows to render. Filters to audio
+    /// inputs only (Aggregate / Loopback pseudo-devices show up in
+    /// some discovery sessions but are usually outputs or virtual).
+    /// Mirrors the same `discoverableMicTypes()` list used by
+    /// `DictationRecorder.preferredInputDevice` so what the user
+    /// picks here is exactly what the recorder can resolve later.
+    private func refreshAvailableInputDevices() {
+        let session = AVCaptureDevice.DiscoverySession(
+            deviceTypes: DictationRecorder.discoverableMicTypes(),
+            mediaType: .audio,
+            position: .unspecified
+        )
+        availableInputDevices = session.devices
     }
 }
 
