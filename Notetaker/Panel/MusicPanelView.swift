@@ -586,16 +586,22 @@ struct MusicPanelView: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(.white.opacity(isActive ? 0.075 : 0.045))
+                .fill(.white.opacity(isActive ? 0.105 : 0.055))
                 .overlay(
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .strokeBorder(
                             isActive
-                                ? DS.Color.accent.opacity(0.32)
-                                : .white.opacity(0.10),
+                                ? DS.Color.accent.opacity(0.38)
+                                : .white.opacity(0.12),
                             lineWidth: 0.5
                         )
                 )
+        )
+        .shadow(
+            color: isActive ? DS.Color.accent.opacity(0.18) : Color.black.opacity(0.20),
+            radius: isActive ? 10 : 4,
+            x: 0,
+            y: isActive ? 4 : 2
         )
         .animation(.easeInOut(duration: 0.18), value: isActive)
     }
@@ -645,20 +651,33 @@ struct MusicPanelView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.07),
-                        Color.white.opacity(0.03)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
+                ZStack {
+                    if let image = displayedArtworkImage {
+                        Image(nsImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .blur(radius: 28, opaque: true)
+                            .opacity(0.16)
+                            .scaleEffect(1.25)
+                    }
+
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.105),
+                            Color.white.opacity(0.045),
+                            Color.black.opacity(0.18)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                }
                 .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
+                    .strokeBorder(Color.white.opacity(0.135), lineWidth: 0.6)
             )
+            .shadow(color: Color.black.opacity(0.32), radius: 14, x: 0, y: 8)
     }
 
     /// Artwork-color tint that flows FROM THE TOP and dissolves
@@ -763,12 +782,6 @@ struct MusicPanelView: View {
         let title = displayedTitleResolved
         let artist = displayedArtist
         let album = displayedAlbum
-        let tint = ArtworkColor.dominant(from: displayedArtworkData ?? info?.artworkData) ?? .white
-        // Stable per-track key for waveform pattern. Avoid empty
-        // string when nothing is playing — falls through to the
-        // default pattern in that case via WaveformPattern's guard.
-        let trackKey = info.map { "\($0.title)|\($0.artist)" } ?? ""
-
         return HStack(alignment: .center, spacing: 14) {
             artwork
             // Tappable metadata stack — clicking any of the title/
@@ -1883,7 +1896,7 @@ struct MusicPanelView: View {
                             // Thickens slightly on hover/scrub for
                             // tactile "I'm interactive" feedback.
                             Capsule()
-                                .fill(Color.white.opacity(0.12))
+                                .fill(Color.white.opacity(0.145))
                                 .frame(height: trackHeight)
                             // Fill with artwork-color gradient.
                             Capsule()
@@ -1907,9 +1920,10 @@ struct MusicPanelView: View {
                             // hover transition feel polished rather
                             // than popping in instantly.
                             Circle()
-                                .fill(Color.white)
+                                .fill(Color.white.opacity(0.98))
                                 .frame(width: 10, height: 10)
-                                .shadow(color: Color.black.opacity(0.3), radius: 2, x: 0, y: 1)
+                                .shadow(color: Color.black.opacity(0.35), radius: 3, x: 0, y: 1)
+                                .shadow(color: progressBarColors.last?.opacity(0.38) ?? Color.clear, radius: 5, x: 0, y: 0)
                                 .offset(x: max(0, geo.size.width * progress - 5))
                                 .opacity((isScrubbing || isProgressHovering) ? 1 : 0)
                                 .animation(.easeOut(duration: 0.15),
@@ -2366,15 +2380,20 @@ private struct MusicControlButton: View {
                     Circle()
                         .fill(
                             LinearGradient(
-                                colors: [Color.white.opacity(isPressed ? 0.22 : isHovered ? 0.18 : 0.14), accent.opacity(isPressed ? 0.45 : isHovered ? 0.38 : 0.30)],
+                                colors: [
+                                    Color.white.opacity(isPressed ? 0.30 : isHovered ? 0.25 : 0.20),
+                                    accent.opacity(isPressed ? 0.50 : isHovered ? 0.44 : 0.36),
+                                    Color.black.opacity(0.16)
+                                ],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
                         )
                         .overlay(
                             Circle()
-                                .strokeBorder(accent.opacity(0.35), lineWidth: 0.5)
+                                .strokeBorder(Color.white.opacity(0.16), lineWidth: 0.6)
                         )
+                        .shadow(color: accent.opacity(isHovered ? 0.38 : 0.22), radius: isHovered ? 14 : 8)
                 } else {
                     // Resting state for prev/next: subtle white
                     // halo at 6% opacity so the buttons read as
@@ -2390,14 +2409,14 @@ private struct MusicControlButton: View {
                     Circle()
                         .fill(
                             isPressed
-                                ? accent.opacity(0.28)
+                                ? accent.opacity(0.30)
                                 : isHovered
-                                    ? accent.opacity(0.18)
-                                    : Color.white.opacity(0.06)
+                                    ? Color.white.opacity(0.12)
+                                    : Color.white.opacity(0.075)
                         )
                         .overlay(
                             Circle()
-                                .strokeBorder(Color.white.opacity(isHovered ? 0.10 : 0.05), lineWidth: 0.5)
+                                .strokeBorder(Color.white.opacity(isHovered ? 0.14 : 0.075), lineWidth: 0.5)
                         )
                 }
 

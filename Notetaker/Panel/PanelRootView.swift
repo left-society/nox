@@ -3580,76 +3580,31 @@ struct PanelRootView: View {
 
     // MARK: - Background layers
 
-    /// Solid pure black. The user explicitly asked for black after the
-    /// gradient version landed: "black was definitely the choice but
-    /// we need to something around it / Like alcove." Depth now comes
-    /// from the drop shadow on the parent and the quiet rim below —
-    /// not from any internal lift. Keeps the slab reading as a piece
-    /// of premium dark hardware, not a tinted glass panel.
     private var panelBackground: some View {
-        // 2026-05-04 BIG FPS FIX: VisualEffectBlur is now
-        // ALWAYS-MOUNTED. The previous gated form (`if presenter.isShown
-        // { ZStack { VisualEffectBlur ... } } else { Color.black }`)
-        // was creating a FRESH `NSVisualEffectView` on every show
-        // and destroying it on every hide — same anti-pattern that
-        // caused the contentOverlay mount-hitch fixed earlier in
-        // this project (see comment at line 660). Each fresh
-        // NSVisualEffectView allocation costs:
-        //   • NSView alloc + AppKit hierarchy registration
-        //   • Window-server negotiation for the blur material
-        //   • Metal-backed layer creation + first-frame compositing
-        //   • First desktop sample at the panel's current bounds
-        // All of that landing right as the spring starts integrating
-        // produces the visible hitch the user reported as "lag at
-        // the start of open."
-        //
-        // Always-mounted amortizes those costs to app launch. show()
-        // / hide() then just animates the dark-tint opacity, which
-        // Core Animation handles on a single CALayer alpha update —
-        // essentially free.
-        //
-        // Idle cost: in pill state the blur covers ~185×32 = 5920pt
-        // (~24k Retina pixels). One gaussian per vsync over 24k
-        // pixels is in microseconds — vastly cheaper than the
-        // create/destroy cycle that was hitching every open.
-        //
-        // 2026-05-04 REFINEMENT (research session):
-        // The earlier `.withinWindow ⇄ .behindWindow` swap on
-        // `isMorphing` was causing a visible end-of-morph hitch.
-        // When the spring settles and isMorphing flips false,
-        // NSVisualEffectView re-negotiates the material with the
-        // window server (fresh desktop sample at the panel's final
-        // bounds), and that one-frame work was landing AT the
-        // settle — exactly the wrong moment.
-        //
-        // New strategy: blendingMode is now constant `.behindWindow`
-        // (no swap), so there's no negotiation hit. The dark tint
-        // does the morph-hiding work instead: opacity 1.0 (opaque
-        // black, covers the blur entirely) while the spring is in
-        // flight, opacity 0.65 (translucent, blur shows through)
-        // only after isMorphing flips false. The transition is a
-        // simple CALayer alpha animation — essentially free —
-        // and reads as a soft 180ms wallpaper "bloom" once the
-        // panel has settled, which actually adds to the premium
-        // feel rather than hitching at the end.
-        // 2026-05-04 FINAL: pure Color.black. User feedback after
-        // testing both glass and solid: "we don't need glass; we
-        // needed pure black, so it's better, the animation feels
-        // much smoother."
-        //
-        // Even when the GPU shadow fix made the FPS data identical
-        // between glass and solid-black, the eye still registers
-        // the per-frame desktop re-sampling that NSVisualEffectView
-        // does as visual "noise" during motion — a kind of
-        // render-server compositing pressure that doesn't show up
-        // as CADisplayLink drops but is perceptible.
-        //
-        // Pure black eliminates that entirely: zero desktop
-        // sampling, zero gaussian compositing, zero render-server
-        // pressure. The panel reads as a confident dark surface
-        // (matching the camera-notch hardware) rather than a
-        // translucent floating window.
-        Color.black
+        ZStack {
+            VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
+                .opacity(presenter.isShown ? 0.55 : 0)
+
+            LinearGradient(
+                stops: [
+                    .init(color: Color.black.opacity(0.94), location: 0.00),
+                    .init(color: Color(red: 0.035, green: 0.035, blue: 0.040).opacity(0.96), location: 0.48),
+                    .init(color: Color.black.opacity(0.98), location: 1.00),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(presenter.isShown ? 0.055 : 0),
+                    Color.clear,
+                    DS.Color.brandLavender.opacity(presenter.isShown ? 0.035 : 0)
+                ],
+                startPoint: .top,
+                endPoint: .bottomTrailing
+            )
+        }
     }
 
     /// Quiet 0.5pt rim around the silhouette — Alcove's signature
@@ -3661,7 +3616,18 @@ struct PanelRootView: View {
     @ViewBuilder
     private var borderStroke: some View {
         panelSilhouette
-            .stroke(Color.white.opacity(0.06), lineWidth: 0.5)
+            .stroke(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.16),
+                        Color.white.opacity(0.045),
+                        DS.Color.brandLavender.opacity(0.10)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: 0.6
+            )
             .allowsHitTesting(false)
             .opacity(presenter.isShown ? 1 : 0)
     }
@@ -3775,7 +3741,7 @@ struct PanelRootView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: DS.Spacing.sm) {
+        HStack(spacing: 8) {
             // 2026-05-02 brand glyph. Replaces the generic
             // `square.and.pencil` SF Symbol with the nox ring-with-
             // notch brand mark — same silhouette as the app icon,
@@ -3793,9 +3759,9 @@ struct PanelRootView: View {
 
             SettingsButton()
         }
-        .padding(.horizontal, DS.Spacing.md)
-        .padding(.top, DS.Spacing.sm)
-        .padding(.bottom, DS.Spacing.xs)
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 6)
     }
 
     // MARK: - Segmented
@@ -3816,20 +3782,7 @@ struct PanelRootView: View {
     /// with per-icon backgrounds, the active tab is signaled by
     /// a brighter gradient + opaque glyph instead.
     private var segmented: some View {
-        // 2026-05-05 marker-scribble redesign. Naked text labels
-        // in a row; the active tab gets a hand-drawn wavy underline
-        // in brandLavender that sketches itself in via stroke-trim
-        // animation. No container, no chip — the underline IS the
-        // active state. Inactive labels sit at 40% white, hovered
-        // labels brighten to 85%, active is full white.
-        //
-        // Reads as a sketchnote / Procreate journal heading rather
-        // than the iOS toolbar pattern that was here before. Removed:
-        // capsule background, blur material, halo shadow, the
-        // matchedGeometryEffect "sliding pill" namespace — none of
-        // those are needed because the underline is per-tab and
-        // animates itself.
-        HStack(spacing: 18) {
+        HStack(spacing: 4) {
             ForEach(presenter.visibleTabs) { tab in
                 ScribbleTabButton(
                     tab: tab,
@@ -3839,11 +3792,17 @@ struct PanelRootView: View {
                 }
             }
         }
-        // Center the tab cluster within the panel's content width
-        // (was spreading edge-to-edge because the parent added
-        // horizontal padding around a max-width row).
+        .padding(4)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.055))
+                .overlay(
+                    Capsule()
+                        .strokeBorder(Color.white.opacity(0.075), lineWidth: 0.5)
+                )
+        )
         .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
         .animation(.selection, value: presenter.visibleTabs)
     }
 
@@ -4248,64 +4207,30 @@ private struct MarkerStroke: Shape {
     }
 }
 
-/// Marker-scribble tab button. Plain-text label with a wavy
-/// hand-drawn underline that sketches itself in (stroke-trim
-/// animation, ~0.55s ease-out) when the tab becomes active. No
-/// chrome around the label — the underline IS the active state.
 private struct ScribbleTabButton: View {
     let tab: PanelTab
     let isSelected: Bool
     let action: () -> Void
 
     @State private var isHovered: Bool = false
-    @State private var drawProgress: CGFloat = 0
-    /// Currently displayed marker variant (0..<MarkerStroke.variantCount).
-    /// Re-rolled on every activation so each pick draws a different
-    /// squiggle. Initial value is randomized so the first paint
-    /// already feels hand-drawn rather than a default shape.
-    @State private var variant: Int = Int.random(in: 0..<MarkerStroke.variantCount)
-    /// Last variant used — kept so re-roll can avoid drawing the
-    /// same mark twice in a row. If we picked variant 7 last time,
-    /// the next roll is from {0..14} \ {7}, ensuring perceptible
-    /// variety on every click.
-    @State private var lastVariant: Int = -1
 
     var body: some View {
         Button(action: action) {
-            // Single Text element with bottom padding to reserve
-            // space for the underline, plus a bottom-aligned overlay
-            // for the underline itself. This keeps the underline
-            // sized to the TEXT's natural width — the previous
-            // VStack/ZStack pattern let the underline expand to
-            // whatever width SwiftUI's layout gave the parent
-            // (resulting in a single underline that spanned multiple
-            // tabs' worth of width).
             Text(tab.title.lowercased())
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 12.5, weight: isSelected ? .semibold : .medium))
                 .foregroundStyle(textColor)
                 .fixedSize()
-                .padding(.bottom, 8)
-                .overlay(alignment: .bottom) {
-                    if isSelected {
-                        MarkerStroke(variant: variant)
-                            .trim(from: 0, to: drawProgress)
-                            .stroke(
-                                DS.Color.brandLavender,
-                                style: StrokeStyle(lineWidth: 1.8,
-                                                   lineCap: .round,
-                                                   lineJoin: .round)
-                            )
-                            .shadow(color: DS.Color.brandLavender.opacity(0.45),
-                                    radius: 4)
-                            .frame(height: 6)
-                            // 3pt sweep past each text edge so the
-                            // mark reads as a hand gesture, not a
-                            // ruler-perfect cap.
-                            .padding(.horizontal, -3)
-                    }
-                }
-                .padding(.vertical, 4)
-                .contentShape(Rectangle())
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(backgroundFill)
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(borderColor, lineWidth: 0.5)
+                        )
+                )
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(tab.title)
@@ -4315,52 +4240,21 @@ private struct ScribbleTabButton: View {
                 isHovered = hovering
             }
         }
-        .onChange(of: isSelected) { newValue in
-            // Single-arg closure form — the deployment target is
-            // macOS 13. The two-arg `(oldValue, newValue)` overload
-            // is macOS 14+ only and breaks the build at -target
-            // arm64-apple-macos13.0.
-            if newValue {
-                // Roll a fresh variant — different from the last
-                // one drawn — so consecutive activations always
-                // show a different squiggle.
-                variant = nextVariant(excluding: lastVariant)
-                lastVariant = variant
-                // Re-arm the draw-on. Reset to 0 instantly,
-                // then animate to 1 over ~550ms — the marker
-                // sketches in left-to-right.
-                drawProgress = 0
-                withAnimation(.easeOut(duration: 0.55)) {
-                    drawProgress = 1
-                }
-            } else {
-                drawProgress = 0
-            }
-        }
-        .onAppear {
-            // First-paint: if this tab is already active when
-            // the panel mounts, show the underline at full draw
-            // (no animation — animations on first paint look
-            // like glitches, not gestures).
-            if isSelected {
-                lastVariant = variant
-                drawProgress = 1
-            }
-        }
     }
 
     private var textColor: Color {
-        if isSelected { return Color.white }
-        return isHovered ? Color.white.opacity(0.85) : Color.white.opacity(0.4)
+        if isSelected { return Color.white.opacity(0.96) }
+        return isHovered ? Color.white.opacity(0.82) : Color.white.opacity(0.45)
     }
 
-    /// Pick a random variant from `0..<MarkerStroke.variantCount`
-    /// while avoiding `excluding`. If the only remaining choice IS
-    /// the excluded value (shouldn't happen with 15 variants), falls
-    /// through to a plain random pick.
-    private func nextVariant(excluding: Int) -> Int {
-        let candidates = (0..<MarkerStroke.variantCount).filter { $0 != excluding }
-        return candidates.randomElement() ?? Int.random(in: 0..<MarkerStroke.variantCount)
+    private var backgroundFill: Color {
+        if isSelected { return Color.white.opacity(0.13) }
+        return isHovered ? Color.white.opacity(0.075) : Color.clear
+    }
+
+    private var borderColor: Color {
+        if isSelected { return Color.white.opacity(0.13) }
+        return isHovered ? Color.white.opacity(0.08) : Color.clear
     }
 }
 

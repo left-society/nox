@@ -58,15 +58,15 @@ struct CalendarTodayPane: View {
         .autoconnect()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 11) {
             dateHeader
             Divider()
-                .background(Color.white.opacity(0.06))
+                .background(Color.white.opacity(0.085))
             content
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             today = Date()
@@ -86,12 +86,12 @@ struct CalendarTodayPane: View {
         HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: -2) {
                 Text(weekdayShort.uppercased())
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Color(red: 1, green: 0.27, blue: 0.27))
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Color(red: 1.0, green: 0.31, blue: 0.32))
                     .tracking(0.6)
                 Text(dayNumber)
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(Color.white)
+                    .font(.system(size: 31, weight: .bold))
+                    .foregroundStyle(Color.white.opacity(0.98))
             }
             Spacer(minLength: 0)
             // Source picker chip — top-right corner. Always shown
@@ -159,21 +159,20 @@ struct CalendarTodayPane: View {
         } label: {
             HStack(spacing: 4) {
                 Text(sourceChipLabel)
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(0.4)
-                    .foregroundStyle(Color.white.opacity(0.78))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.86))
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 7, weight: .bold))
-                    .foregroundStyle(Color.white.opacity(0.45))
+                    .foregroundStyle(Color.white.opacity(0.55))
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
             .background(
                 Capsule()
-                    .fill(Color.white.opacity(0.06))
+                    .fill(Color.white.opacity(0.075))
                     .overlay(
                         Capsule()
-                            .strokeBorder(Color.white.opacity(0.10),
+                            .strokeBorder(Color.white.opacity(0.13),
                                           lineWidth: 0.5)
                     )
             )
@@ -298,11 +297,11 @@ struct CalendarTodayPane: View {
     private var googleEmptyDay: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("No events today")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.85))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(0.90))
             Text("Your day is clear")
-                .font(.system(size: 11))
-                .foregroundStyle(Color.white.opacity(0.5))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color.white.opacity(0.54))
         }
     }
 
@@ -397,11 +396,11 @@ struct CalendarTodayPane: View {
     private var emptyDay: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("No events today")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.85))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(0.90))
             Text("Your day is clear")
-                .font(.system(size: 11))
-                .foregroundStyle(Color.white.opacity(0.5))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color.white.opacity(0.54))
         }
     }
 
