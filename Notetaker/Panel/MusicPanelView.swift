@@ -2640,6 +2640,19 @@ struct LiveFocusDetailPanel: View {
     /// `expandedLivePanel` state.
     let onBack: () -> Void
 
+    /// Cascade entrance curve — same one `MusicPanelView` uses for
+    /// its `liveHomeView` content. Snappy with a touch of bounce
+    /// on macOS 14+, interpolating spring fallback on older OSes.
+    /// Used by the cascade gate in `body` to fade dashboard content
+    /// in AFTER the panel's open spring has settled.
+    private var cascadeAnimation: Animation {
+        if #available(macOS 14.0, *) {
+            return .snappy(duration: 0.32, extraBounce: 0.15)
+        } else {
+            return .interpolatingSpring(mass: 1.0, stiffness: 350, damping: 22)
+        }
+    }
+
     @ObservedObject private var tracker = FocusSessionTracker.shared
     /// Pomodoro-style countdown timer for the active Focus session.
     /// Drives the timer card between the hero and the stats grid —
@@ -2707,21 +2720,51 @@ struct LiveFocusDetailPanel: View {
         // fits comfortably in the regular Live slab without growing.
         VStack(alignment: .leading, spacing: 6) {
             backRow
-            HStack(alignment: .top, spacing: 8) {
-                goalHeroCard
-                    .layoutPriority(2)
-                VStack(spacing: 6) {
-                    timerStrip
-                    controlsStrip
-                    Spacer(minLength: 0)
+            // 2026-05-11 LAZY MOUNT (upgrade from the earlier
+            // opacity-only cascade gate). Earlier round wrapped
+            // the dashboard in `.opacity(presenter.cascadeReady
+            // ? 1 : 0)` — that hid pixels but DIDN'T defer cost:
+            // the view tree still mounted on panel show, SwiftUI
+            // still computed layouts for FocusWorkingHero +
+            // 7 GoalRingDay rings + timer strip, and the inner
+            // 30Hz TimelineView in FocusWorkingHero still ticked
+            // from the very first frame of the open spring.
+            // Result: open animation still felt laggy.
+            //
+            // Now using `if presenter.cascadeReady` — until the
+            // flag flips (~30ms after show() starts), this branch
+            // returns nothing, so nox doesn't instantiate the
+            // dashboard subtree at all. No layout work, no
+            // TimelineView ticking, no per-frame cost — the
+            // panel.frame spring has the main thread to itself
+            // through its steepest acceleration phase.
+            //
+            // When cascadeReady flips true, the content mounts
+            // with a single combined transition (opacity +
+            // upward slide + slight blur fade) that matches what
+            // the old opacity-only gate looked like, so the
+            // entrance still feels like a cascade rather than a
+            // jarring pop-in.
+            if presenter.cascadeReady {
+                HStack(alignment: .top, spacing: 8) {
+                    goalHeroCard
+                        .layoutPriority(2)
+                    VStack(spacing: 6) {
+                        timerStrip
+                        controlsStrip
+                        Spacer(minLength: 0)
+                    }
+                    // 2026-05-09 width fix: 180 → 220. Old width
+                    // forced the timer chip row to wrap. 220pt
+                    // fits the full row.
+                    .frame(width: 220)
                 }
-                // 2026-05-09 width fix: 180 → 220. Old width forced
-                // the timer chip row to wrap onto two lines (15m/25m
-                // top, 45m/90m/+ bottom) which read as "broken
-                // layout." 220pt fits the full row: ⏱ Timer prefix
-                // (~55pt) + 4 chips × ~30pt + 4 gaps × 6pt + "+"
-                // (~28pt) ≈ 235pt minus internal card padding.
-                .frame(width: 220)
+                .transition(.asymmetric(
+                    insertion: .opacity
+                        .combined(with: .offset(y: -16))
+                        .animation(cascadeAnimation),
+                    removal: .opacity
+                ))
             }
             Spacer(minLength: 0)
         }
@@ -4116,6 +4159,18 @@ struct LiveStudyDetailPanel: View {
     @AppStorage(SettingsKey.noxFocusMode) private var noxFocusMode: Bool = false
     @ObservedObject private var tracker = StudySessionTracker.shared
 
+    /// Cascade entrance curve — see the matching helper on
+    /// `LiveFocusDetailPanel`. Both dashboards gate their content
+    /// on `presenter.cascadeReady` with this animation so heavy
+    /// rendering stays out of the open-spring critical path.
+    private var cascadeAnimation: Animation {
+        if #available(macOS 14.0, *) {
+            return .snappy(duration: 0.32, extraBounce: 0.15)
+        } else {
+            return .interpolatingSpring(mass: 1.0, stiffness: 350, damping: 22)
+        }
+    }
+
     /// Pomodoro-style countdown timer for the active Study session.
     /// Same `SessionTimerService` class powering Focus's timer; the
     /// `.study` singleton has its own UserDefaults snapshot key and
@@ -4148,26 +4203,33 @@ struct LiveStudyDetailPanel: View {
         // right in above controlsStrip with the same shape Focus uses.
         VStack(alignment: .leading, spacing: 6) {
             backRow
-            HStack(alignment: .top, spacing: 8) {
-                goalHeroCard
-                    .layoutPriority(2)
-                VStack(spacing: 6) {
-                    // 2026-05-09: Study now has the same Pomodoro
-                    // timer strip Focus does — driven by
-                    // `SessionTimerService.study` (its own
-                    // UserDefaults snapshot, separate from Focus's).
-                    // Sits above the controls strip in parity with
-                    // the Focus dashboard's right column.
-                    timerStrip
-                    controlsStrip
-                    Spacer(minLength: 0)
+            // Lazy mount — see matching site in
+            // `LiveFocusDetailPanel.body` for full rationale.
+            // Keeps the StudyHero + 7 ring strip + timer strip
+            // OUT OF THE VIEW TREE until `cascadeReady` flips, so
+            // SwiftUI doesn't instantiate or lay out any of it
+            // during the panel.frame open spring's steepest
+            // phase. Mounts with a single combined transition
+            // when ready, matching the entrance feel of the
+            // earlier opacity-gated version but without paying
+            // its hidden cost.
+            if presenter.cascadeReady {
+                HStack(alignment: .top, spacing: 8) {
+                    goalHeroCard
+                        .layoutPriority(2)
+                    VStack(spacing: 6) {
+                        timerStrip
+                        controlsStrip
+                        Spacer(minLength: 0)
+                    }
+                    .frame(width: 220)
                 }
-                // Right-column width 180 → 220 to fit the timer
-                // chip row in one line (matches the Focus panel's
-                // sizing). Without the bump, the Timer prefix +
-                // four chips + custom button forced a two-line
-                // wrap that read as broken layout.
-                .frame(width: 220)
+                .transition(.asymmetric(
+                    insertion: .opacity
+                        .combined(with: .offset(y: -16))
+                        .animation(cascadeAnimation),
+                    removal: .opacity
+                ))
             }
             Spacer(minLength: 0)
         }

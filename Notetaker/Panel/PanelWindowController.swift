@@ -1508,6 +1508,7 @@ final class PanelWindowController {
     }
 
     func show(mode: OpenMode = .click) {
+        MediaRemoteAdapterService.fileLog("PANEL show() ENTRY — mode=\(mode) isVisible=\(isVisible) panel.isVisible=\(panel.isVisible) panel.alpha=\(panel.alphaValue) presenter.isShown=\(presenter.isShown) presenter.isResting=\(presenter.isResting) frame=\(Int(panel.frame.width))x\(Int(panel.frame.height))")
         // Clear any in-flight tease state — we're going to a full open
         // now, so the tease has served its purpose. If show() was called
         // from a non-tease entry point (click, hotkey), this is a no-op.
@@ -1623,8 +1624,31 @@ final class PanelWindowController {
         // flight, animateOpen blends from the panel's current
         // moving frame to slab without a visible jump.
         panel.alphaValue = 1
+        // 2026-05-13 desync fix. With rapid-fire hover/click events
+        // (e.g. an automation tool like Codex moving the cursor
+        // through the notch hot zone many times per second), hide()
+        // animations get interrupted by the next show() before they
+        // complete. The interrupted hide() leaves
+        //   • presenter.isShown = false           (set synchronously)
+        //   • controller.isVisible = false        (set synchronously)
+        //   • panel frame stuck at slab geometry  (animation didn't finish)
+        //   • panel.isVisible still true          (orderOut never ran)
+        // The next show() then sees `panel.isVisible == true` and
+        // SKIPS the setFrame(hiddenStart) call, so animateOpen has no
+        // clean starting frame to morph from. The slab→slab "morph"
+        // is invisible and one of the racing isShown flips can leave
+        // content stuck at opacity 0 → user sees a black slab with
+        // no content (the bug shown in screenshots).
+        //
+        // Recovery: when the desync is detected, force the frame back
+        // to hiddenStart so animateOpen has a clean starting point.
+        // Diagnostic logged so we can see frequency in /tmp/nox-mra.log.
+        let hiddenStart = notchHiddenFrame(for: screen)
         if !panel.isVisible {
-            let hiddenStart = notchHiddenFrame(for: screen)
+            panel.setFrame(hiddenStart, display: false)
+        } else if !isVisible {
+            // Desync — controller says hidden but NSWindow says visible
+            MediaRemoteAdapterService.fileLog("PANEL desync recovery — controller.isVisible=false but panel.isVisible=true, forcing frame to hiddenStart")
             panel.setFrame(hiddenStart, display: false)
         }
         // Deliberately NOT writing `presenter.isShown = false` here.
@@ -1719,6 +1743,62 @@ final class PanelWindowController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
             guard let self, self.animationGeneration == cascadeGen else { return }
             self.presenter.cascadeReady = true
+        }
+        // 2026-05-12 — safety net for the cascadeReady race the user
+        // reported as "sometimes the slab opens like this for no
+        // reason" (a black rounded rectangle on screen, no content
+        // inside).
+        //
+        // The 30ms flip above is gated on `animationGeneration ==
+        // cascadeGen` so a fresh open/morph started in the meantime
+        // can't be undone by a stale closure. But there are five
+        // `animationGeneration &+= 1` sites in this file (animateOpen
+        // + four morph paths for track-banner, volume-banner, drop-
+        // picker, etc.). If any of them fires between the schedule
+        // above and the 30ms async fire, the gated flip bails — and
+        // `cascadeReady` stays `false` while the panel is fully open
+        // at slab geometry. Every content branch in the body
+        // (`header`, `segmented`, `divider`, `content`) is
+        // `.opacity(presenter.cascadeReady ? 1 : 0)`, so the result
+        // is a fully-painted black panel chrome with the entire
+        // SwiftUI content tree invisible underneath.
+        //
+        // This second timer is a belt-and-suspenders forced flip
+        // at 200ms — far enough past the spring's worst-case
+        // settle that we don't compete with the intended cascade,
+        // but soon enough that a racing user doesn't have to
+        // close-and-reopen to recover. NSLog so we can spot the
+        // frequency in Console.app if this turns out to be a
+        // systemic bug worth root-causing instead of just
+        // catching.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { [weak self] in
+            guard let self else { return }
+            // 2026-05-13 — diagnostic + broader recovery. First fix
+            // only forced cascadeReady=true and was gated on isShown.
+            // The bug recurred on 1.9.18, so either isShown is also
+            // stuck false (gate bails) or there's a third state we
+            // haven't found yet. Log everything unconditionally so a
+            // reproduction in Console.app pinpoints which flag is the
+            // real cause, and recover from BOTH the cascadeReady and
+            // isShown stuck-false cases.
+            let f = self.panel.frame
+            let s = self.presenter
+            MediaRemoteAdapterService.fileLog("PANEL post-show 200ms — isShown=\(s.isShown) cascadeReady=\(s.cascadeReady) dropPickerActive=\(s.dropPickerActive) isMorphing=\(s.isMorphing) isResting=\(s.isResting) isAtNotchHidden=\(s.isAtNotchHidden) activeTab=\(s.activeTab) panel.alpha=\(self.panel.alphaValue) panel.isVisible=\(self.panel.isVisible) contentView=\(self.panel.contentView != nil ? "set" : "NIL") frame=\(Int(f.width))x\(Int(f.height))")
+            // Recovery 1: if frame is at slab geometry (taller than
+            // any pill/banner, ~80pt) but isShown is false, the panel
+            // is visually open with content hidden by line 1145's
+            // `isShown ? ... : 0` opacity gate. Force isShown=true to
+            // match what the user sees.
+            if f.height > 80 && !s.isShown {
+                MediaRemoteAdapterService.fileLog("PANEL safety net — frame at slab (\(Int(f.height))pt) but isShown=false, forcing true")
+                s.isShown = true
+            }
+            // Recovery 2 (original): if shown but cascade still false,
+            // the music/Live tab children are at opacity 0. Force.
+            if s.isShown && !s.cascadeReady {
+                MediaRemoteAdapterService.fileLog("PANEL safety net — cascadeReady stuck false, forcing true")
+                s.cascadeReady = true
+            }
         }
 
         clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -1902,6 +1982,7 @@ final class PanelWindowController {
     }
 
     func hide() {
+        MediaRemoteAdapterService.fileLog("PANEL hide() ENTRY — isVisible=\(isVisible) panel.isVisible=\(panel.isVisible) panel.alpha=\(panel.alphaValue) presenter.isShown=\(presenter.isShown) presenter.isResting=\(presenter.isResting) frame=\(Int(panel.frame.width))x\(Int(panel.frame.height))")
         NSLog("nox: hide() called, isVisible=\(isVisible)")
         guard isVisible else { return }
         // Snapshot the clipboard so the next show() can tell whether
@@ -1966,11 +2047,33 @@ final class PanelWindowController {
         // mirrored in the animateClose completion handler so the
         // post-close state is consistent. Without an anchor, we
         // sink into the hardware notch (notchHiddenFrame).
-        let noxQuiet = UserDefaults.standard.bool(forKey: "noxFocusMode")
-        let noxStudy = UserDefaults.standard.bool(forKey: "noxStudyMode")
-        let pillAnchored = presenter.nowPlaying != nil
-            || presenter.isFocused
-            || noxQuiet || noxStudy
+        // 2026-05-11 bug fix: this site used to maintain its own
+        // local copy of the anchor predicate —
+        //
+        //   nowPlaying != nil || isFocused || noxQuiet || noxStudy
+        //
+        // — which drifted out of sync with `pillHasAnyAnchor()` after
+        // the stale-MR-cache fix (the canonical helper now also
+        // requires `isAudioFlowing` to gate the music anchor). With
+        // the stale local copy, closing the panel after music
+        // silently stopped (Chrome tab closed mid-song, AirPods
+        // disconnected, etc.) treated the sticky `nowPlaying`
+        // cache as a live anchor and landed the close at
+        // closedPillFrame — leaving a 278pt-wide silhouette with no
+        // content inside, visible as a dark band beside the notch.
+        //
+        // Now: delegate to the single source of truth so every
+        // future anchor-rule change applies here automatically.
+        // Falls back to the local predicate only if AppDelegate
+        // isn't reachable (which would mean the app is mid-tear-
+        // down anyway).
+        let pillAnchored: Bool = AppDelegate.shared?.pillHasAnyAnchor() ?? {
+            let noxQuiet = UserDefaults.standard.bool(forKey: "noxFocusMode")
+            let noxStudy = UserDefaults.standard.bool(forKey: "noxStudyMode")
+            return presenter.nowPlaying?.isPlaying == true
+                || presenter.isFocused
+                || noxQuiet || noxStudy
+        }()
         // Make sure isResting reflects whether the close should
         // land at the resting pill. If quiet mode flipped on
         // while the slab was open and no other anchor existed,
@@ -3216,19 +3319,22 @@ final class PanelWindowController {
             // there's no visible silhouette below the menu bar, so
             // the user's experience is identical to "panel hidden,"
             // but AppKit knows the window is alive.
-            let hasMusic = self.presenter.nowPlaying != nil
-            // 2026-05-08: extended the "stay at resting pill"
-            // anchor list to include nox's own quiet mode and
-            // macOS Focus. Previously only `hasMusic` kept the
-            // pill visible after a close; user feedback said the
-            // pill collapsed to notch-hidden when they had quiet
-            // mode on with no music — defeating the persistent
-            // visual reminder. Now any of these three reasons
-            // anchors the pill: music, macOS Focus, nox quiet
-            // mode.
-            let noxQuiet = UserDefaults.standard.bool(forKey: "noxFocusMode")
-        let noxStudy = UserDefaults.standard.bool(forKey: "noxStudyMode")
-            let pillAnchored = hasMusic || self.presenter.isFocused || noxQuiet || noxStudy
+            // 2026-05-11: replaced the local anchor predicate with
+            // a call into `AppDelegate.pillHasAnyAnchor()` — see
+            // matching site at line ~2005 in `hide()` for the full
+            // bug history. Same drift problem: local copy used
+            // `nowPlaying != nil` (sticky cache) instead of
+            // `nowPlaying?.isPlaying == true && isAudioFlowing`,
+            // which left the panel parked at closedPillFrame
+            // when the music actually stopped silently — visible
+            // as a dark band beside the notch with no content
+            // inside the wings.
+            let pillAnchored: Bool = AppDelegate.shared?.pillHasAnyAnchor() ?? {
+                let hasMusicLive = self.presenter.nowPlaying?.isPlaying == true
+                let noxQuiet = UserDefaults.standard.bool(forKey: "noxFocusMode")
+                let noxStudy = UserDefaults.standard.bool(forKey: "noxStudyMode")
+                return hasMusicLive || self.presenter.isFocused || noxQuiet || noxStudy
+            }()
             self.panel.setFrame(target, display: true)
             if !(self.presenter.isResting && pillAnchored) {
                 // No anchor: panel STAYS visible at notch-hidden
