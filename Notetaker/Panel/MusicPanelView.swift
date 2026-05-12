@@ -586,22 +586,22 @@ struct MusicPanelView: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(.white.opacity(isActive ? 0.105 : 0.055))
+                .fill(.white.opacity(isActive ? 0.085 : 0.045))
                 .overlay(
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .strokeBorder(
                             isActive
-                                ? DS.Color.accent.opacity(0.38)
-                                : .white.opacity(0.12),
+                                ? DS.Color.accent.opacity(0.30)
+                                : .white.opacity(0.09),
                             lineWidth: 0.5
                         )
                 )
         )
         .shadow(
-            color: isActive ? DS.Color.accent.opacity(0.18) : Color.black.opacity(0.20),
-            radius: isActive ? 10 : 4,
+            color: isActive ? DS.Color.accent.opacity(0.12) : Color.clear,
+            radius: isActive ? 8 : 0,
             x: 0,
-            y: isActive ? 4 : 2
+            y: isActive ? 3 : 0
         )
         .animation(.easeInOut(duration: 0.18), value: isActive)
     }
@@ -651,33 +651,22 @@ struct MusicPanelView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(
-                ZStack {
-                    if let image = displayedArtworkImage {
-                        Image(nsImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .blur(radius: 28, opaque: true)
-                            .opacity(0.16)
-                            .scaleEffect(1.25)
-                    }
-
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.105),
-                            Color.white.opacity(0.045),
-                            Color.black.opacity(0.18)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+                RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.070),
+                                Color.white.opacity(0.036)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     )
-                }
-                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.135), lineWidth: 0.6)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
             )
-            .shadow(color: Color.black.opacity(0.32), radius: 14, x: 0, y: 8)
     }
 
     /// Artwork-color tint that flows FROM THE TOP and dissolves
@@ -743,12 +732,6 @@ struct MusicPanelView: View {
     // alive" tell.
 
     private var infoRow: some View {
-        // Resolve nowPlaying once so we don't re-traverse the
-        // optional chain four times in this row's body. Cheap, but
-        // also gives us a single place to read the artwork data and
-        // hand it to ArtworkColor — the cache will short-circuit the
-        // duplicate calls regardless, but this is clearer.
-        let info = presenter.nowPlaying
         // Text snaps to new values directly from `presenter.nowPlaying`.
         // We tried decoupled `displayedTitle/Artist/Album` state with
         // a fade-and-slide modifier on the text block, but the user
@@ -2381,9 +2364,9 @@ private struct MusicControlButton: View {
                         .fill(
                             LinearGradient(
                                 colors: [
-                                    Color.white.opacity(isPressed ? 0.30 : isHovered ? 0.25 : 0.20),
-                                    accent.opacity(isPressed ? 0.50 : isHovered ? 0.44 : 0.36),
-                                    Color.black.opacity(0.16)
+                                    Color.white.opacity(isPressed ? 0.26 : isHovered ? 0.21 : 0.17),
+                                    accent.opacity(isPressed ? 0.42 : isHovered ? 0.34 : 0.28),
+                                    Color.black.opacity(0.24)
                                 ],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
@@ -2391,9 +2374,9 @@ private struct MusicControlButton: View {
                         )
                         .overlay(
                             Circle()
-                                .strokeBorder(Color.white.opacity(0.16), lineWidth: 0.6)
+                                .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.6)
                         )
-                        .shadow(color: accent.opacity(isHovered ? 0.38 : 0.22), radius: isHovered ? 14 : 8)
+                        .shadow(color: accent.opacity(isHovered ? 0.24 : 0.14), radius: isHovered ? 10 : 6)
                 } else {
                     // Resting state for prev/next: subtle white
                     // halo at 6% opacity so the buttons read as
@@ -2409,14 +2392,14 @@ private struct MusicControlButton: View {
                     Circle()
                         .fill(
                             isPressed
-                                ? accent.opacity(0.30)
+                                ? accent.opacity(0.22)
                                 : isHovered
-                                    ? Color.white.opacity(0.12)
-                                    : Color.white.opacity(0.075)
+                                    ? Color.white.opacity(0.095)
+                                    : Color.white.opacity(0.060)
                         )
                         .overlay(
                             Circle()
-                                .strokeBorder(Color.white.opacity(isHovered ? 0.14 : 0.075), lineWidth: 0.5)
+                                .strokeBorder(Color.white.opacity(isHovered ? 0.11 : 0.065), lineWidth: 0.5)
                         )
                 }
 

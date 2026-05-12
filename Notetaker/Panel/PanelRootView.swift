@@ -3582,14 +3582,11 @@ struct PanelRootView: View {
 
     private var panelBackground: some View {
         ZStack {
-            VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
-                .opacity(presenter.isShown ? 0.55 : 0)
-
             LinearGradient(
                 stops: [
-                    .init(color: Color.black.opacity(0.94), location: 0.00),
-                    .init(color: Color(red: 0.035, green: 0.035, blue: 0.040).opacity(0.96), location: 0.48),
-                    .init(color: Color.black.opacity(0.98), location: 1.00),
+                    .init(color: Color.black, location: 0.00),
+                    .init(color: Color(red: 0.018, green: 0.018, blue: 0.020), location: 0.46),
+                    .init(color: Color.black, location: 1.00),
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -3597,9 +3594,9 @@ struct PanelRootView: View {
 
             LinearGradient(
                 colors: [
-                    Color.white.opacity(presenter.isShown ? 0.055 : 0),
+                    Color.white.opacity(presenter.isShown ? 0.026 : 0),
                     Color.clear,
-                    DS.Color.brandLavender.opacity(presenter.isShown ? 0.035 : 0)
+                    DS.Color.brandLavender.opacity(presenter.isShown ? 0.018 : 0)
                 ],
                 startPoint: .top,
                 endPoint: .bottomTrailing
@@ -3619,9 +3616,9 @@ struct PanelRootView: View {
             .stroke(
                 LinearGradient(
                     colors: [
-                        Color.white.opacity(0.16),
+                        Color.white.opacity(0.10),
                         Color.white.opacity(0.045),
-                        DS.Color.brandLavender.opacity(0.10)
+                        DS.Color.brandLavender.opacity(0.08)
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
@@ -3782,7 +3779,7 @@ struct PanelRootView: View {
     /// with per-icon backgrounds, the active tab is signaled by
     /// a brighter gradient + opaque glyph instead.
     private var segmented: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 20) {
             ForEach(presenter.visibleTabs) { tab in
                 ScribbleTabButton(
                     tab: tab,
@@ -3792,17 +3789,8 @@ struct PanelRootView: View {
                 }
             }
         }
-        .padding(4)
-        .background(
-            Capsule()
-                .fill(Color.white.opacity(0.055))
-                .overlay(
-                    Capsule()
-                        .strokeBorder(Color.white.opacity(0.075), lineWidth: 0.5)
-                )
-        )
         .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.vertical, 2)
+        .padding(.vertical, 6)
         .animation(.selection, value: presenter.visibleTabs)
     }
 
@@ -4216,21 +4204,19 @@ private struct ScribbleTabButton: View {
 
     var body: some View {
         Button(action: action) {
-            Text(tab.title.lowercased())
-                .font(.system(size: 12.5, weight: isSelected ? .semibold : .medium))
-                .foregroundStyle(textColor)
-                .fixedSize()
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule()
-                        .fill(backgroundFill)
-                        .overlay(
-                            Capsule()
-                                .strokeBorder(borderColor, lineWidth: 0.5)
-                        )
-                )
-                .contentShape(Capsule())
+            VStack(spacing: 4) {
+                Text(tab.title.lowercased())
+                    .font(.system(size: 12.5, weight: isSelected ? .semibold : .medium))
+                    .foregroundStyle(textColor)
+                    .fixedSize()
+
+                Capsule()
+                    .fill(DS.Color.brandLavender.opacity(isSelected ? 0.95 : 0))
+                    .frame(width: isSelected ? 28 : 0, height: 3)
+            }
+            .padding(.horizontal, 2)
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(tab.title)
@@ -4245,16 +4231,6 @@ private struct ScribbleTabButton: View {
     private var textColor: Color {
         if isSelected { return Color.white.opacity(0.96) }
         return isHovered ? Color.white.opacity(0.82) : Color.white.opacity(0.45)
-    }
-
-    private var backgroundFill: Color {
-        if isSelected { return Color.white.opacity(0.13) }
-        return isHovered ? Color.white.opacity(0.075) : Color.clear
-    }
-
-    private var borderColor: Color {
-        if isSelected { return Color.white.opacity(0.13) }
-        return isHovered ? Color.white.opacity(0.08) : Color.clear
     }
 }
 
