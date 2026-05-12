@@ -3763,23 +3763,11 @@ struct PanelRootView: View {
 
     // MARK: - Segmented
 
-    /// Dock tab bar — per-icon rounded-square buttons inside a
-    /// rounded pill. 2026-04-29 redesign per user reference shot:
-    /// each tab is its OWN rounded-square button (12pt radius)
-    /// with a top-to-bottom dark gradient, hairline white ring,
-    /// and a soft drop shadow. Hover lifts the button -2pt and
-    /// scales 1.05× — same micro-affordance the macOS Tahoe Dock
-    /// and the reference Tailwind code use.
-    ///
-    /// Outer pill stays as a frosted Capsule so the bar still
-    /// reads as a single unit; spacing between icons bumps up to
-    /// 8pt so each square reads as a discrete affordance rather
-    /// than a row of cells in a single segmented control. The
-    /// matchedGeometryEffect "sliding active disc" is gone —
-    /// with per-icon backgrounds, the active tab is signaled by
-    /// a brighter gradient + opaque glyph instead.
+    /// Dark segmented tab rail. The panel stays matte-black, but
+    /// the tabs get a tactile macOS control surface: recessed rail,
+    /// raised active segment, muted inactive labels.
     private var segmented: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 8) {
             ForEach(presenter.visibleTabs) { tab in
                 ScribbleTabButton(
                     tab: tab,
@@ -3789,8 +3777,44 @@ struct PanelRootView: View {
                 }
             }
         }
+        .padding(5)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.030, green: 0.030, blue: 0.034),
+                            Color(red: 0.010, green: 0.010, blue: 0.012)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.075), lineWidth: 0.6)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .strokeBorder(Color.black.opacity(0.55), lineWidth: 1.0)
+                        .blur(radius: 1.4)
+                        .offset(y: 1)
+                        .mask(
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Color.clear, Color.black],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                )
+                        )
+                )
+                .shadow(color: Color.black.opacity(0.36), radius: 12, x: 0, y: 7)
+        )
+        .fixedSize(horizontal: true, vertical: false)
         .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.vertical, 6)
+        .padding(.vertical, 4)
         .animation(.selection, value: presenter.visibleTabs)
     }
 
@@ -4204,19 +4228,14 @@ private struct ScribbleTabButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 4) {
-                Text(tab.title.lowercased())
-                    .font(.system(size: 12.5, weight: isSelected ? .semibold : .medium))
-                    .foregroundStyle(textColor)
-                    .fixedSize()
-
-                Capsule()
-                    .fill(DS.Color.brandLavender.opacity(isSelected ? 0.95 : 0))
-                    .frame(width: isSelected ? 28 : 0, height: 3)
-            }
-            .padding(.horizontal, 2)
-            .padding(.vertical, 3)
-            .contentShape(Rectangle())
+            Text(tab.title.lowercased())
+                .font(.system(size: 12.5, weight: isSelected ? .semibold : .medium))
+                .foregroundStyle(textColor)
+                .fixedSize()
+                .frame(width: tabWidth, height: 32)
+                .background(segmentBackground)
+                .overlay(segmentRim)
+                .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(tab.title)
@@ -4230,7 +4249,64 @@ private struct ScribbleTabButton: View {
 
     private var textColor: Color {
         if isSelected { return Color.white.opacity(0.96) }
-        return isHovered ? Color.white.opacity(0.82) : Color.white.opacity(0.45)
+        return isHovered ? Color.white.opacity(0.78) : Color.white.opacity(0.50)
+    }
+
+    private var tabWidth: CGFloat {
+        switch tab {
+        case .music: return 72
+        case .notes, .files: return 72
+        case .images, .videos, .script: return 82
+        }
+    }
+
+    @ViewBuilder
+    private var segmentBackground: some View {
+        if isSelected {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.18),
+                            DS.Color.brandLavender.opacity(0.16),
+                            Color.black.opacity(0.20)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .shadow(color: DS.Color.brandLavender.opacity(0.26), radius: 7, x: 0, y: 0)
+                .shadow(color: Color.black.opacity(0.34), radius: 7, x: 0, y: 4)
+        } else if isHovered {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.045))
+                .shadow(color: Color.black.opacity(0.20), radius: 5, x: 0, y: 2)
+        } else {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.clear)
+        }
+    }
+
+    @ViewBuilder
+    private var segmentRim: some View {
+        if isSelected {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.24),
+                            DS.Color.brandLavender.opacity(0.62),
+                            DS.Color.brandLavender.opacity(0.24)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.8
+                )
+        } else if isHovered {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.6)
+        }
     }
 }
 
