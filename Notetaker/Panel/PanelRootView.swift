@@ -3767,7 +3767,7 @@ struct PanelRootView: View {
     /// the tabs get a tactile macOS control surface: recessed rail,
     /// raised active segment, muted inactive labels.
     private var segmented: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 5) {
             ForEach(presenter.visibleTabs) { tab in
                 ScribbleTabButton(
                     tab: tab,
@@ -3777,13 +3777,13 @@ struct PanelRootView: View {
                 }
             }
         }
-        .padding(5)
+        .padding(4)
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: 19, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color(red: 0.030, green: 0.030, blue: 0.034),
+                            Color(red: 0.026, green: 0.026, blue: 0.030),
                             Color(red: 0.010, green: 0.010, blue: 0.012)
                         ],
                         startPoint: .top,
@@ -3791,16 +3791,16 @@ struct PanelRootView: View {
                     )
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.075), lineWidth: 0.6)
+                    RoundedRectangle(cornerRadius: 19, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.065), lineWidth: 0.6)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .strokeBorder(Color.black.opacity(0.55), lineWidth: 1.0)
-                        .blur(radius: 1.4)
+                    RoundedRectangle(cornerRadius: 19, style: .continuous)
+                        .strokeBorder(Color.black.opacity(0.45), lineWidth: 0.8)
+                        .blur(radius: 1.1)
                         .offset(y: 1)
                         .mask(
-                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            RoundedRectangle(cornerRadius: 19, style: .continuous)
                                 .fill(
                                     LinearGradient(
                                         colors: [Color.clear, Color.black],
@@ -3810,11 +3810,11 @@ struct PanelRootView: View {
                                 )
                         )
                 )
-                .shadow(color: Color.black.opacity(0.36), radius: 12, x: 0, y: 7)
+                .shadow(color: Color.black.opacity(0.28), radius: 8, x: 0, y: 4)
         )
-        .fixedSize(horizontal: true, vertical: false)
+        .fixedSize(horizontal: true, vertical: true)
         .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.vertical, 4)
+        .padding(.vertical, 3)
         .animation(.selection, value: presenter.visibleTabs)
     }
 
@@ -4232,10 +4232,10 @@ private struct ScribbleTabButton: View {
                 .font(.system(size: 12.5, weight: isSelected ? .semibold : .medium))
                 .foregroundStyle(textColor)
                 .fixedSize()
-                .frame(width: tabWidth, height: 32)
+                .frame(width: tabWidth, height: 28)
                 .background(segmentBackground)
                 .overlay(segmentRim)
-                .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(tab.title)
@@ -4254,35 +4254,37 @@ private struct ScribbleTabButton: View {
 
     private var tabWidth: CGFloat {
         switch tab {
-        case .music: return 72
-        case .notes, .files: return 72
-        case .images, .videos, .script: return 82
+        case .music: return 60
+        case .notes: return 64
+        case .images, .videos: return 74
+        case .files: return 58
+        case .script: return 66
         }
     }
 
     @ViewBuilder
     private var segmentBackground: some View {
         if isSelected {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color.white.opacity(0.18),
-                            DS.Color.brandLavender.opacity(0.16),
-                            Color.black.opacity(0.20)
+                            Color.white.opacity(0.13),
+                            DS.Color.brandLavender.opacity(0.12),
+                            Color.black.opacity(0.24)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
-                .shadow(color: DS.Color.brandLavender.opacity(0.26), radius: 7, x: 0, y: 0)
-                .shadow(color: Color.black.opacity(0.34), radius: 7, x: 0, y: 4)
+                .shadow(color: DS.Color.brandLavender.opacity(0.18), radius: 5, x: 0, y: 0)
+                .shadow(color: Color.black.opacity(0.26), radius: 5, x: 0, y: 3)
         } else if isHovered {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.white.opacity(0.045))
-                .shadow(color: Color.black.opacity(0.20), radius: 5, x: 0, y: 2)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(0.035))
+                .shadow(color: Color.black.opacity(0.16), radius: 4, x: 0, y: 2)
         } else {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.clear)
         }
     }
@@ -4290,13 +4292,13 @@ private struct ScribbleTabButton: View {
     @ViewBuilder
     private var segmentRim: some View {
         if isSelected {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(
                     LinearGradient(
                         colors: [
-                            Color.white.opacity(0.24),
-                            DS.Color.brandLavender.opacity(0.62),
-                            DS.Color.brandLavender.opacity(0.24)
+                            Color.white.opacity(0.18),
+                            DS.Color.brandLavender.opacity(0.48),
+                            DS.Color.brandLavender.opacity(0.20)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -4304,8 +4306,8 @@ private struct ScribbleTabButton: View {
                     lineWidth: 0.8
                 )
         } else if isHovered {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.6)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.07), lineWidth: 0.6)
         }
     }
 }
