@@ -433,6 +433,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// applicationWillTerminate runs on the main actor, which is
     /// the right thread for the CGEvent / Carbon teardown calls.
     func applicationWillTerminate(_ notification: Notification) {
+        PerformanceProbe.shared.stop()
         dictationOrchestrator?.stop()
     }
 
@@ -649,6 +650,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // the hardware cutout = visually invisible, but the
             // window is alive and registered for dragged types.
             panelController?.parkAtNotchHidden()
+            if let panelController {
+                PerformanceProbe.shared.setContextProvider { [weak panelController] in
+                    panelController?.performanceContext ?? "panel=deallocated"
+                }
+                PerformanceProbe.shared.setActiveProvider { [weak panelController] in
+                    panelController?.performanceProbeActive ?? false
+                }
+                PerformanceProbe.shared.start()
+                PerformanceProbe.shared.mark("APP_PANEL_READY")
+            }
             // Eagerly warm up the on-device Whisper model. Two paths
             // converge here:
             //   • New install where the user TAPPED Download in the

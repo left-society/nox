@@ -428,6 +428,25 @@ final class PanelWindowController {
         )
     }
 
+    var performanceContext: String {
+        [
+            "tab=\(presenter.activeTab.rawValue)",
+            "visible=\(isVisible)",
+            "panelVisible=\(panel.isVisible)",
+            "shown=\(presenter.isShown)",
+            "resting=\(presenter.isResting)",
+            "morphing=\(presenter.isMorphing)",
+            "cascade=\(presenter.cascadeReady)",
+            "notchHidden=\(presenter.isAtNotchHidden)",
+            "alpha=\(String(format: "%.2f", panel.alphaValue))",
+            "frame=\(performanceFrameString(panel.frame))"
+        ].joined(separator: ";")
+    }
+
+    var performanceProbeActive: Bool {
+        isVisible || isTeasing || presenter.isShown || presenter.isMorphing || presenter.cascadeReady || presenter.isResting
+    }
+
     private let panel: NSPanel
     /// Exposed (read-only) so AppDelegate can wire external observers
     /// into the panel's published state — specifically, NotchOrchestrator's
@@ -545,6 +564,10 @@ final class PanelWindowController {
     private var airDropDelegate: AirDropShareDelegate?
 
     weak var menuBarController: MenuBarController?
+
+    private func performanceFrameString(_ rect: NSRect) -> String {
+        "\(Int(rect.width))x\(Int(rect.height))@\(Int(rect.minX)),\(Int(rect.minY))"
+    }
 
     // MARK: - Multi-display state
     //
@@ -1509,6 +1532,9 @@ final class PanelWindowController {
 
     func show(mode: OpenMode = .click) {
         MediaRemoteAdapterService.fileLog("PANEL show() ENTRY — mode=\(mode) isVisible=\(isVisible) panel.isVisible=\(panel.isVisible) panel.alpha=\(panel.alphaValue) presenter.isShown=\(presenter.isShown) presenter.isResting=\(presenter.isResting) frame=\(Int(panel.frame.width))x\(Int(panel.frame.height))")
+        PerformanceProbe.shared.mark("PANEL_SHOW_ENTRY", metadata: [
+            "mode": "\(mode)"
+        ])
         // Clear any in-flight tease state — we're going to a full open
         // now, so the tease has served its purpose. If show() was called
         // from a non-tease entry point (click, hotkey), this is a no-op.
@@ -1983,6 +2009,7 @@ final class PanelWindowController {
 
     func hide() {
         MediaRemoteAdapterService.fileLog("PANEL hide() ENTRY — isVisible=\(isVisible) panel.isVisible=\(panel.isVisible) panel.alpha=\(panel.alphaValue) presenter.isShown=\(presenter.isShown) presenter.isResting=\(presenter.isResting) frame=\(Int(panel.frame.width))x\(Int(panel.frame.height))")
+        PerformanceProbe.shared.mark("PANEL_HIDE_ENTRY")
         NSLog("nox: hide() called, isVisible=\(isVisible)")
         guard isVisible else { return }
         // Snapshot the clipboard so the next show() can tell whether
@@ -2943,6 +2970,11 @@ final class PanelWindowController {
         let screen = panel.screen ?? activeScreen
         let target = openSlabFrame(for: screen, tab: newTab)
         if panel.frame == target { return }
+        let targetPerformanceFrame = performanceFrameString(target)
+        PerformanceProbe.shared.mark("PANEL_TAB_RESIZE_START", metadata: [
+            "tab": newTab.rawValue,
+            "target": targetPerformanceFrame
+        ])
 
         // Bump the generation token so any in-flight open/close
         // completion handlers from before the tab change skip their
@@ -2964,6 +2996,12 @@ final class PanelWindowController {
             guard let self, self.animationGeneration == myGen else { return }
             // Sub-pixel snap to defeat any Core Animation residual.
             self.panel.setFrame(target, display: true)
+            Task { @MainActor in
+                PerformanceProbe.shared.mark("PANEL_TAB_RESIZE_END", metadata: [
+                    "tab": newTab.rawValue,
+                    "target": targetPerformanceFrame
+                ])
+            }
         })
     }
 
@@ -3057,6 +3095,9 @@ final class PanelWindowController {
     private func animateOpen(to target: NSRect) {
         animationGeneration &+= 1
         let myGen = animationGeneration
+        PerformanceProbe.shared.mark("PANEL_OPEN_ANIMATE_START", metadata: [
+            "target": performanceFrameString(target)
+        ])
 
         // 2026-05-06: HALT IN-FLIGHT NSANIMATIONCONTEXT before
         // starting the spring. Root cause of the "double opening"
@@ -3168,6 +3209,9 @@ final class PanelWindowController {
             self.updateShadowPath()
             self.currentSpring = nil
             self.presenter.isMorphing = false
+            PerformanceProbe.shared.mark("PANEL_OPEN_ANIMATE_END", metadata: [
+                "target": self.performanceFrameString(target)
+            ])
         }
     }
 
@@ -3229,6 +3273,10 @@ final class PanelWindowController {
         let isNotchHiddenTarget =
             abs(target.height - notchOnly) < halo / 2 &&
             target.width < widthMidpoint
+        PerformanceProbe.shared.mark("PANEL_CLOSE_ANIMATE_START", metadata: [
+            "target": performanceFrameString(target),
+            "targetKind": isNotchHiddenTarget ? "notchHidden" : "pill"
+        ])
 
         // Close spring calibrated against PIXEL-LEVEL measurement of
         // Alcove's close (frames 2150-2190 in /Users/apple/Downloads/
@@ -3295,6 +3343,10 @@ final class PanelWindowController {
             }
             self.currentSpring = nil
             self.presenter.isMorphing = false
+            PerformanceProbe.shared.mark("PANEL_CLOSE_ANIMATE_END", metadata: [
+                "target": self.performanceFrameString(target),
+                "targetKind": isNotchHiddenTarget ? "notchHidden" : "pill"
+            ])
             // ALWAYS keep the panel visible at the close target.
             //
             // Why: AppKit drag-and-drop tracks destination windows
