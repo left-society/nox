@@ -1,5 +1,5 @@
 import XCTest
-@testable import Notetaker
+@testable import nox
 
 @MainActor
 final class FileStoreTests: XCTestCase {

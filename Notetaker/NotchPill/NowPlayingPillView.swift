@@ -143,7 +143,8 @@ struct NowPlayingPillView: View {
                 // open slab. Falls back to white when artwork hasn't
                 // loaded yet so the pill never goes invisibly dark.
                 tint: ArtworkColor.dominant(from: info.artworkData) ?? .white,
-                opacity: 0.95
+                opacity: 0.95,
+                isCompactResting: true
             )
         }
         .padding(.horizontal, 6)

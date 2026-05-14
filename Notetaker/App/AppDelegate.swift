@@ -2537,43 +2537,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("nox: handleNewScreenshot bail — env or panel nil")
             return
         }
-        guard let data = try? Data(contentsOf: url) else {
-            NSLog("nox: handleNewScreenshot bail — couldn't read data at \(url.path)")
-            return
-        }
         let mime = Self.mime(forExtension: url.pathExtension.lowercased())
 
         let now = Date().timeIntervalSince1970
         recentScreenshots.removeAll { now - $0.time > burstWindow }
-
-        // === FAST PATH: surface the pill BEFORE the save ===
-        // Earlier the order was save → setPendingSystemEvent, which
-        // made the pop wait on disk I/O even though the user already
-        // SAW the screenshot capture. Inverting it: derive the count
-        // from the burst window (+1 for THIS shot since we haven't
-        // appended yet), set the thumbnail, fire the pill, then do
-        // the save. Pill appears in the next render frame instead
-        // of after a couple I/O hops.
         let pendingCount = recentScreenshots.count + 1
-        // Real thumbnail in the pill. NSImage(data:) is a sync
-        // decode but for a typical screenshot (~1-3MB PNG) it's
-        // sub-50ms on Apple Silicon — well under the FSEvents
-        // latency we just paid to detect the file, so it doesn't
-        // add perceptible delay.
-        panel.presenter.lastScreenshotThumbnail = NSImage(data: data)
+
+        // === FAST PATH: pill goes up IMMEDIATELY, no I/O on main ===
+        // 2026-05-13 fix for "when a screenshot is saved and I open
+        // the thing it starts lagging."
+        //
+        // Old flow:
+        //   1. (main) Data(contentsOf: url)        ~5–20ms disk read
+        //   2. (main) NSImage(data: ...)           ~50–150ms PNG decode (Retina)
+        //   3. (main) set thumbnail + fire pill
+        //   4. (main) saveImageDeferred
+        //
+        // Steps 1–2 blocked main for 50–170ms. If the user pressed
+        // the hotkey to open the slab in that window, the open
+        // spring's first frames missed their vsync deadline and
+        // the entire morph stuttered — exactly the symptom the
+        // user reported.
+        //
+        // New flow:
+        //   1. (main) set thumbnail to nil so the pill paints with
+        //             the `camera.viewfinder` fallback glyph for
+        //             the first frame — instant, zero cost
+        //   2. (main) fire pill + haptic + system event
+        //   3. (detached) Data(contentsOf:) + NSImage(data:)
+        //   4. (main) hand the decoded thumbnail to the presenter
+        //             and kick off saveImageDeferred
+        //
+        // The pill swaps from camera glyph to real thumbnail
+        // ~80ms after the pop, which reads as a quick "captured →
+        // here it is" transition rather than a hitch. Slab opens
+        // during the window are now smooth because main is free.
+        panel.presenter.lastScreenshotThumbnail = nil
         panel.enterRestingMode()
         panel.presenter.setPendingSystemEvent(.screenshotSaved(count: pendingCount))
         HapticFeedback.generic()
 
-        // === Save (deferred) — happens after the user sees the pill ===
-        let id = env.imageStore.saveImageDeferred(
-            data: data,
-            mimeType: mime,
-            noteId: nil,
-            source: "screenshot",
-            expiresAt: nil
-        )
-        recentScreenshots.append((time: now, id: id))
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let data = try? Data(contentsOf: url) else {
+                NSLog("nox: handleNewScreenshot async — couldn't read data at \(url.path)")
+                return
+            }
+            let thumbnail = NSImage(data: data)
+            await MainActor.run {
+                guard let self else { return }
+                panel.presenter.lastScreenshotThumbnail = thumbnail
+                let id = env.imageStore.saveImageDeferred(
+                    data: data,
+                    mimeType: mime,
+                    noteId: nil,
+                    source: "screenshot",
+                    expiresAt: nil
+                )
+                self.recentScreenshots.append((time: now, id: id))
+            }
+        }
     }
 
     /// Inspect a copied string and return a URL iff it looks like
@@ -2714,10 +2736,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if Self.pasteboardHasExplicitImage(pb),
            let (imageData, mime) = ImageDropExtractor.extract(from: pb) {
             let pendingCount = recentScreenshots.count + 1
-            panel.presenter.lastScreenshotThumbnail = NSImage(data: imageData)
+            // 2026-05-13: same main-thread-decode fix as
+            // handleNewScreenshot — paint the pill with the
+            // fallback glyph for one frame, decode the
+            // NSImage off-main, swap in once ready. Avoids
+            // the 50–150ms main-thread block during which a
+            // racing slab open would stutter.
+            panel.presenter.lastScreenshotThumbnail = nil
             panel.enterRestingMode()
             panel.presenter.setPendingSystemEvent(.screenshotSaved(count: pendingCount))
             HapticFeedback.generic()
+            Task.detached(priority: .userInitiated) {
+                let thumbnail = NSImage(data: imageData)
+                await MainActor.run {
+                    panel.presenter.lastScreenshotThumbnail = thumbnail
+                }
+            }
             saveClipboardImage(env: env, data: imageData, mime: mime)
             return
         }
@@ -2810,10 +2844,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (which always include a string).
         if let (imageData, mime) = ImageDropExtractor.extract(from: pb) {
             let pendingCount = recentScreenshots.count + 1
-            panel.presenter.lastScreenshotThumbnail = NSImage(data: imageData)
+            // Same off-main decode pattern as the explicit-image
+            // branch above and `handleNewScreenshot`.
+            panel.presenter.lastScreenshotThumbnail = nil
             panel.enterRestingMode()
             panel.presenter.setPendingSystemEvent(.screenshotSaved(count: pendingCount))
             HapticFeedback.generic()
+            Task.detached(priority: .userInitiated) {
+                let thumbnail = NSImage(data: imageData)
+                await MainActor.run {
+                    panel.presenter.lastScreenshotThumbnail = thumbnail
+                }
+            }
             saveClipboardImage(env: env, data: imageData, mime: mime)
             return
         }

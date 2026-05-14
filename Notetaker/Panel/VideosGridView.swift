@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 struct VideosGridView: View {
     @EnvironmentObject var videoStore: VideoStore
     @EnvironmentObject var presenter: PanelPresenter
+    @Environment(\.panelAccent) private var panelAccent: Color
     @State private var showClearConfirm = false
     /// The video currently being played inline at the top of the tab. nil
     /// means the panel is back in its normal "grid of thumbnails" mode.
@@ -324,7 +325,7 @@ struct VideosGridView: View {
                     if active > 0 {
                         Text("· \(active) active")
                             .font(.nkMeta)
-                            .foregroundStyle(DS.Color.accent)
+                            .foregroundStyle(panelAccent)
                     }
                     Spacer()
                 }
@@ -389,7 +390,7 @@ struct VideosGridView: View {
     private func playingBadge(for record: VideoRecord) -> some View {
         if playingRecord?.id == record.id {
             RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous)
-                .strokeBorder(DS.Color.accent, lineWidth: 2)
+                .strokeBorder(panelAccent, lineWidth: 2)
                 .allowsHitTesting(false)
         }
     }
@@ -402,6 +403,7 @@ struct DownloadJobRow: View {
     let onCancel: () -> Void
     let onRetry: () -> Void
     let onDismiss: () -> Void
+    @Environment(\.panelAccent) private var panelAccent: Color
 
     var body: some View {
         HStack(spacing: DS.Spacing.sm) {
@@ -455,7 +457,7 @@ struct DownloadJobRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 ProgressView(value: job.progress)
                     .progressViewStyle(.linear)
-                    .tint(DS.Color.accent)
+                    .tint(panelAccent)
                     .frame(maxWidth: .infinity)
                 HStack(spacing: 4) {
                     Text(progressLabel)
@@ -466,7 +468,7 @@ struct DownloadJobRow: View {
         case .finished:
             Text("Saved")
                 .font(.nkLabel)
-                .foregroundStyle(DS.Color.accent)
+                .foregroundStyle(panelAccent)
         case .failed(let message):
             Text(message)
                 .font(.nkLabel)
@@ -547,7 +549,7 @@ struct DownloadJobRow: View {
     private var iconColor: Color {
         switch job.state {
         case .failed: return Color.red.opacity(0.85)
-        case .finished: return DS.Color.accent
+        case .finished: return panelAccent
         default: return DS.Color.textSecondary
         }
     }
@@ -575,6 +577,7 @@ struct VideoCell: View {
     /// Drives the selection-state visual (accent ring + check
     /// badge), matching the Notes/Images selection vocabulary.
     var isSelected: Bool = false
+    @Environment(\.panelAccent) private var panelAccent: Color
     @EnvironmentObject var videoStore: VideoStore
     @State private var isHovered = false
 

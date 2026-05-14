@@ -1,6 +1,6 @@
 import XCTest
 import AppKit
-@testable import Notetaker
+@testable import nox
 
 final class ClipboardServiceTests: XCTestCase {
     override func tearDown() {

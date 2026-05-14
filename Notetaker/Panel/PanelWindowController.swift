@@ -71,6 +71,23 @@ private final class KeyablePanel: NSPanel {
     }
 }
 
+enum TrackBannerDismissalTargetKind: Equatable {
+    case none
+    case pill
+    case notchHidden
+}
+
+struct TrackBannerDismissalPolicy {
+    static func targetKind(
+        isVisible: Bool,
+        isTeasing: Bool,
+        pillAnchored: Bool
+    ) -> TrackBannerDismissalTargetKind {
+        if isVisible || isTeasing { return .none }
+        return pillAnchored ? .pill : .notchHidden
+    }
+}
+
 @MainActor
 final class PanelWindowController {
     /// Outer NSPanel frame — much larger than the visible rounded
@@ -905,10 +922,21 @@ final class PanelWindowController {
         container.wantsLayer = true
         if let layer = container.layer {
             layer.masksToBounds = false  // critical: shadow extends beyond bounds
+            // 2026-05-13: tightened the halo per user feedback
+            // ("light / halo around the panel silhouette"). Previous
+            // values (radius 24, opacity 0.55, y -14) on a colorful
+            // wallpaper produced a wide soft falloff that read as a
+            // colored "glow" around the silhouette — wallpaper bleed
+            // through 45% of the 24pt halo. Tighter values keep the
+            // contact-shadow feel (panel still sits "set into the
+            // desktop") without the loose halo: smaller blur radius
+            // (16pt), denser opacity (0.65) so less wallpaper shows
+            // through, slightly shorter offset (-10pt) so the shadow
+            // hugs the silhouette more closely.
             layer.shadowColor = NSColor.black.cgColor
             layer.shadowOpacity = 0  // start hidden; flipped on by show/hide
-            layer.shadowRadius = 24
-            layer.shadowOffset = CGSize(width: 0, height: -14)
+            layer.shadowRadius = 16
+            layer.shadowOffset = CGSize(width: 0, height: -10)
         }
         // Set initial shadowPath for the parked notch-hidden geometry.
         updateShadowPath()
@@ -1672,8 +1700,19 @@ final class PanelWindowController {
         let hiddenStart = notchHiddenFrame(for: screen)
         if !panel.isVisible {
             panel.setFrame(hiddenStart, display: false)
-        } else if !isVisible {
+        } else if !isVisible && !presenter.isResting {
             // Desync — controller says hidden but NSWindow says visible
+            // AND we are NOT in resting-pill mode. In resting mode
+            // (music playing → pill anchored at the notch), the
+            // pill-geometry visible state is expected; treating that
+            // as a desync caused the slab open to start from
+            // hiddenStart instead of the pill, so the user saw the
+            // pill collapse to the notch before regrowing into the
+            // slab. With the `!presenter.isResting` guard, resting
+            // opens take the normal pill→slab morph; only the
+            // codex-hammering / interrupted-hide case (which leaves
+            // the panel at slab geometry with no music) triggers
+            // recovery.
             MediaRemoteAdapterService.fileLog("PANEL desync recovery — controller.isVisible=false but panel.isVisible=true, forcing frame to hiddenStart")
             panel.setFrame(hiddenStart, display: false)
         }
@@ -1765,9 +1804,31 @@ final class PanelWindowController {
         // steepest panel-growth frames. The GPU shadow fix
         // (CALayer.shadowPath) eliminated the per-frame budget
         // pressure that originally forced the longer 80ms gap.
-        let cascadeGen = animationGeneration
+        // 2026-05-11 bug fix: dropped the `animationGeneration`
+        // generation check that used to gate this assignment.
+        // Original intent was "if another morph started after we
+        // scheduled this, bail." But cascadeReady is a Bool the
+        // slab content tree gates on — if the gen check causes us
+        // to bail, the content stays at opacity:0 and the slab
+        // renders as a black rectangle until something ELSE
+        // re-triggers a cascade. User-reported repro: "sometimes
+        // the panel opens by itself with empty black and stays
+        // stuck until I hover onto it."
+        //
+        // Trigger of the race: any frame morph (track-change
+        // banner, music event, focus change, transient pill)
+        // happening within the 30ms window between schedule and
+        // fire bumps animationGeneration and trips the gen check
+        // → cascadeReady never flips → slab content stays unmounted
+        // (the new lazy-mount makes this even more visible than
+        // the old opacity gate did).
+        //
+        // Worst case after the fix: if hide() fires WITHIN 30ms of
+        // show() (rare — user opens, immediately dismisses), we
+        // set cascadeReady=true momentarily before hide() resets
+        // it. SwiftUI animates one extra tick. Benign.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
-            guard let self, self.animationGeneration == cascadeGen else { return }
+            guard let self else { return }
             self.presenter.cascadeReady = true
         }
         // 2026-05-12 — safety net for the cascadeReady race the user
@@ -1797,7 +1858,15 @@ final class PanelWindowController {
         // frequency in Console.app if this turns out to be a
         // systemic bug worth root-causing instead of just
         // catching.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { [weak self] in
+        // 2026-05-11: safety net tightened 200ms → 80ms. With the
+        // primary 30ms scheduler's generation gate now removed
+        // (just above), the safety net is mostly belt-and-
+        // suspenders for the cases I haven't found yet — but 200ms
+        // was slow enough that a fast-mousing user could perceive
+        // the "stuck" state before recovery. 80ms is past the
+        // spring's worst acceleration phase but well below the
+        // perceptual threshold for "feels broken."
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
             guard let self else { return }
             // 2026-05-13 — diagnostic + broader recovery. First fix
             // only forced cascadeReady=true and was gated on isShown.
@@ -3201,7 +3270,11 @@ final class PanelWindowController {
         // Fade shadow IN at open start. By the time the panel has
         // grown noticeably, the shadow is already at full opacity
         // anchoring it to the desktop.
-        setShadowOpacity(0.55)
+        // 2026-05-13: 0.55 → 0.65 (matched to the new tighter
+        // radius/offset). Denser shadow + tighter blur = less
+        // wallpaper bleed-through so the halo doesn't read as
+        // colored glow on bright desktops.
+        setShadowOpacity(0.65)
         currentSpring = spring
         spring.animate(panel: panel, from: start, to: target) { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
@@ -3823,6 +3896,9 @@ final class PanelWindowController {
             topFlareRadius: 6,
             bottomCornerRadius: 14
         )
+        PerformanceProbe.shared.mark("PANEL_TRACK_BANNER_SHOW_START", metadata: [
+            "target": performanceFrameString(target)
+        ])
 
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.40
@@ -3855,38 +3931,48 @@ final class PanelWindowController {
             self.panel.setFrame(target, display: true)
             // Don't call updateShadowPath() — model already at
             // targetShadowPath, animation played out cleanly.
+            PerformanceProbe.shared.mark("PANEL_TRACK_BANNER_SHOW_END", metadata: [
+                "target": self.performanceFrameString(target)
+            ])
         })
         NSLog("nox: showTrackBanner — NSAnimationContext morph to banner=\(target)")
     }
 
     /// Reverse of `showTrackBanner()`. Animates back to the regular
-    /// resting pill frame (closedPillFrame if music is alive,
-    /// transientPillFrame otherwise). Calls `completion` when the
+    /// resting pill frame when a live anchor remains, or all the way
+    /// into the hardware notch when the anchor disappeared. Calls `completion` when the
     /// spring lands so the caller (AppDelegate) can clear the
     /// pendingSystemEvent in lockstep — that ordering keeps content
     /// (.trackChanged → musicPillContent) aligned with geometry
     /// (banner → resting pill). Without it, two independent timers
     /// would race and the user would see content/geometry mismatch.
     func dismissTrackBanner(completion: (() -> Void)? = nil) {
-        guard presenter.isResting else {
-            completion?()
-            return
-        }
-        if isVisible {
-            completion?()
-            return
-        }
-        if isTeasing {
+        let screen = panel.screen ?? activeScreen
+        let pillAnchored: Bool = AppDelegate.shared?.pillHasAnyAnchor() ?? {
+            let noxQuiet = UserDefaults.standard.bool(forKey: "noxFocusMode")
+            let noxStudy = UserDefaults.standard.bool(forKey: "noxStudyMode")
+            return presenter.nowPlaying?.isPlaying == true
+                || presenter.isFocused
+                || noxQuiet
+                || noxStudy
+        }()
+        let targetKind = TrackBannerDismissalPolicy.targetKind(
+            isVisible: isVisible,
+            isTeasing: isTeasing,
+            pillAnchored: pillAnchored
+        )
+        guard targetKind != .none else {
             completion?()
             return
         }
 
-        let screen = panel.screen ?? activeScreen
-        let target: NSRect = (presenter.nowPlaying != nil)
+        let target: NSRect = (targetKind == .pill)
             ? closedPillFrame(for: screen)
-            : transientPillFrame(for: screen)
+            : notchHiddenFrame(for: screen)
         let start = panel.frame
         if start == target {
+            presenter.isResting = targetKind == .pill
+            presenter.isAtNotchHidden = targetKind == .notchHidden
             completion?()
             return
         }
@@ -3907,6 +3993,8 @@ final class PanelWindowController {
         currentSpring?.cancel()
         currentSpring = nil
         currentSpringTarget = target
+        presenter.isResting = targetKind == .pill
+        presenter.isAtNotchHidden = targetKind == .notchHidden
 
         let halo = PanelWindowController.haloPadding
         let targetSilhouetteRect = CGRect(
@@ -3923,18 +4011,23 @@ final class PanelWindowController {
         // debounce coincides with the dismiss): (0, 6).
         let targetTopR: CGFloat
         let targetBottomR: CGFloat
-        if presenter.nowPlaying != nil {
+        if targetKind == .pill {
             targetTopR = 6
             targetBottomR = 14
         } else {
             targetTopR = 0
-            targetBottomR = 6
+            targetBottomR = 4
         }
         let targetShadowPath = Self.silhouetteCGPath(
             in: targetSilhouetteRect,
             topFlareRadius: targetTopR,
             bottomCornerRadius: targetBottomR
         )
+        let targetKindName = targetKind == .pill ? "pill" : "notchHidden"
+        PerformanceProbe.shared.mark("PANEL_TRACK_BANNER_DISMISS_START", metadata: [
+            "target": performanceFrameString(target),
+            "targetKind": targetKindName
+        ])
 
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.40
@@ -3965,9 +4058,18 @@ final class PanelWindowController {
             guard let self else { return }
             self.currentSpringTarget = nil
             self.panel.setFrame(target, display: true)
+            self.presenter.isResting = targetKind == .pill
+            self.presenter.isAtNotchHidden = targetKind == .notchHidden
+            if targetKind == .notchHidden {
+                self.setShadowOpacity(0, duration: 0.14)
+            }
+            PerformanceProbe.shared.mark("PANEL_TRACK_BANNER_DISMISS_END", metadata: [
+                "target": self.performanceFrameString(target),
+                "targetKind": targetKindName
+            ])
             completion?()
         })
-        NSLog("nox: dismissTrackBanner — NSAnimationContext morph to pill=\(target)")
+        NSLog("nox: dismissTrackBanner — NSAnimationContext morph to \(targetKindName)=\(target)")
     }
 
     // MARK: - Volume HUD banner
@@ -4717,6 +4819,19 @@ final class SpringFrameAnimator: NSObject {
                 "wall=\(String(format: "%.0f", wallTime))ms " +
                 "avgDt=\(String(format: "%.1f", avgDt))ms " +
                 "maxDt=\(String(format: "%.1f", maxDt))ms"
+            )
+            // Mirror to /tmp/nox-mra.log because dlog routes through
+            // NSLog and unified-logging redacts our format args as
+            // <private>. The fileLog path survives redaction so I can
+            // read the actual tick stats when diagnosing reported
+            // jitter (user 2026-05-13: "the panel itself stutters /
+            // drops frames during the open spring").
+            MediaRemoteAdapterService.fileLog(
+                "MORPH SUMMARY ticks=\(tickCount) " +
+                "wall=\(String(format: "%.0f", wallTime))ms " +
+                "avgDt=\(String(format: "%.1f", avgDt))ms " +
+                "maxDt=\(String(format: "%.1f", maxDt))ms " +
+                "(target=16.7ms@60Hz, dropped-frame if maxDt>33)"
             )
             if #available(macOS 14.0, *), let link = displayLink as? CADisplayLink {
                 link.invalidate()

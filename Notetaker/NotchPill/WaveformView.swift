@@ -1,5 +1,20 @@
 import SwiftUI
 
+struct WaveformRefreshPolicy {
+    static let activeInterval: TimeInterval = 1.0 / 30.0
+    static let compactRestingInterval: TimeInterval = 1.0 / 12.0
+
+    static func minimumInterval(
+        isCompactResting: Bool,
+        isInteractionActive: Bool
+    ) -> TimeInterval {
+        guard isCompactResting, !isInteractionActive else {
+            return activeInterval
+        }
+        return compactRestingInterval
+    }
+}
+
 /// Equalizer-style audio visualizer — three thin vertical capsules
 /// that pulse up and down from a central baseline, driven by three
 /// incommensurate sinusoids so the bars never sync into a recognizable
@@ -68,6 +83,13 @@ struct WaveformView: View {
     /// `WaveformPattern.deterministic(for:)` for stable per-track
     /// visual identity.
     var pattern: WaveformPattern = .midtempo
+    /// Resting notch pills are visible for hours. Lower their idle
+    /// cadence so the visual still breathes without spending 30Hz
+    /// SwiftUI/Canvas work while the user is doing something else.
+    var isCompactResting: Bool = false
+    /// While the user is swiping/morphing the compact pill, restore the
+    /// faster cadence so the feedback feels connected to the gesture.
+    var isInteractionActive: Bool = false
 
     /// Number of bars. Three is the sweet spot:
     ///   • 2 bars read as bare-minimum and feel sparse
@@ -77,11 +99,15 @@ struct WaveformView: View {
     private let barCount = 3
 
     var body: some View {
+        let minimumInterval = WaveformRefreshPolicy.minimumInterval(
+            isCompactResting: isCompactResting,
+            isInteractionActive: isInteractionActive
+        )
         // TimelineView re-evaluates the body at each refresh. Inside
         // the closure we recompute all bar heights from `context.date`.
         // `paused: !isPlaying` halts the timeline when playback pauses;
         // bars freeze at their last height — visually "muted, ready."
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !isPlaying)) { context in
+        TimelineView(.animation(minimumInterval: minimumInterval, paused: !isPlaying)) { context in
             // Fold the absolute reference-date time before feeding it
             // into sin(). Same precision-preservation reason as the
             // previous oscilloscope version: very large radian

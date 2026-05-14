@@ -392,10 +392,95 @@ final class MediaRemoteAdapterService {
             return
         }
 
+        // 2026-05-13 — browser tab-title pollution filter.
+        //
+        // Bug repro from /tmp/nox-mra.log:
+        //
+        //   01:30:26 MRA snapshot: bundle=com.spotify.client title="Opalite" ...
+        //   01:30:55 MRA snapshot: bundle=com.google.Chrome title="Subedit:
+        //            Viral style captions for shorts, reels and TikTok"
+        //            artist="" art=0b
+        //   01:30:58 updatePillVisibility: ... mrSaysPlaying=false
+        //            effectivelyPlaying=false
+        //   → Spotify still playing, but pill hides.
+        //
+        // Chrome (and other modern browsers) register a MediaRemote
+        // session for EVERY tab that has a <title> — even tabs with
+        // no <audio>/<video> and no MediaSession metadata at all.
+        // When the user opens such a tab, MR's "active session"
+        // flips from Spotify (which is still playing in the
+        // background) to Chrome (the new tab). Chrome's session
+        // has only the tab's page title — empty artist, no
+        // artwork — and when the tab navigates/closes it emits
+        // `isPlaying=false`. Our prior logic trusted MR's authority
+        // and hid the pill, even though Spotify was still streaming.
+        //
+        // The signature is highly specific: a browser bundle ID
+        // + entirely-empty `artist` + entirely-empty `artworkData`
+        // (the raw base64 string, before the post-translate
+        // fallback fills artist with "Chrome"). Real media plays
+        // ALWAYS provide at least one of these — YouTube videos
+        // have channel names + thumbnails, SoundCloud has artist
+        // names + cover art, Spotify Web has both, even bare
+        // <audio> tags can set MediaSession metadata. The empty-
+        // empty signature uniquely identifies tab-title noise.
+        //
+        // What "suppress" means here: we return WITHOUT calling
+        // `onSnapshot`. That is critical — calling `onSnapshot(nil)`
+        // would clear `presenter.nowPlaying`, dropping the real
+        // Spotify metadata that the pill needs. Suppression keeps
+        // the prior good snapshot cached. `lastAdapterEmitAt`
+        // doesn't get bumped downstream either, so the
+        // DistributedNotification path stays unblocked for Spotify
+        // updates that DO arrive while Chrome is registered.
+        //
+        // Worst-case false positive: a Chrome tab plays audio
+        // without setting any MediaSession metadata (bare <audio>
+        // tag, dev page). We drop the snapshot, but SystemAudioWatcher
+        // will still pick up Chrome's CoreAudio output and synthesize
+        // a "Google Chrome" snapshot. Pill shows the app name
+        // instead of the page title — slightly degraded but
+        // acceptable, and rare.
+        let resolvedBundle = payload.parentApplicationBundleIdentifier
+            ?? payload.bundleIdentifier
+        let rawArtistEmpty = (payload.artist ?? "").isEmpty
+        let rawArtworkEmpty = (payload.artworkData ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+        if let bundle = resolvedBundle,
+           Self.browserBundlesWithStaleSessions.contains(bundle),
+           rawArtistEmpty,
+           rawArtworkEmpty {
+            Self.fileLog("MRA suppress: browser tab-title pollution from \(bundle) — title=\"\(payload.title ?? "")\" isPlaying=\(payload.playing ?? false)")
+            return
+        }
+
         let info = translate(payload)
         Self.fileLog("MRA snapshot: bundle=\(payload.bundleIdentifier ?? "nil") title=\"\(payload.title ?? "")\" artist=\"\(payload.artist ?? "")\" art=\(payload.artworkData?.count ?? 0)b → out art=\(info?.artworkData?.count ?? 0)b")
         onSnapshot?(info)
     }
+
+    /// Browser bundle IDs whose MediaRemote sessions are known to
+    /// pollute the now-playing slot with bare tab titles when the
+    /// user opens a tab without media. Cross-checked against the
+    /// real-media-with-metadata case via the empty-artist + empty-
+    /// artwork signature in `handleLine`.
+    private static let browserBundlesWithStaleSessions: Set<String> = [
+        "com.google.Chrome",
+        "com.google.Chrome.canary",
+        "com.google.Chrome.beta",
+        "com.apple.Safari",
+        "com.apple.SafariTechnologyPreview",
+        "com.brave.Browser",
+        "com.brave.Browser.beta",
+        "company.thebrowser.Browser", // Arc
+        "org.mozilla.firefox",
+        "org.mozilla.firefoxdeveloperedition",
+        "com.microsoft.edgemac",
+        "com.microsoft.edgemac.Beta",
+        "com.vivaldi.Vivaldi",
+        "com.operasoftware.Opera"
+    ]
 
     /// Diagnostic file logger to /tmp/nox-mra.log. Re-enabled
     /// 2026-04-29 to trace why Spotify thumbnails aren't reaching

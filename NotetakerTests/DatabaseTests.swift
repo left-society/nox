@@ -1,6 +1,6 @@
 import XCTest
 import GRDB
-@testable import Notetaker
+@testable import nox
 
 final class DatabaseTests: XCTestCase {
     func test_migrations_createTables() throws {
@@ -22,7 +22,8 @@ final class DatabaseTests: XCTestCase {
             createdAt: now,
             updatedAt: now,
             status: "active",
-            trashedAt: nil
+            trashedAt: nil,
+            kind: "text"
         )
         try db.dbQueue.write { conn in
             try note.insert(conn)
@@ -42,7 +43,8 @@ final class DatabaseTests: XCTestCase {
             createdAt: now,
             updatedAt: now,
             status: "active",
-            trashedAt: nil
+            trashedAt: nil,
+            kind: "text"
         )
         var image = ImageRecord(
             id: UUID().uuidString,

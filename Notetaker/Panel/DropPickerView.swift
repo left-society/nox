@@ -32,6 +32,14 @@ struct DropPickerView: View {
     /// keeps the badge hidden when no count is available (e.g.
     /// pure-text drag).
     var fileCount: Int = 0
+    /// Accent color for the Save zone glow + chrome. Defaults to
+    /// brand lavender so the picker has its own identity at rest;
+    /// callers pass the parent panel's dynamic `panelAccent` so
+    /// the Save zone follows the now-playing artwork's color when
+    /// music is on. AirDrop side keeps Apple's system sky blue
+    /// regardless — that's the OS-native AirDrop tint and
+    /// shouldn't change based on what's playing.
+    var accent: Color = DS.Color.brandLavender
 
     var body: some View {
         // Single seamless surface — no card backgrounds, no outer
@@ -54,7 +62,11 @@ struct DropPickerView: View {
                 // your storage" action, and should carry the brand
                 // color. AirDrop side keeps its existing Apple-
                 // sky-blue (the OS's own AirDrop accent).
-                accent: DS.Color.brandLavender,
+                //
+                // 2026-05-13: accent now comes from the parent
+                // so the picker matches the slab's music-driven
+                // color story when audio is playing.
+                accent: accent,
                 isHovered: hoveredZone == .save,
                 isOtherHovered: hoveredZone == .airDrop
             )

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Notetaker
+@testable import nox
 
 final class URLExtractorTests: XCTestCase {
     func test_plainHTTPURL() {

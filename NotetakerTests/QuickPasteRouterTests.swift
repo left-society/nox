@@ -1,5 +1,5 @@
 import XCTest
-@testable import Notetaker
+@testable import nox
 
 final class QuickPasteRouterTests: XCTestCase {
     func test_text_returnsFirstWhenIndexZero() {

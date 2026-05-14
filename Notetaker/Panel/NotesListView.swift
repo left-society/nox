@@ -1173,6 +1173,7 @@ struct NoteRow: View {
     /// True when this note is in the multi-select set. Drives the
     /// selection-state visual (left accent bar + tinted background).
     var isSelected: Bool = false
+    @Environment(\.panelAccent) private var panelAccent: Color
     /// True when SOMETHING is selected anywhere in the list — the
     /// list is in "selection mode" and plain clicks should toggle
     /// rather than copy. Allows the user to use the same plain-
@@ -1305,7 +1306,7 @@ struct NoteRow: View {
                     Text("Copied")
                         .font(.system(size: 11, weight: .semibold))
                 }
-                .foregroundStyle(DS.Color.accent)
+                .foregroundStyle(panelAccent)
                 .transition(.scale(scale: 0.85).combined(with: .opacity))
             }
 
@@ -1318,7 +1319,7 @@ struct NoteRow: View {
                 Button(action: onTogglePin) {
                     Image(systemName: isPinned ? "pin.fill" : "pin")
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(isPinned ? DS.Color.accent : DS.Color.textTertiary)
+                        .foregroundStyle(isPinned ? panelAccent : DS.Color.textTertiary)
                         .frame(width: 22, height: 22)
                         .contentShape(Rectangle())
                 }
@@ -1585,6 +1586,7 @@ enum MarkdownPreview {
 private struct PreviewLineView: View {
     let line: PreviewLine
     let onToggle: (Int) -> Void
+    @Environment(\.panelAccent) private var panelAccent: Color
 
     var body: some View {
         switch line {
@@ -1600,7 +1602,7 @@ private struct PreviewLineView: View {
                 } label: {
                     Image(systemName: checked ? "checkmark.square.fill" : "square")
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(checked ? DS.Color.accent : DS.Color.textTertiary)
+                        .foregroundStyle(checked ? panelAccent : DS.Color.textTertiary)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

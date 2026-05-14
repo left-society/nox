@@ -26,6 +26,7 @@ import SwiftUI
 /// only logs (Phase 3 wires the floating teleprompter pill).
 struct ScriptsView: View {
     @EnvironmentObject var presenter: PanelPresenter
+    @Environment(\.panelAccent) private var panelAccent: Color
     @ObservedObject private var store: ScriptStore
 
     /// Currently-selected script ID. nil → no selection (empty
@@ -185,7 +186,7 @@ struct ScriptsView: View {
             .padding(.horizontal, 10)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? DS.Color.accent.opacity(0.18) : .clear)
+                    .fill(isSelected ? panelAccent.opacity(0.18) : .clear)
             )
             // Make the FULL row hit-testable, not just the text. By
             // default `.buttonStyle(.plain)` only registers taps on
@@ -227,7 +228,7 @@ struct ScriptsView: View {
             }
             .padding(.vertical, 10)
             .padding(.horizontal, 12)
-            .foregroundStyle(DS.Color.accent)
+            .foregroundStyle(panelAccent)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -336,7 +337,7 @@ struct ScriptsView: View {
                 in: 80...250,
                 step: 5
             )
-            .tint(DS.Color.accent)
+            .tint(panelAccent)
             .frame(maxWidth: .infinity)
 
             // Compact metadata cluster — WPM number prominent,
@@ -418,7 +419,7 @@ struct ScriptsView: View {
                 .foregroundStyle(Color.black)
                 .background(
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(DS.Color.accent)
+                        .fill(panelAccent)
                 )
             }
             .buttonStyle(.plain)

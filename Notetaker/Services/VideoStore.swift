@@ -93,7 +93,22 @@ final class VideoStore: ObservableObject {
             status: "active",
             trashedAt: nil
         )
-        try db.dbQueue.write { try record.insert($0) }
+        // Per the same pattern ImageStore.saveImage uses: if the GRDB
+        // insert throws, the video + thumbnail copies on disk would
+        // otherwise stay as orphans (no DB row pointing at them →
+        // never displayed, never retention-swept). Catch the throw,
+        // remove the on-disk copies, and re-throw so the caller knows
+        // the save failed. Disk cleanup is best-effort because the
+        // DB error is the actionable failure for the caller; if the
+        // FS delete also fails the worst case is a stale file the
+        // user can delete manually later.
+        do {
+            try db.dbQueue.write { try record.insert($0) }
+        } catch {
+            try? FileManager.default.removeItem(at: destURL)
+            try? FileManager.default.removeItem(at: thumbURL)
+            throw error
+        }
         videos.insert(record, at: 0)
         return record
     }
@@ -314,7 +329,18 @@ final class VideoStore: ObservableObject {
             status: "active",
             trashedAt: nil
         )
-        try db.dbQueue.write { try record.insert($0) }
+        // Orphan-file guard: if GRDB insert fails after the move into
+        // `destFile`, the on-disk video + thumbnail would have no DB
+        // row referencing them. Remove the files, re-throw so the
+        // download job surfaces an error. Mirrors the cleanup pattern
+        // in `saveLocalFile` and `ImageStore.saveImage`.
+        do {
+            try db.dbQueue.write { try record.insert($0) }
+        } catch {
+            try? FileManager.default.removeItem(at: destFile)
+            try? FileManager.default.removeItem(at: destThumb)
+            throw error
+        }
         videos.insert(record, at: 0)
         updateJob(job.id) { $0.state = .finished(recordId: id) }
 

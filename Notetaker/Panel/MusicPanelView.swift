@@ -47,6 +47,7 @@ enum LiveExpandedPanel: Hashable {
 
 struct MusicPanelView: View {
     @EnvironmentObject var presenter: PanelPresenter
+    @Environment(\.panelAccent) private var panelAccent: Color
 
     /// Drag-to-scrub state for the progress bar. While `isScrubbing`
     /// is true, the bar renders `scrubProgress` instead of the live
@@ -324,11 +325,17 @@ struct MusicPanelView: View {
         // unchanged for users without active status.
         VStack(alignment: .leading, spacing: shouldShowLiveStatusRow ? 14 : 0) {
         if shouldShowLiveStatusRow {
+            // 2026-05-11: dropped the row-wide cascade modifiers
+            // here (blur + opacity + offset). Each `statusPill`
+            // inside `liveStatusRow` now applies its own
+            // `StatusPillEntrance` modifier with a per-pill delay,
+            // so the row animates in as a staggered scale-pop
+            // (each pill expands from its own center) instead of
+            // a single static block fading in. User wanted "expand
+            // from inside" feel — scale-from-center anchor does
+            // exactly that, and the small per-pill delay reads as
+            // energetic motion rather than a pop-in.
             liveStatusRow
-                .blur(radius: presenter.cascadeReady ? 0 : 10)
-                .opacity(presenter.cascadeReady ? 1 : 0)
-                .offset(y: presenter.cascadeReady ? 0 : -16)
-                .animation(cascadeAnimation, value: presenter.cascadeReady)
         }
         HStack(spacing: 0) {
         VStack(alignment: .leading, spacing: 12) {
@@ -465,21 +472,11 @@ struct MusicPanelView: View {
             // Focus on.
             statusPill(
                 label: "Focus",
-                // Bolt instead of moon — keeps the lock-in motif
-                // consistent across the Live status row, the
-                // dashboard hero, and the controls toggle. Moon
-                // implied DND/quiet (passive); bolt implies energy
-                // / actively engaged (the actual Focus mood).
                 systemImage: liveFocusPillActive ? "bolt.fill" : "bolt",
                 isActive: liveFocusPillActive,
                 onToggle: {
                     withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
-                        // Mutex with Study — turning Focus on flips
-                        // Study off so we never have two "deep work"
-                        // pills lit simultaneously.
-                        if !noxFocusMode {
-                            noxStudyMode = false
-                        }
+                        if !noxFocusMode { noxStudyMode = false }
                         noxFocusMode.toggle()
                     }
                 },
@@ -489,26 +486,17 @@ struct MusicPanelView: View {
                     }
                 }
             )
-            // Study pill — sits right beside Focus per user spec
-            // (2026-05-09): "see the focus one? it should be just
-            // beside it." Same split-action chip shape as Focus:
-            // left zone toggles `noxStudyMode`, right zone drills
-            // into the Study detail panel. Mutex with Focus on the
-            // toggle path.
+            .modifier(StatusPillEntrance(
+                ready: presenter.cascadeReady, delay: 0.00
+            ))
+
             statusPill(
                 label: "Study",
-                // Lightbulb instead of book — same lock-in motif
-                // shift Focus got. The book glyph read as static
-                // ("a book on a shelf"); lightbulb reads as
-                // "actively learning right now," which is what
-                // Study mode actually means in nox.
                 systemImage: noxStudyMode ? "lightbulb.fill" : "lightbulb",
                 isActive: noxStudyMode,
                 onToggle: {
                     withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
-                        if !noxStudyMode {
-                            noxFocusMode = false
-                        }
+                        if !noxStudyMode { noxFocusMode = false }
                         noxStudyMode.toggle()
                     }
                 },
@@ -518,8 +506,42 @@ struct MusicPanelView: View {
                     }
                 }
             )
-            // Future status pills slot in here.
+            .modifier(StatusPillEntrance(
+                ready: presenter.cascadeReady, delay: 0.08
+            ))
+
             Spacer(minLength: 0)
+        }
+    }
+
+    /// Per-pill entrance animation for the Live status row. Pills
+    /// scale-pop from 0.82 → 1.0 with a softly-overshooting spring
+    /// (damping 0.68 ≈ tiny ~5% overshoot — "the pill snaps into
+    /// place"), fade in, and unblur. Each pill gets its own `delay`
+    /// so Focus arrives first and Study chases ~80ms behind —
+    /// reads as a cascade rather than a single static block.
+    ///
+    /// The user-reported feel: "when opening, the pills look static
+    /// — feels laggy. Maybe expand from inside?" That's exactly
+    /// what scale-from-center does — the pill grows outward from
+    /// its center, so the icon + label feel like they're building
+    /// themselves into the row as the panel arrives. Combined with
+    /// the per-index stagger, the row reads as energetic motion
+    /// rather than a pop-in.
+    private struct StatusPillEntrance: ViewModifier {
+        let ready: Bool
+        let delay: Double
+        func body(content: Content) -> some View {
+            content
+                .scaleEffect(ready ? 1.0 : 0.82, anchor: .center)
+                .opacity(ready ? 1.0 : 0)
+                .blur(radius: ready ? 0 : 4)
+                .offset(y: ready ? 0 : -6)
+                .animation(
+                    .spring(response: 0.42, dampingFraction: 0.68)
+                        .delay(delay),
+                    value: ready
+                )
         }
     }
 
@@ -547,7 +569,7 @@ struct MusicPanelView: View {
                     Image(systemName: systemImage)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(
-                            isActive ? DS.Color.accent : .white.opacity(0.55)
+                            isActive ? panelAccent : .white.opacity(0.55)
                         )
                     Text(label)
                         .font(.system(size: 12.5, weight: .medium))
@@ -591,14 +613,14 @@ struct MusicPanelView: View {
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .strokeBorder(
                             isActive
-                                ? DS.Color.accent.opacity(0.30)
+                                ? panelAccent.opacity(0.30)
                                 : .white.opacity(0.09),
                             lineWidth: 0.5
                         )
                 )
         )
         .shadow(
-            color: isActive ? DS.Color.accent.opacity(0.12) : Color.clear,
+            color: isActive ? panelAccent.opacity(0.12) : Color.clear,
             radius: isActive ? 8 : 0,
             x: 0,
             y: isActive ? 3 : 0
@@ -663,9 +685,21 @@ struct MusicPanelView: View {
                         )
                     )
             )
+            // 2026-05-13: accent tint overlay. When music is playing,
+            // the album's dominant color washes the card surface at
+            // low opacity — turns the music card into a visible
+            // signal of "this is what's playing" instead of a
+            // neutral glass tile. Sits ABOVE the white-gradient lift
+            // and BELOW the strokeBorder, so the rim still reads
+            // clean against the colored fill. Animates implicitly
+            // via SwiftUI when `panelAccent` swaps on track change.
+            .background(
+                RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                    .fill(panelAccent.opacity(0.14))
+            )
             .overlay(
                 RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
+                    .strokeBorder(panelAccent.opacity(0.28), lineWidth: 0.6)
             )
     }
 
@@ -2636,6 +2670,7 @@ private struct GoalRingDay: View {
 
 struct LiveFocusDetailPanel: View {
     @EnvironmentObject var presenter: PanelPresenter
+    @Environment(\.panelAccent) private var panelAccent: Color
     @AppStorage(SettingsKey.respectFocusMode) private var respectFocusMode: Bool = true
     /// Closure invoked when the user taps the "‹ Live" back arrow
     /// at the top. MusicPanelView passes a closure that clears its
@@ -2834,7 +2869,7 @@ struct LiveFocusDetailPanel: View {
                     HStack(spacing: 5) {
                         Image(systemName: "timer")
                             .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundStyle(DS.Color.accent.opacity(0.85))
+                            .foregroundStyle(panelAccent.opacity(0.85))
                         Text("Timer")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.78))
@@ -2866,14 +2901,14 @@ struct LiveFocusDetailPanel: View {
                 Circle()
                     .trim(from: 0, to: progress)
                     .stroke(
-                        DS.Color.accent.opacity(paused ? 0.45 : 0.95),
+                        panelAccent.opacity(paused ? 0.45 : 0.95),
                         style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
                     .animation(.linear(duration: 0.5), value: progress)
                 Image(systemName: paused ? "pause.fill" : "timer")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(paused ? .white.opacity(0.55) : DS.Color.accent)
+                    .foregroundStyle(paused ? .white.opacity(0.55) : panelAccent)
             }
             .frame(width: 28, height: 28)
 
@@ -2881,7 +2916,7 @@ struct LiveFocusDetailPanel: View {
                 Text(paused ? "PAUSED" : "FOCUS ON")
                     .font(.system(size: 8.5, weight: .bold))
                     .tracking(0.6)
-                    .foregroundStyle(paused ? .yellow.opacity(0.85) : DS.Color.accent)
+                    .foregroundStyle(paused ? .yellow.opacity(0.85) : panelAccent)
                 Text(formatCountdown(remaining))
                     .font(.system(size: 14, weight: .bold).monospacedDigit())
                     .foregroundStyle(paused ? .white.opacity(0.55) : .white)
@@ -2898,7 +2933,7 @@ struct LiveFocusDetailPanel: View {
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 24, height: 24)
-                    .background(Circle().fill(DS.Color.accent.opacity(0.55)))
+                    .background(Circle().fill(panelAccent.opacity(0.55)))
             }
             .buttonStyle(.plain)
             .accessibilityLabel(paused ? "Resume timer" : "Pause timer")
@@ -2924,7 +2959,7 @@ struct LiveFocusDetailPanel: View {
         HStack(spacing: 8) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(DS.Color.accent)
+                .foregroundStyle(panelAccent)
             Text("Session done")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white)
@@ -2937,7 +2972,7 @@ struct LiveFocusDetailPanel: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
-                    .background(Capsule().fill(DS.Color.accent.opacity(0.45)))
+                    .background(Capsule().fill(panelAccent.opacity(0.45)))
             }
             .buttonStyle(.plain)
         }
@@ -2974,7 +3009,7 @@ struct LiveFocusDetailPanel: View {
                 Text("Live")
                     .font(.system(size: 13, weight: .medium))
             }
-            .foregroundStyle(DS.Color.accent)
+            .foregroundStyle(panelAccent)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -3041,7 +3076,7 @@ struct LiveFocusDetailPanel: View {
                 // pauses + dims when Focus is OFF.
                 ZStack {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(DS.Color.accent.opacity(isInFocusState ? 0.22 : 0.14))
+                        .fill(panelAccent.opacity(isInFocusState ? 0.22 : 0.14))
                     FocusWorkingHero(active: isInFocusState)
                         .frame(width: 26, height: 26)
                 }
@@ -3082,7 +3117,7 @@ struct LiveFocusDetailPanel: View {
                         minutes: day.minutes,
                         progress: progress,
                         isToday: isToday,
-                        accent: DS.Color.accent,
+                        accent: panelAccent,
                         // Bolt = "energy / locked in" feel. Moon
                         // read as "DND / quiet" which conflicted
                         // with Focus's actual intent (deep work,
@@ -3114,12 +3149,12 @@ struct LiveFocusDetailPanel: View {
                         .stroke(.white.opacity(0.10), lineWidth: 2.5)
                     Circle()
                         .trim(from: 0, to: avgVsGoal)
-                        .stroke(DS.Color.accent,
+                        .stroke(panelAccent,
                                 style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                     Image(systemName: "bolt.fill")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(DS.Color.accent)
+                        .foregroundStyle(panelAccent)
                 }
                 .frame(width: 36, height: 36)
             }
@@ -3131,8 +3166,8 @@ struct LiveFocusDetailPanel: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            DS.Color.accent.opacity(isInFocusState ? 0.16 : 0.08),
-                            DS.Color.accent.opacity(0.02)
+                            panelAccent.opacity(isInFocusState ? 0.16 : 0.08),
+                            panelAccent.opacity(0.02)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -3142,7 +3177,7 @@ struct LiveFocusDetailPanel: View {
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(
-                    DS.Color.accent.opacity(isInFocusState ? 0.26 : 0.10),
+                    panelAccent.opacity(isInFocusState ? 0.26 : 0.10),
                     lineWidth: 0.6
                 )
         )
@@ -3228,7 +3263,7 @@ struct LiveFocusDetailPanel: View {
                     Image(systemName: isInFocusState ? "bolt.fill" : "bolt")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(isInFocusState
-                                         ? DS.Color.accent
+                                         ? panelAccent
                                          : Color.white.opacity(0.55))
                     Text("Focus")
                         .font(.system(size: 11.5, weight: .medium))
@@ -3244,7 +3279,7 @@ struct LiveFocusDetailPanel: View {
                     ))
                     .labelsHidden()
                     .toggleStyle(.switch)
-                    .tint(DS.Color.accent)
+                    .tint(panelAccent)
                     .scaleEffect(0.65)
                 }
                 .padding(.horizontal, 8)
@@ -3265,7 +3300,7 @@ struct LiveFocusDetailPanel: View {
                         .foregroundStyle(.white.opacity(0.45))
                     Text("Goal \(dailyFocusGoal)m")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(DS.Color.accent)
+                        .foregroundStyle(panelAccent)
                         .monospacedDigit()
                     Spacer(minLength: 0)
                 }
@@ -3374,8 +3409,8 @@ struct LiveFocusDetailPanel: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            DS.Color.accent.opacity(isInFocusState ? 0.18 : 0.06),
-                            DS.Color.accent.opacity(0.02)
+                            panelAccent.opacity(isInFocusState ? 0.18 : 0.06),
+                            panelAccent.opacity(0.02)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -3385,7 +3420,7 @@ struct LiveFocusDetailPanel: View {
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(
-                    DS.Color.accent.opacity(isInFocusState ? 0.28 : 0.10),
+                    panelAccent.opacity(isInFocusState ? 0.28 : 0.10),
                     lineWidth: 0.6
                 )
         )
@@ -3414,7 +3449,7 @@ struct LiveFocusDetailPanel: View {
                 Text("FOCUS OFF")
                     .font(.system(size: 10, weight: .bold))
                     .tracking(0.6)
-                    .foregroundStyle(DS.Color.accent.opacity(0.78))
+                    .foregroundStyle(panelAccent.opacity(0.78))
                     .textCase(.uppercase)
                 Text("Tap toggle below to start")
                     .font(.system(size: 13, weight: .medium))
@@ -3438,7 +3473,7 @@ struct LiveFocusDetailPanel: View {
                     Text("FOCUS ON")
                         .font(.system(size: 10, weight: .bold))
                         .tracking(0.6)
-                        .foregroundStyle(DS.Color.accent)
+                        .foregroundStyle(panelAccent)
                         .textCase(.uppercase)
                     if let start = tracker.sessionStartDate {
                         Text(formatSessionDuration(now.timeIntervalSince(start)))
@@ -3485,7 +3520,7 @@ struct LiveFocusDetailPanel: View {
                 HStack(spacing: 6) {
                     Image(systemName: "timer")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(DS.Color.accent.opacity(0.85))
+                        .foregroundStyle(panelAccent.opacity(0.85))
                     Text("Timer")
                         .font(.system(size: 11.5, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.78))
@@ -3517,10 +3552,10 @@ struct LiveFocusDetailPanel: View {
                 .frame(minWidth: 28)
                 .background(
                     Capsule()
-                        .fill(DS.Color.accent.opacity(0.22))
+                        .fill(panelAccent.opacity(0.22))
                         .overlay(
                             Capsule()
-                                .strokeBorder(DS.Color.accent.opacity(0.45),
+                                .strokeBorder(panelAccent.opacity(0.45),
                                               lineWidth: 0.5)
                         )
                 )
@@ -3542,7 +3577,7 @@ struct LiveFocusDetailPanel: View {
         HStack(spacing: 6) {
             Image(systemName: "timer")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(DS.Color.accent.opacity(0.85))
+                .foregroundStyle(panelAccent.opacity(0.85))
             Text("Custom")
                 .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.78))
@@ -3602,7 +3637,7 @@ struct LiveFocusDetailPanel: View {
                 .padding(.horizontal, 9)
                 .padding(.vertical, 4)
                 .background(
-                    Capsule().fill(DS.Color.accent.opacity(0.55))
+                    Capsule().fill(panelAccent.opacity(0.55))
                 )
             }
             .buttonStyle(.plain)
@@ -3678,7 +3713,7 @@ struct LiveFocusDetailPanel: View {
                 Circle()
                     .trim(from: 0, to: progress)
                     .stroke(
-                        DS.Color.accent.opacity(paused ? 0.45 : 0.95),
+                        panelAccent.opacity(paused ? 0.45 : 0.95),
                         style: StrokeStyle(lineWidth: 4, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
@@ -3696,7 +3731,7 @@ struct LiveFocusDetailPanel: View {
                     .foregroundStyle(
                         paused
                             ? .yellow.opacity(0.85)
-                            : DS.Color.accent
+                            : panelAccent
                     )
                     .textCase(.uppercase)
                 Text(formatCountdown(remaining))
@@ -3723,7 +3758,7 @@ struct LiveFocusDetailPanel: View {
                         .foregroundStyle(.white)
                         .frame(width: 30, height: 30)
                         .background(
-                            Circle().fill(DS.Color.accent.opacity(0.55))
+                            Circle().fill(panelAccent.opacity(0.55))
                         )
                 }
                 .buttonStyle(.plain)
@@ -3795,7 +3830,7 @@ struct LiveFocusDetailPanel: View {
                 HStack(spacing: 6) {
                     Image(systemName: "timer")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(DS.Color.accent.opacity(0.85))
+                        .foregroundStyle(panelAccent.opacity(0.85))
                     Text("Again")
                         .font(.system(size: 11.5, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.78))
@@ -3830,10 +3865,10 @@ struct LiveFocusDetailPanel: View {
                 .padding(.vertical, 4)
                 .background(
                     Capsule()
-                        .fill(DS.Color.accent.opacity(0.38))
+                        .fill(panelAccent.opacity(0.38))
                         .overlay(
                             Capsule()
-                                .strokeBorder(DS.Color.accent.opacity(0.65),
+                                .strokeBorder(panelAccent.opacity(0.65),
                                               lineWidth: 0.5)
                         )
                 )
@@ -3888,7 +3923,7 @@ struct LiveFocusDetailPanel: View {
             if active {
                 Text("Session in progress")
                     .font(.system(size: 10.5))
-                    .foregroundStyle(DS.Color.accent.opacity(0.85))
+                    .foregroundStyle(panelAccent.opacity(0.85))
             } else if total > 0 {
                 Text("Nice work")
                     .font(.system(size: 10.5))
@@ -3961,7 +3996,7 @@ struct LiveFocusDetailPanel: View {
 
     private func weekBarColor(value: Int, isToday: Bool) -> Color {
         if value == 0 { return .white.opacity(0.10) }
-        return isToday ? DS.Color.accent : DS.Color.accent.opacity(0.55)
+        return isToday ? panelAccent : panelAccent.opacity(0.55)
     }
 
     /// Format a session duration as "1h 23m" / "23m" / "45s".
@@ -4020,10 +4055,10 @@ struct LiveFocusDetailPanel: View {
         HStack(alignment: .center, spacing: 11) {
             ZStack {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(DS.Color.accent.opacity(noxFocusMode ? 0.22 : 0.16))
+                    .fill(panelAccent.opacity(noxFocusMode ? 0.22 : 0.16))
                 Image(systemName: noxFocusMode ? "moon.fill" : "moon")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(DS.Color.accent)
+                    .foregroundStyle(panelAccent)
                     .modifier(IconReplaceEffect(value: noxFocusMode))
             }
             .frame(width: 26, height: 26)
@@ -4041,7 +4076,7 @@ struct LiveFocusDetailPanel: View {
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
-                .tint(DS.Color.accent)
+                .tint(panelAccent)
                 .allowsHitTesting(false)
         }
         .padding(.horizontal, 12)
@@ -4100,10 +4135,10 @@ struct LiveFocusDetailPanel: View {
             HStack(alignment: .center, spacing: 11) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(DS.Color.accent.opacity(0.10))
+                        .fill(panelAccent.opacity(0.10))
                     Image(systemName: "bell.slash.fill")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(DS.Color.accent.opacity(0.85))
+                        .foregroundStyle(panelAccent.opacity(0.85))
                 }
                 .frame(width: 26, height: 26)
 
@@ -4119,7 +4154,7 @@ struct LiveFocusDetailPanel: View {
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .controlSize(.small)
-                    .tint(DS.Color.accent)
+                    .tint(panelAccent)
                     .allowsHitTesting(false)
             }
             .padding(.horizontal, 12)
@@ -4157,6 +4192,7 @@ struct LiveFocusDetailPanel: View {
 /// productivity stats; for V1 the timer alone is the value.
 struct LiveStudyDetailPanel: View {
     @EnvironmentObject var presenter: PanelPresenter
+    @Environment(\.panelAccent) private var panelAccent: Color
     @AppStorage(SettingsKey.noxStudyMode) private var noxStudyMode: Bool = false
     @AppStorage(SettingsKey.noxFocusMode) private var noxFocusMode: Bool = false
     @ObservedObject private var tracker = StudySessionTracker.shared
@@ -4287,7 +4323,7 @@ struct LiveStudyDetailPanel: View {
                 // than a different icon set.
                 ZStack {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(DS.Color.accent.opacity(noxStudyMode ? 0.22 : 0.14))
+                        .fill(panelAccent.opacity(noxStudyMode ? 0.22 : 0.14))
                     StudyHero(active: noxStudyMode)
                         .frame(width: 26, height: 26)
                 }
@@ -4327,7 +4363,7 @@ struct LiveStudyDetailPanel: View {
                         minutes: day.minutes,
                         progress: progress,
                         isToday: isToday,
-                        accent: DS.Color.accent,
+                        accent: panelAccent,
                         // Lightbulb = "insight / actively learning"
                         // — Study's counterpart to Focus's bolt.
                         // Both glyphs read as energy, but in their
@@ -4361,12 +4397,12 @@ struct LiveStudyDetailPanel: View {
                         .stroke(.white.opacity(0.10), lineWidth: 2.5)
                     Circle()
                         .trim(from: 0, to: avgVsGoal)
-                        .stroke(DS.Color.accent,
+                        .stroke(panelAccent,
                                 style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                     Image(systemName: "lightbulb.fill")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(DS.Color.accent)
+                        .foregroundStyle(panelAccent)
                 }
                 .frame(width: 36, height: 36)
             }
@@ -4378,8 +4414,8 @@ struct LiveStudyDetailPanel: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            DS.Color.accent.opacity(noxStudyMode ? 0.16 : 0.08),
-                            DS.Color.accent.opacity(0.02)
+                            panelAccent.opacity(noxStudyMode ? 0.16 : 0.08),
+                            panelAccent.opacity(0.02)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -4389,7 +4425,7 @@ struct LiveStudyDetailPanel: View {
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(
-                    DS.Color.accent.opacity(noxStudyMode ? 0.26 : 0.10),
+                    panelAccent.opacity(noxStudyMode ? 0.26 : 0.10),
                     lineWidth: 0.6
                 )
         )
@@ -4480,7 +4516,7 @@ struct LiveStudyDetailPanel: View {
                     HStack(spacing: 5) {
                         Image(systemName: "timer")
                             .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundStyle(DS.Color.accent.opacity(0.85))
+                            .foregroundStyle(panelAccent.opacity(0.85))
                         Text("Timer")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.78))
@@ -4511,14 +4547,14 @@ struct LiveStudyDetailPanel: View {
                 Circle()
                     .trim(from: 0, to: progress)
                     .stroke(
-                        DS.Color.accent.opacity(paused ? 0.45 : 0.95),
+                        panelAccent.opacity(paused ? 0.45 : 0.95),
                         style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
                     .animation(.linear(duration: 0.5), value: progress)
                 Image(systemName: paused ? "pause.fill" : "timer")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(paused ? .white.opacity(0.55) : DS.Color.accent)
+                    .foregroundStyle(paused ? .white.opacity(0.55) : panelAccent)
             }
             .frame(width: 28, height: 28)
 
@@ -4526,7 +4562,7 @@ struct LiveStudyDetailPanel: View {
                 Text(paused ? "PAUSED" : "STUDY ON")
                     .font(.system(size: 8.5, weight: .bold))
                     .tracking(0.6)
-                    .foregroundStyle(paused ? .yellow.opacity(0.85) : DS.Color.accent)
+                    .foregroundStyle(paused ? .yellow.opacity(0.85) : panelAccent)
                 Text(formatCountdown(remaining))
                     .font(.system(size: 14, weight: .bold).monospacedDigit())
                     .foregroundStyle(paused ? .white.opacity(0.55) : .white)
@@ -4543,7 +4579,7 @@ struct LiveStudyDetailPanel: View {
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 24, height: 24)
-                    .background(Circle().fill(DS.Color.accent.opacity(0.55)))
+                    .background(Circle().fill(panelAccent.opacity(0.55)))
             }
             .buttonStyle(.plain)
             .accessibilityLabel(paused ? "Resume timer" : "Pause timer")
@@ -4569,7 +4605,7 @@ struct LiveStudyDetailPanel: View {
         HStack(spacing: 8) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(DS.Color.accent)
+                .foregroundStyle(panelAccent)
             Text("Session done")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white)
@@ -4582,7 +4618,7 @@ struct LiveStudyDetailPanel: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
-                    .background(Capsule().fill(DS.Color.accent.opacity(0.45)))
+                    .background(Capsule().fill(panelAccent.opacity(0.45)))
             }
             .buttonStyle(.plain)
         }
@@ -4609,7 +4645,7 @@ struct LiveStudyDetailPanel: View {
                     Image(systemName: noxStudyMode ? "lightbulb.fill" : "lightbulb")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(noxStudyMode
-                                         ? DS.Color.accent
+                                         ? panelAccent
                                          : Color.white.opacity(0.55))
                     Text("Study")
                         .font(.system(size: 11.5, weight: .medium))
@@ -4626,7 +4662,7 @@ struct LiveStudyDetailPanel: View {
                     ))
                     .labelsHidden()
                     .toggleStyle(.switch)
-                    .tint(DS.Color.accent)
+                    .tint(panelAccent)
                     .scaleEffect(0.65)
                 }
                 .padding(.horizontal, 8)
@@ -4647,7 +4683,7 @@ struct LiveStudyDetailPanel: View {
                         .foregroundStyle(.white.opacity(0.45))
                     Text("Goal \(dailyStudyGoal)m")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(DS.Color.accent)
+                        .foregroundStyle(panelAccent)
                         .monospacedDigit()
                     Spacer(minLength: 0)
                 }
@@ -4676,7 +4712,7 @@ struct LiveStudyDetailPanel: View {
                 Text("Live")
                     .font(.system(size: 13, weight: .medium))
             }
-            .foregroundStyle(DS.Color.accent)
+            .foregroundStyle(panelAccent)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -4736,8 +4772,8 @@ struct LiveStudyDetailPanel: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            DS.Color.accent.opacity(noxStudyMode ? 0.18 : 0.06),
-                            DS.Color.accent.opacity(0.02)
+                            panelAccent.opacity(noxStudyMode ? 0.18 : 0.06),
+                            panelAccent.opacity(0.02)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -4747,7 +4783,7 @@ struct LiveStudyDetailPanel: View {
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(
-                    DS.Color.accent.opacity(noxStudyMode ? 0.28 : 0.10),
+                    panelAccent.opacity(noxStudyMode ? 0.28 : 0.10),
                     lineWidth: 0.6
                 )
         )
@@ -4765,7 +4801,7 @@ struct LiveStudyDetailPanel: View {
         HStack(spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(DS.Color.accent.opacity(0.08))
+                    .fill(panelAccent.opacity(0.08))
                 Image(systemName: "book.closed")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(Color.white.opacity(0.55))
@@ -4775,7 +4811,7 @@ struct LiveStudyDetailPanel: View {
                 Text("STUDY OFF")
                     .font(.system(size: 10, weight: .bold))
                     .tracking(0.6)
-                    .foregroundStyle(DS.Color.accent.opacity(0.78))
+                    .foregroundStyle(panelAccent.opacity(0.78))
                     .textCase(.uppercase)
                 Text("Tap toggle below to start")
                     .font(.system(size: 13, weight: .medium))
@@ -4795,17 +4831,17 @@ struct LiveStudyDetailPanel: View {
             HStack(spacing: 12) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(DS.Color.accent.opacity(0.20))
+                        .fill(panelAccent.opacity(0.20))
                     Image(systemName: "book.closed.fill")
                         .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(DS.Color.accent)
+                        .foregroundStyle(panelAccent)
                 }
                 .frame(width: 50, height: 50)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("STUDY ON")
                         .font(.system(size: 10, weight: .bold))
                         .tracking(0.6)
-                        .foregroundStyle(DS.Color.accent)
+                        .foregroundStyle(panelAccent)
                         .textCase(.uppercase)
                     if let start = presenter.studySessionStartedAt {
                         Text(formatSessionDuration(now.timeIntervalSince(start)))
@@ -4845,7 +4881,7 @@ struct LiveStudyDetailPanel: View {
                 HStack(spacing: 6) {
                     Image(systemName: "timer")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(DS.Color.accent.opacity(0.85))
+                        .foregroundStyle(panelAccent.opacity(0.85))
                     Text("Timer")
                         .font(.system(size: 11.5, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.78))
@@ -4874,7 +4910,7 @@ struct LiveStudyDetailPanel: View {
                 Circle()
                     .trim(from: 0, to: progress)
                     .stroke(
-                        DS.Color.accent.opacity(paused ? 0.45 : 0.95),
+                        panelAccent.opacity(paused ? 0.45 : 0.95),
                         style: StrokeStyle(lineWidth: 4, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
@@ -4892,7 +4928,7 @@ struct LiveStudyDetailPanel: View {
                     .foregroundStyle(
                         paused
                             ? .yellow.opacity(0.85)
-                            : DS.Color.accent
+                            : panelAccent
                     )
                     .textCase(.uppercase)
                 Text(formatCountdown(remaining))
@@ -4917,7 +4953,7 @@ struct LiveStudyDetailPanel: View {
                         .foregroundStyle(.white)
                         .frame(width: 30, height: 30)
                         .background(
-                            Circle().fill(DS.Color.accent.opacity(0.55))
+                            Circle().fill(panelAccent.opacity(0.55))
                         )
                 }
                 .buttonStyle(.plain)
@@ -4984,7 +5020,7 @@ struct LiveStudyDetailPanel: View {
                 HStack(spacing: 6) {
                     Image(systemName: "timer")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(DS.Color.accent.opacity(0.85))
+                        .foregroundStyle(panelAccent.opacity(0.85))
                     Text("Again")
                         .font(.system(size: 11.5, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.78))
@@ -5022,10 +5058,10 @@ struct LiveStudyDetailPanel: View {
                 .padding(.vertical, 4)
                 .background(
                     Capsule()
-                        .fill(DS.Color.accent.opacity(0.38))
+                        .fill(panelAccent.opacity(0.38))
                         .overlay(
                             Capsule()
-                                .strokeBorder(DS.Color.accent.opacity(0.65),
+                                .strokeBorder(panelAccent.opacity(0.65),
                                               lineWidth: 0.5)
                         )
                 )
@@ -5048,10 +5084,10 @@ struct LiveStudyDetailPanel: View {
                 .frame(minWidth: 28)
                 .background(
                     Capsule()
-                        .fill(DS.Color.accent.opacity(0.22))
+                        .fill(panelAccent.opacity(0.22))
                         .overlay(
                             Capsule()
-                                .strokeBorder(DS.Color.accent.opacity(0.45),
+                                .strokeBorder(panelAccent.opacity(0.45),
                                               lineWidth: 0.5)
                         )
                 )
@@ -5066,7 +5102,7 @@ struct LiveStudyDetailPanel: View {
         HStack(spacing: 6) {
             Image(systemName: "timer")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(DS.Color.accent.opacity(0.85))
+                .foregroundStyle(panelAccent.opacity(0.85))
             Text("Custom")
                 .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.78))
@@ -5121,7 +5157,7 @@ struct LiveStudyDetailPanel: View {
                 .padding(.horizontal, 9)
                 .padding(.vertical, 4)
                 .background(
-                    Capsule().fill(DS.Color.accent.opacity(0.55))
+                    Capsule().fill(panelAccent.opacity(0.55))
                 )
             }
             .buttonStyle(.plain)
@@ -5217,7 +5253,7 @@ struct LiveStudyDetailPanel: View {
             if active {
                 Text("Session in progress")
                     .font(.system(size: 10.5))
-                    .foregroundStyle(DS.Color.accent.opacity(0.85))
+                    .foregroundStyle(panelAccent.opacity(0.85))
             } else if total > 0 {
                 Text("Nice work")
                     .font(.system(size: 10.5))
@@ -5301,8 +5337,8 @@ struct LiveStudyDetailPanel: View {
             return .white.opacity(0.10)
         }
         return isToday
-            ? DS.Color.accent
-            : DS.Color.accent.opacity(0.55)
+            ? panelAccent
+            : panelAccent.opacity(0.55)
     }
 
     // MARK: - Controls
@@ -5326,7 +5362,7 @@ struct LiveStudyDetailPanel: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(
                             noxStudyMode
-                                ? DS.Color.accent
+                                ? panelAccent
                                 : Color.white.opacity(0.55)
                         )
                         .frame(width: 18)
@@ -5352,7 +5388,7 @@ struct LiveStudyDetailPanel: View {
                     ))
                     .labelsHidden()
                     .toggleStyle(.switch)
-                    .tint(DS.Color.accent)
+                    .tint(panelAccent)
                     .scaleEffect(0.78)
                 }
                 .padding(.horizontal, 12)
@@ -5441,6 +5477,7 @@ private struct IconReplaceEffect: ViewModifier {
 /// is the right resolution for an inline badge.
 struct MiniFocusDot: View {
     let active: Bool
+    @Environment(\.panelAccent) private var panelAccent: Color
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0,
@@ -5450,9 +5487,9 @@ struct MiniFocusDot: View {
                 .truncatingRemainder(dividingBy: 1.6) / 1.6
             let breathe = 1 + 0.18 * sin(t * 2 * .pi)
             Circle()
-                .fill(DS.Color.accent)
+                .fill(panelAccent)
                 .scaleEffect(breathe)
-                .shadow(color: DS.Color.accent.opacity(active ? 0.65 : 0),
+                .shadow(color: panelAccent.opacity(active ? 0.65 : 0),
                         radius: 3, x: 0, y: 0)
                 .opacity(active ? 1 : 0.45)
         }
@@ -5461,6 +5498,7 @@ struct MiniFocusDot: View {
 
 struct FocusWorkingHero: View {
     let active: Bool
+    @Environment(\.panelAccent) private var panelAccent: Color
 
     /// Whole-cycle duration. 1.6s = a comfortable typing rhythm
     /// (slightly slower than a real keystroke cadence so the
@@ -5496,8 +5534,8 @@ struct FocusWorkingHero: View {
             .fill(
                 RadialGradient(
                     colors: [
-                        DS.Color.accent.opacity(active ? 0.32 : 0),
-                        DS.Color.accent.opacity(0)
+                        panelAccent.opacity(active ? 0.32 : 0),
+                        panelAccent.opacity(0)
                     ],
                     center: .center,
                     startRadius: 0,
@@ -5523,7 +5561,7 @@ struct FocusWorkingHero: View {
             // Laptop slab — wide thin rounded rect at the bottom
             // 30% of the canvas.
             RoundedRectangle(cornerRadius: side * 0.04, style: .continuous)
-                .fill(DS.Color.accent.opacity(active ? 0.85 : 0.45))
+                .fill(panelAccent.opacity(active ? 0.85 : 0.45))
                 .frame(width: side * 0.78, height: side * 0.06)
                 .offset(y: side * 0.30)
 
@@ -5531,14 +5569,14 @@ struct FocusWorkingHero: View {
             // slab. We approximate the open-laptop wedge with a
             // Trapezoid shape.
             LaptopScreen()
-                .fill(DS.Color.accent.opacity(active ? 0.55 : 0.30))
+                .fill(panelAccent.opacity(active ? 0.55 : 0.30))
                 .frame(width: side * 0.62, height: side * 0.18)
                 .offset(y: side * 0.18)
 
             // Body — rounded square behind the head, just barely
             // visible above the laptop. Slightly darker shade.
             RoundedRectangle(cornerRadius: side * 0.10, style: .continuous)
-                .fill(DS.Color.accent.opacity(active ? 0.95 : 0.50))
+                .fill(panelAccent.opacity(active ? 0.95 : 0.50))
                 .frame(width: side * 0.46, height: side * 0.32)
                 .offset(y: side * 0.06)
 
@@ -5601,6 +5639,7 @@ struct FocusWorkingHero: View {
 /// any layout jiggle.
 struct StudyHero: View {
     let active: Bool
+    @Environment(\.panelAccent) private var panelAccent: Color
 
     /// Whole-cycle duration for the breathing pulse. 2.4s = slower
     /// than the typing rhythm in FocusWorkingHero so the two modes
@@ -5625,7 +5664,7 @@ struct StudyHero: View {
                     Image(systemName: "book.closed.fill")
                         .font(.system(size: side * 0.78,
                                       weight: .semibold))
-                        .foregroundStyle(DS.Color.accent)
+                        .foregroundStyle(panelAccent)
                         .scaleEffect(breath)
                 }
                 .frame(width: side, height: side)
@@ -5642,8 +5681,8 @@ struct StudyHero: View {
     private func softGlow(side: CGFloat) -> some View {
         RadialGradient(
             colors: [
-                DS.Color.accent.opacity(0.32),
-                DS.Color.accent.opacity(0.08),
+                panelAccent.opacity(0.32),
+                panelAccent.opacity(0.08),
                 .clear
             ],
             center: .center,
@@ -5692,6 +5731,7 @@ private struct LaptopScreen: Shape {
 
 struct FocusAuraHero: View {
     let active: Bool
+    @Environment(\.panelAccent) private var panelAccent: Color
 
     /// Fraction-of-cycle phase for each ring. 3 rings spaced
     /// 1/3rd of a cycle apart gives a continuous emanation
@@ -5755,7 +5795,7 @@ struct FocusAuraHero: View {
         let opacity = active ? max(0, (1 - p) * 0.70) : 0
         Circle()
             .stroke(
-                DS.Color.accent,
+                panelAccent,
                 lineWidth: max(1.6, side * 0.085)
             )
             .scaleEffect(scale)
@@ -5771,8 +5811,8 @@ struct FocusAuraHero: View {
             .fill(
                 RadialGradient(
                     colors: [
-                        DS.Color.accent.opacity(active ? 0.55 : 0),
-                        DS.Color.accent.opacity(0)
+                        panelAccent.opacity(active ? 0.55 : 0),
+                        panelAccent.opacity(0)
                     ],
                     center: .center,
                     startRadius: 0,
@@ -5783,7 +5823,7 @@ struct FocusAuraHero: View {
         // Solid bright disc at the core — the unmistakable
         // "something is here" anchor.
         Circle()
-            .fill(DS.Color.accent)
+            .fill(panelAccent)
             .frame(
                 width: side * 0.55 * breathe,
                 height: side * 0.55 * breathe
@@ -5814,6 +5854,7 @@ struct FocusAuraHero: View {
 /// without an awkward "static moon glyph" fallback.
 struct SleepingMoonHero: View {
     let active: Bool
+    @Environment(\.panelAccent) private var panelAccent: Color
 
     /// Continuous animation phase, 0...1 looped over a 3.6s
     /// cycle. Drives the bob, halo pulse, blink schedule, and
@@ -5858,8 +5899,8 @@ struct SleepingMoonHero: View {
             .fill(
                 RadialGradient(
                     colors: [
-                        DS.Color.accent.opacity(active ? 0.32 : 0.16),
-                        DS.Color.accent.opacity(0.0)
+                        panelAccent.opacity(active ? 0.32 : 0.16),
+                        panelAccent.opacity(0.0)
                     ],
                     center: .center,
                     startRadius: 4,
@@ -5879,7 +5920,7 @@ struct SleepingMoonHero: View {
             // Filled crescent body — uses a mask trick: full
             // disc minus an offset disc gives a crescent shape.
             Circle()
-                .fill(DS.Color.accent.opacity(0.95))
+                .fill(panelAccent.opacity(0.95))
                 .frame(width: 38, height: 38)
                 .mask(
                     ZStack {
@@ -5891,7 +5932,7 @@ struct SleepingMoonHero: View {
                     }
                     .compositingGroup()
                 )
-                .shadow(color: DS.Color.accent.opacity(0.5),
+                .shadow(color: panelAccent.opacity(0.5),
                         radius: 6, x: 0, y: 0)
             // Closed eyes — two short curved arcs. Drawn slightly
             // INSET from the crescent's left half so they sit on
@@ -5946,7 +5987,7 @@ struct SleepingMoonHero: View {
 
         return Text("Z")
             .font(.system(size: size, weight: .heavy, design: .rounded))
-            .foregroundStyle(DS.Color.accent.opacity(0.85))
+            .foregroundStyle(panelAccent.opacity(0.85))
             .offset(x: startX + dx, y: -10 + dy)
             .opacity(opacity)
     }

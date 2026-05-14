@@ -8,6 +8,7 @@ struct ImagesGridView: View {
     // unrelated `videoStore.jobs[i].progress` tick doesn't trigger
     // this view's body to re-evaluate.
     @EnvironmentObject var imageStore: ImageStore
+    @Environment(\.panelAccent) private var panelAccent: Color
     @EnvironmentObject var presenter: PanelPresenter
 
     /// Dynamic accent that follows the current track's artwork
@@ -125,10 +126,10 @@ struct ImagesGridView: View {
                 HStack(spacing: 4) {
                     ProgressView()
                         .controlSize(.mini)
-                        .tint(DS.Color.accent)
+                        .tint(panelAccent)
                     Text("Saving \(imageStore.inflight.count)…")
                         .font(.nkMeta)
-                        .foregroundStyle(DS.Color.accent)
+                        .foregroundStyle(panelAccent)
                 }
                 .transition(.opacity)
             }
@@ -279,7 +280,7 @@ struct ImagesGridView: View {
                     .padding(.vertical, 5)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(isSelectionMode ? DS.Color.accent.opacity(0.85) : DS.Color.bgSelected)
+                            .fill(isSelectionMode ? panelAccent.opacity(0.85) : DS.Color.bgSelected)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -302,7 +303,7 @@ struct ImagesGridView: View {
             RoundedRectangle(cornerRadius: DS.Radius.row, style: .continuous)
                 .strokeBorder(
                     isSelectionMode
-                        ? DS.Color.accent.opacity(0.32)
+                        ? panelAccent.opacity(0.32)
                         : Color.white.opacity(0.06),
                     lineWidth: 0.5
                 )
@@ -573,6 +574,7 @@ struct ImageCell: View {
     let isSelected: Bool
     let onTap: () -> Void
     @EnvironmentObject var imageStore: ImageStore
+    @Environment(\.panelAccent) private var panelAccent: Color
     @State private var isHovered = false
     @State private var justCopied = false
     /// Mirrors `justCopied` for the sibling "Copy Text" button: flips
@@ -630,7 +632,7 @@ struct ImageCell: View {
         // sheen (1.6pt) so it pops at small sizes too.
         .overlay(
             shape.strokeBorder(
-                isSelected ? DS.Color.accent : Color.clear,
+                isSelected ? panelAccent : Color.clear,
                 lineWidth: 1.6
             )
         )
@@ -638,7 +640,7 @@ struct ImageCell: View {
             if isSelected {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(DS.Color.accent)
+                    .foregroundStyle(panelAccent)
                     .background(Circle().fill(.black).padding(2))
                     .padding(4)
                     .transition(.scale.combined(with: .opacity))
@@ -785,7 +787,7 @@ struct ImageCell: View {
     /// they even spot the corner check.
     private var shadowFar: Color {
         if isSelected {
-            return DS.Color.accent.opacity(isHovered ? 0.55 : 0.42)
+            return panelAccent.opacity(isHovered ? 0.55 : 0.42)
         }
         return Color.black.opacity(isHovered ? 0.55 : 0.42)
     }
@@ -798,7 +800,7 @@ struct ImageCell: View {
                 Text(justCopied ? "Copied" : "Copy")
                     .font(.system(size: 10, weight: .medium))
             }
-            .foregroundStyle(justCopied ? DS.Color.accent : Color.white)
+            .foregroundStyle(justCopied ? panelAccent : Color.white)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(
@@ -835,7 +837,7 @@ struct ImageCell: View {
                 Text(isExtractingText ? "…" : (justExtractedText ? "Copied" : "Text"))
                     .font(.system(size: 10, weight: .medium))
             }
-            .foregroundStyle(justExtractedText ? DS.Color.accent : Color.white)
+            .foregroundStyle(justExtractedText ? panelAccent : Color.white)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(
@@ -973,6 +975,7 @@ struct ImageCell: View {
 /// arrives is what makes the paste feel as instant as the user expects.
 struct InflightImageCell: View {
     let upload: ImageStore.InflightUpload
+    @Environment(\.panelAccent) private var panelAccent: Color
 
     /// Match ImageCell — same 14pt pillow corners + 96pt height so
     /// the inflight placeholder doesn't visually pop when it swaps
@@ -997,12 +1000,12 @@ struct InflightImageCell: View {
         .clipShape(shape)
         .overlay(loadingScrim)
         .overlay(
-            shape.strokeBorder(DS.Color.accent.opacity(0.62), lineWidth: 1.4)
+            shape.strokeBorder(panelAccent.opacity(0.62), lineWidth: 1.4)
         )
         // Same double-shadow as the finished cell, but tinted accent
         // so the still-saving tile glows in a way that's clearly
         // "in flight, not done yet".
-        .shadow(color: DS.Color.accent.opacity(0.42), radius: 14, y: 6)
+        .shadow(color: panelAccent.opacity(0.42), radius: 14, y: 6)
         .shadow(color: Color.black.opacity(0.5), radius: 1.5, y: 1)
         .animation(.easeInOut(duration: 0.18), value: upload.preview != nil)
         .allowsHitTesting(false)

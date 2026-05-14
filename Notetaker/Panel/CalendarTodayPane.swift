@@ -32,6 +32,7 @@ struct CalendarTodayPane: View {
     /// settings; show the "Enable in Settings" CTA. The widget
     /// itself doesn't flip the toggle (settings-as-source-of-truth).
     @ObservedObject var service: CalendarMonitorService
+    @Environment(\.panelAccent) private var panelAccent: Color
 
     /// Direct Google Calendar integration (no macOS Calendar.app
     /// in the middle). Used when the user picks "Google" as the
@@ -270,10 +271,10 @@ struct CalendarTodayPane: View {
                 HStack(spacing: 4) {
                     Image(systemName: "checkmark.seal.fill")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(DS.Color.accent.opacity(0.85))
+                        .foregroundStyle(panelAccent.opacity(0.85))
                     Text("Notion Calendar uses Google")
                         .font(.system(size: 10))
-                        .foregroundStyle(DS.Color.accent.opacity(0.85))
+                        .foregroundStyle(panelAccent.opacity(0.85))
                 }
                 Text("One tap. No System Settings.")
                     .font(.system(size: 10))
@@ -338,7 +339,7 @@ struct CalendarTodayPane: View {
                     .lineLimit(2)
                 Text("Tap to reconnect")
                     .font(.system(size: 10))
-                    .foregroundStyle(DS.Color.accent.opacity(0.85))
+                    .foregroundStyle(panelAccent.opacity(0.85))
             }
         }
         .buttonStyle(.plain)
@@ -365,7 +366,7 @@ struct CalendarTodayPane: View {
                     .foregroundStyle(Color.white.opacity(0.85))
                 Text("Notion Calendar runs on Google. Tap to connect.")
                     .font(.system(size: 10))
-                    .foregroundStyle(DS.Color.accent.opacity(0.85))
+                    .foregroundStyle(panelAccent.opacity(0.85))
                     .multilineTextAlignment(.leading)
             }
         }
@@ -536,7 +537,7 @@ struct CalendarTodayPane: View {
                     .foregroundStyle(Color.white.opacity(0.85))
                 Text("Tap to enable in System Settings")
                     .font(.system(size: 10))
-                    .foregroundStyle(DS.Color.accent.opacity(0.85))
+                    .foregroundStyle(panelAccent.opacity(0.85))
             }
         }
         .buttonStyle(.plain)

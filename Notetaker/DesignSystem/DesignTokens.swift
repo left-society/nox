@@ -104,3 +104,33 @@ enum DS {
         static let large: CGFloat = 16
     }
 }
+
+// MARK: - Dynamic panel accent (music-driven)
+
+/// SwiftUI environment value that carries the slab's current accent
+/// color. `PanelRootView` injects its `panelAccent` computed property
+/// (now-playing artwork's dominant color when music has art, otherwise
+/// brand lavender) at the root, and every descendant view that wants
+/// to participate in the unified color story reads it via
+/// `@Environment(\.panelAccent)` instead of the static
+/// `DS.Color.accent` constant.
+///
+/// Adopting this in a new view is a two-line change:
+///   @Environment(\.panelAccent) private var accent
+///   // ...use `accent` wherever DS.Color.accent used to go...
+///
+/// The default value (brand lavender) makes the env value safe to read
+/// from views rendered outside the panel root (Settings, onboarding,
+/// previews) — they just get the brand color, same as before.
+private struct PanelAccentEnvironmentKey: EnvironmentKey {
+    static let defaultValue: Color = DS.Color.brandLavender
+}
+
+extension EnvironmentValues {
+    /// Slab-wide accent color. Lavender at rest, follows the
+    /// now-playing artwork's dominant color when music has art.
+    var panelAccent: Color {
+        get { self[PanelAccentEnvironmentKey.self] }
+        set { self[PanelAccentEnvironmentKey.self] = newValue }
+    }
+}

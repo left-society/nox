@@ -1,6 +1,6 @@
 import XCTest
 import AppKit
-@testable import Notetaker
+@testable import nox
 
 final class ImageOCRServiceTests: XCTestCase {
     func test_extractsRenderedText() async throws {

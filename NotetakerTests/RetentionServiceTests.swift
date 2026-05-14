@@ -1,6 +1,6 @@
 import XCTest
 import GRDB
-@testable import Notetaker
+@testable import nox
 
 @MainActor
 final class RetentionServiceTests: XCTestCase {
@@ -17,14 +17,16 @@ final class RetentionServiceTests: XCTestCase {
 
         let fakeNow = Date(timeIntervalSince1970: 10_000_000)
         let threeDaysAgo = fakeNow.addingTimeInterval(-3 * 24 * 3600).timeIntervalSince1970
-        var oldNote = Note(id: "old", title: nil, body: "x",
+        let oldNote = Note(id: "old", title: nil, body: "x",
                            createdAt: threeDaysAgo, updatedAt: threeDaysAgo,
-                           status: "active", trashedAt: nil)
-        var newNote = Note(id: "new", title: nil, body: "y",
+                           status: "active", trashedAt: nil, kind: "text")
+        let newNote = Note(id: "new", title: nil, body: "y",
                            createdAt: fakeNow.timeIntervalSince1970,
                            updatedAt: fakeNow.timeIntervalSince1970,
-                           status: "active", trashedAt: nil)
-        try db.dbQueue.write {
+                           status: "active", trashedAt: nil, kind: "text")
+        try await db.dbQueue.write {
+            var oldNote = oldNote
+            var newNote = newNote
             try oldNote.insert($0)
             try newNote.insert($0)
         }
@@ -32,8 +34,8 @@ final class RetentionServiceTests: XCTestCase {
         let svc = RetentionService(db: db, imageRoot: tmp, clock: { fakeNow })
         await svc.sweep()
 
-        let fetchedOld = try db.dbQueue.read { try Note.fetchOne($0, id: "old") }
-        let fetchedNew = try db.dbQueue.read { try Note.fetchOne($0, id: "new") }
+        let fetchedOld = try await db.dbQueue.read { try Note.fetchOne($0, id: "old") }
+        let fetchedNew = try await db.dbQueue.read { try Note.fetchOne($0, id: "new") }
         XCTAssertEqual(fetchedOld?.status, "trashed")
         XCTAssertEqual(fetchedNew?.status, "active")
     }
@@ -44,14 +46,18 @@ final class RetentionServiceTests: XCTestCase {
 
         let fakeNow = Date(timeIntervalSince1970: 10_000_000)
         let tenDaysAgo = fakeNow.addingTimeInterval(-10 * 24 * 3600).timeIntervalSince1970
-        var oldTrash = Note(id: "t", title: nil, body: "", createdAt: tenDaysAgo,
-                            updatedAt: tenDaysAgo, status: "trashed", trashedAt: tenDaysAgo)
-        try db.dbQueue.write { try oldTrash.insert($0) }
+        let oldTrash = Note(id: "t", title: nil, body: "", createdAt: tenDaysAgo,
+                            updatedAt: tenDaysAgo, status: "trashed",
+                            trashedAt: tenDaysAgo, kind: "text")
+        try await db.dbQueue.write {
+            var oldTrash = oldTrash
+            try oldTrash.insert($0)
+        }
 
         let svc = RetentionService(db: db, imageRoot: tmp, clock: { fakeNow })
         await svc.sweep()
 
-        let fetched = try db.dbQueue.read { try Note.fetchOne($0, id: "t") }
+        let fetched = try await db.dbQueue.read { try Note.fetchOne($0, id: "t") }
         XCTAssertNil(fetched)
     }
 
@@ -76,21 +82,24 @@ final class RetentionServiceTests: XCTestCase {
         try Data([0x89, 0x50, 0x4E, 0x47]).write(to: fullURL)
         try Data([0xFF, 0xD8, 0xFF]).write(to: thumbURL)
 
-        var expired = ImageRecord(
+        let expired = ImageRecord(
             id: "expired", noteId: nil,
             filePath: fileRel, thumbPath: thumbRel,
             width: 10, height: 10,
             mimeType: "image/png", source: "paste",
             createdAt: tenDaysAgo, status: "trashed", trashedAt: tenDaysAgo
         )
-        try db.dbQueue.write { try expired.insert($0) }
+        try await db.dbQueue.write {
+            var expired = expired
+            try expired.insert($0)
+        }
 
         let svc = RetentionService(db: db, imageRoot: tmp, clock: { fakeNow })
         await svc.sweep()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: fullURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: thumbURL.path))
-        let row = try db.dbQueue.read { try ImageRecord.fetchOne($0, id: "expired") }
+        let row = try await db.dbQueue.read { try ImageRecord.fetchOne($0, id: "expired") }
         XCTAssertNil(row)
     }
 }

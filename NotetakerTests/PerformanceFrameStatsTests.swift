@@ -43,4 +43,89 @@ final class PerformanceFrameStatsTests: XCTestCase {
 
         XCTAssertEqual(stats.sampleCount, 0)
     }
+
+    func testHitchRatioNormalizesLateFrameTime() {
+        var stats = PerformanceFrameStats()
+
+        stats.record(deltaMs: 16.0)
+        stats.record(deltaMs: PerformanceFrameStats.sixtyFPSBudgetMs + 4.0)
+        stats.record(deltaMs: PerformanceFrameStats.sixtyFPSBudgetMs + 12.0)
+
+        XCTAssertEqual(stats.hitchTimeMs, 16.0, accuracy: 0.001)
+        XCTAssertEqual(stats.hitchRatioMsPerSecond(overDuration: 2.0), 8.0, accuracy: 0.001)
+        XCTAssertEqual(stats.hitchRatioMsPerSecond(overDuration: 0), 0)
+    }
+
+    func testPerformanceLogWriterFlushesQueuedLines() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nox-performance-writer-\(UUID().uuidString).log")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let writer = try PerformanceLogWriter(url: url)
+        writer.write("first\n")
+        writer.write("second\n")
+        writer.flush()
+        writer.close()
+
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertEqual(contents, "first\nsecond\n")
+    }
+
+    func testRestingWaveformUsesLowerCadenceUnlessInteracting() {
+        XCTAssertEqual(
+            WaveformRefreshPolicy.minimumInterval(
+                isCompactResting: true,
+                isInteractionActive: false
+            ),
+            1.0 / 12.0,
+            accuracy: 0.0001
+        )
+
+        XCTAssertEqual(
+            WaveformRefreshPolicy.minimumInterval(
+                isCompactResting: true,
+                isInteractionActive: true
+            ),
+            1.0 / 30.0,
+            accuracy: 0.0001
+        )
+
+        XCTAssertEqual(
+            WaveformRefreshPolicy.minimumInterval(
+                isCompactResting: false,
+                isInteractionActive: false
+            ),
+            1.0 / 30.0,
+            accuracy: 0.0001
+        )
+    }
+
+    func testTrackBannerDismissesToNotchHiddenWhenAnchorIsGone() {
+        XCTAssertEqual(
+            TrackBannerDismissalPolicy.targetKind(
+                isVisible: false,
+                isTeasing: false,
+                pillAnchored: false
+            ),
+            .notchHidden
+        )
+
+        XCTAssertEqual(
+            TrackBannerDismissalPolicy.targetKind(
+                isVisible: false,
+                isTeasing: false,
+                pillAnchored: true
+            ),
+            .pill
+        )
+
+        XCTAssertEqual(
+            TrackBannerDismissalPolicy.targetKind(
+                isVisible: true,
+                isTeasing: false,
+                pillAnchored: false
+            ),
+            .none
+        )
+    }
 }

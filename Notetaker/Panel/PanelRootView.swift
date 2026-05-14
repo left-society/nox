@@ -742,7 +742,8 @@ struct PanelRootView: View {
                 // we used for contentOverlay and VisualEffectBlur.
                 DropPickerView(
                     hoveredZone: presenter.dropPickerHoveredZone,
-                    fileCount: presenter.dropPickerFileCount
+                    fileCount: presenter.dropPickerFileCount,
+                    accent: panelAccent
                 )
                     // Picker fills the ENTIRE silhouette edge-
                     // to-edge — no padding. The panelSilhouette
@@ -981,6 +982,14 @@ struct PanelRootView: View {
             .animation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.40),
                        value: presenter.isMorphing)
             .animation(.easeInOut(duration: 0.12), value: presenter.isDropTargeted)
+            // Inject the slab's dynamic accent into the SwiftUI
+            // environment. Every descendant view (MusicPanelView,
+            // ScriptsView, Focus/Study detail panels, etc.) can
+            // read it via `@Environment(\.panelAccent)` to get the
+            // music-driven color (with brand lavender fallback)
+            // instead of the static `DS.Color.accent`. One inject
+            // point, every accent across the slab follows.
+            .environment(\.panelAccent, panelAccent)
             // PERF GATE: both shadows render only when isShown=true.
             // During the morph itself both radii are 0 — SwiftUI's
             // `.shadow` is a CPU-side gaussian convolution whose cost
@@ -2567,7 +2576,11 @@ struct PanelRootView: View {
                 // in lockstep when the banner finishes.
                 tint: ArtworkColor.dominant(from: displayedNowPlaying?.artworkData) ?? .white,
                 opacity: 0.95,
-                pattern: WaveformPattern.deterministic(for: displayedTrackKey)
+                pattern: WaveformPattern.deterministic(for: displayedTrackKey),
+                isCompactResting: true,
+                isInteractionActive: abs(pillSwipeOffset) > 0
+                    || presenter.isMorphing
+                    || presenter.trackChangedFiring
             )
             .scaleEffect(x: waveformPulse, y: 1, anchor: .trailing)
             .transition(.opacity)
@@ -2843,7 +2856,11 @@ struct PanelRootView: View {
                     // for the full story.
                     tint: ArtworkColor.dominant(from: displayedNowPlaying?.artworkData) ?? .white,
                     opacity: 0.95,
-                    pattern: WaveformPattern.deterministic(for: displayedTrackKey)
+                    pattern: WaveformPattern.deterministic(for: displayedTrackKey),
+                    isCompactResting: true,
+                    isInteractionActive: abs(pillSwipeOffset) > 0
+                        || presenter.isMorphing
+                        || presenter.trackChangedFiring
                 )
                 .scaleEffect(x: waveformPulse, y: 1, anchor: .trailing)
                 .transition(.opacity)
@@ -3596,7 +3613,17 @@ struct PanelRootView: View {
                 colors: [
                     Color.white.opacity(presenter.isShown ? 0.026 : 0),
                     Color.clear,
-                    DS.Color.brandLavender.opacity(presenter.isShown ? 0.018 : 0)
+                    // Corner glow follows the shared `panelAccent`
+                    // (music color when playing, lavender otherwise).
+                    // Kept at a very low opacity so the slab still
+                    // reads as matte black with a faint corner hint —
+                    // the LOUD music color now lives on the music
+                    // card instead of the background wash (per user
+                    // feedback 2026-05-13: "apply the color on cards
+                    // so it feels more premium" — replaces the
+                    // earlier `nowPlayingAmbientTint` radial wash
+                    // which was washing the whole panel).
+                    panelAccent.opacity(presenter.isShown ? 0.018 : 0)
                 ],
                 startPoint: .top,
                 endPoint: .bottomTrailing
@@ -3612,19 +3639,16 @@ struct PanelRootView: View {
     /// has an edge" without being able to point to a specific stroke.
     @ViewBuilder
     private var borderStroke: some View {
+        // 2026-05-13: reverted from a 3-stop LinearGradient stroke
+        // to a flat Color.white.opacity(0.06). The gradient was
+        // re-computing per frame of the open spring (silhouette
+        // shape interpolates, so the stroke path changes, so the
+        // gradient endpoints re-evaluate) — material contributor
+        // to the laggy feel. A static color has zero per-frame
+        // cost. Visually the difference is below the noise floor
+        // on every wallpaper we tested against.
         panelSilhouette
-            .stroke(
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.10),
-                        Color.white.opacity(0.045),
-                        DS.Color.brandLavender.opacity(0.08)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                lineWidth: 0.6
-            )
+            .stroke(Color.white.opacity(0.06), lineWidth: 0.5)
             .allowsHitTesting(false)
             .opacity(presenter.isShown ? 1 : 0)
     }
@@ -3744,7 +3768,7 @@ struct PanelRootView: View {
             // notch brand mark — same silhouette as the app icon,
             // just compact and untinted (the glyph itself uses
             // brandLavender; the wordmark beside it uses textPrimary).
-            NoxGlyph(size: 14, lineWidth: 1.4)
+            NoxGlyph(size: 14, lineWidth: 1.4, tint: panelAccent)
 
             Text("nox")
                 .font(.nkTitle)
@@ -3763,6 +3787,29 @@ struct PanelRootView: View {
 
     // MARK: - Segmented
 
+    /// Single source of truth for the slab's accent color.
+    ///
+    /// Drives the active-tab chrome, the ambient background tint,
+    /// the drop-picker Save zone, the panel-background corner
+    /// gradient stop, and every other accent site that used to be
+    /// `DS.Color.brandLavender`. When music is playing and the
+    /// player has artwork, this is the artwork's dominant color
+    /// (extracted + cached by `ArtworkColor.dominant`). Otherwise
+    /// it falls back to brand lavender so the slab has its own
+    /// identity at rest.
+    ///
+    /// One read per body evaluation; `ArtworkColor.dominant` is
+    /// keyed on the raw artwork blob and short-circuits on cache
+    /// hit, so reusing this across many call sites in the same
+    /// body is essentially free.
+    var panelAccent: Color {
+        if let data = presenter.nowPlaying?.artworkData,
+           let color = ArtworkColor.dominant(from: data) {
+            return color
+        }
+        return DS.Color.brandLavender
+    }
+
     /// Dark segmented tab rail. The panel stays matte-black, but
     /// the tabs get a tactile macOS control surface: recessed rail,
     /// raised active segment, muted inactive labels.
@@ -3771,7 +3818,8 @@ struct PanelRootView: View {
             ForEach(presenter.visibleTabs) { tab in
                 ScribbleTabButton(
                     tab: tab,
-                    isSelected: presenter.activeTab == tab
+                    isSelected: presenter.activeTab == tab,
+                    accentColor: panelAccent
                 ) {
                     withAnimation(.selection) { presenter.activeTab = tab }
                 }
@@ -3810,7 +3858,15 @@ struct PanelRootView: View {
                                 )
                         )
                 )
-                .shadow(color: Color.black.opacity(0.28), radius: 8, x: 0, y: 4)
+                // 2026-05-13: SwiftUI `.shadow()` removed. CPU-side
+                // gaussian convolution per frame during the open
+                // spring — same reason the panel root's .shadow()
+                // was killed back on 2026-05-04 (replaced by
+                // CALayer.shadowPath there). The two strokeBorder
+                // overlays above already give the tab rail its
+                // "recessed" depth feel via the dark inner shadow
+                // mask; the SwiftUI .shadow on top was just adding
+                // cost without visible difference on the dark slab.
         )
         .fixedSize(horizontal: true, vertical: true)
         .frame(maxWidth: .infinity, alignment: .center)
@@ -4220,11 +4276,40 @@ private struct MarkerStroke: Shape {
 }
 
 private struct ScribbleTabButton: View {
+    /// Feature flag for the hand-drawn lavender marker underline that
+    /// sweeps in under the active tab. Restored 2026-05-13 (premium
+    /// HUD design pass had stripped it), then disabled later same day
+    /// per user feedback — the underline collided visually with the
+    /// new capsule chrome on the active tab. Keeping all the code
+    /// (state vars, MarkerStroke shape variants, onChange/onAppear
+    /// handlers) in place so flipping this back to `true` cleanly
+    /// reinstates the gesture. Don't strip the supporting code; it's
+    /// the entire reason this file still has `MarkerStroke` defined.
+    private static let showMarkerUnderline = false
+
     let tab: PanelTab
     let isSelected: Bool
+    /// Color used by the selected-tab capsule's gradient fill and
+    /// strokeBorder. Driven by the parent: now-playing artwork's
+    /// dominant color when music is playing, otherwise brand
+    /// lavender. Defaults to lavender so older instantiation sites
+    /// (and previews) keep working.
+    var accentColor: Color = DS.Color.brandLavender
     let action: () -> Void
 
     @State private var isHovered: Bool = false
+    /// 0 → 1 stroke-trim that draws the lavender marker underline
+    /// in left-to-right when the tab becomes active. Reset to 0
+    /// on deselect so the next activation re-draws from scratch.
+    /// Driven only when `showMarkerUnderline` is on.
+    @State private var drawProgress: CGFloat = 0
+    /// Currently displayed marker variant (0..<MarkerStroke.variantCount).
+    /// Re-rolled on every activation so each pick draws a different
+    /// squiggle. Randomized at init so first paint is already hand-drawn.
+    @State private var variant: Int = Int.random(in: 0..<MarkerStroke.variantCount)
+    /// Last variant used — kept so the re-roll avoids drawing the
+    /// same mark twice in a row (perceptible variety on every click).
+    @State private var lastVariant: Int = -1
 
     var body: some View {
         Button(action: action) {
@@ -4235,6 +4320,39 @@ private struct ScribbleTabButton: View {
                 .frame(width: tabWidth, height: 28)
                 .background(segmentBackground)
                 .overlay(segmentRim)
+                // Marker-underline overlay. Sits at the bottom of the
+                // pill, hugging the inner edge so the gesture reads
+                // as "underline under the label" not "shape under
+                // the chrome." Lavender stroke with a soft glow,
+                // animates in via stroke-trim when isSelected flips
+                // true. Old design system feature restored 2026-05-13
+                // after a "premium HUD" pass stripped it out — the
+                // capsule alone read as static, no tap-feedback
+                // gesture.
+                .overlay(alignment: .bottom) {
+                    if Self.showMarkerUnderline && isSelected {
+                        // Marker stroke + glow now follow the
+                        // shared accent color (artwork-dominant
+                        // when music has art, lavender fallback)
+                        // so re-enabling `showMarkerUnderline`
+                        // continues to feel of-a-piece with the
+                        // rest of the slab's color story.
+                        MarkerStroke(variant: variant)
+                            .trim(from: 0, to: drawProgress)
+                            .stroke(
+                                accentColor,
+                                style: StrokeStyle(lineWidth: 1.6,
+                                                   lineCap: .round,
+                                                   lineJoin: .round)
+                            )
+                            .shadow(color: accentColor.opacity(0.45),
+                                    radius: 4)
+                            .frame(height: 5)
+                            .padding(.horizontal, 8)
+                            .padding(.bottom, 4)
+                            .allowsHitTesting(false)
+                    }
+                }
                 .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -4243,6 +4361,34 @@ private struct ScribbleTabButton: View {
         .onHover { hovering in
             withAnimation(.spring(response: 0.18, dampingFraction: 0.85)) {
                 isHovered = hovering
+            }
+        }
+        .onChange(of: isSelected) { newValue in
+            // Gated so the per-tap animation work only runs when
+            // the marker underline is enabled. Body uses macOS 13's
+            // single-arg `(newValue)` closure form (the two-arg
+            // `(oldValue, newValue)` overload is macOS 14+).
+            guard Self.showMarkerUnderline else { return }
+            if newValue {
+                variant = nextVariant(excluding: lastVariant)
+                lastVariant = variant
+                drawProgress = 0
+                withAnimation(.easeOut(duration: 0.55)) {
+                    drawProgress = 1
+                }
+            } else {
+                drawProgress = 0
+            }
+        }
+        .onAppear {
+            // First paint: if this tab is already active when the
+            // panel mounts, show the underline at full draw — no
+            // entrance animation on first paint (would read as a
+            // glitch, not a gesture).
+            guard Self.showMarkerUnderline else { return }
+            if isSelected {
+                lastVariant = variant
+                drawProgress = 1
             }
         }
     }
@@ -4265,24 +4411,30 @@ private struct ScribbleTabButton: View {
     @ViewBuilder
     private var segmentBackground: some View {
         if isSelected {
+            // 2026-05-13: dropped the two .shadow(...) modifiers
+            // that wrapped this fill (lavender glow + drop shadow).
+            // Each one was a separate GPU pass per render frame
+            // during the panel open spring. Visual presence comes
+            // from the gradient fill + the lavender marker
+            // underline overlay — shadows were redundant accent.
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [
                             Color.white.opacity(0.13),
-                            DS.Color.brandLavender.opacity(0.12),
+                            accentColor.opacity(0.12),
                             Color.black.opacity(0.24)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
-                .shadow(color: DS.Color.brandLavender.opacity(0.18), radius: 5, x: 0, y: 0)
-                .shadow(color: Color.black.opacity(0.26), radius: 5, x: 0, y: 3)
         } else if isHovered {
+            // Hover-only background: dropped the drop shadow here
+            // too. Hover is a transient state and per-frame shadow
+            // re-renders during hover-in spring were also wasted.
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.white.opacity(0.035))
-                .shadow(color: Color.black.opacity(0.16), radius: 4, x: 0, y: 2)
         } else {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.clear)
@@ -4297,8 +4449,8 @@ private struct ScribbleTabButton: View {
                     LinearGradient(
                         colors: [
                             Color.white.opacity(0.18),
-                            DS.Color.brandLavender.opacity(0.48),
-                            DS.Color.brandLavender.opacity(0.20)
+                            accentColor.opacity(0.48),
+                            accentColor.opacity(0.20)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -4309,6 +4461,14 @@ private struct ScribbleTabButton: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.07), lineWidth: 0.6)
         }
+    }
+
+    /// Pick a random variant from `0..<MarkerStroke.variantCount`
+    /// avoiding `excluding`. Guarantees consecutive activations
+    /// don't draw the same squiggle twice in a row.
+    private func nextVariant(excluding: Int) -> Int {
+        let candidates = (0..<MarkerStroke.variantCount).filter { $0 != excluding }
+        return candidates.randomElement() ?? Int.random(in: 0..<MarkerStroke.variantCount)
     }
 }
 

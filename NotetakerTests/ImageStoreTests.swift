@@ -1,6 +1,6 @@
 import XCTest
 import AppKit
-@testable import Notetaker
+@testable import nox
 
 @MainActor
 final class ImageStoreTests: XCTestCase {

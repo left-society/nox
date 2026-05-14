@@ -1,6 +1,6 @@
 import XCTest
 import AppKit
-@testable import Notetaker
+@testable import nox
 
 final class ClipboardRouterTests: XCTestCase {
     private func freshPasteboard() -> NSPasteboard {

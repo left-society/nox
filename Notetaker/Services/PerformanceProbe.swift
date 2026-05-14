@@ -1,5 +1,7 @@
+import AppKit
 import Foundation
 import QuartzCore
+import os
 
 struct PerformanceFrameStats {
     static let sixtyFPSBudgetMs = 1000.0 / 60.0
@@ -7,6 +9,7 @@ struct PerformanceFrameStats {
     private(set) var sampleCount = 0
     private(set) var totalMs: Double = 0
     private(set) var worstMs: Double = 0
+    private(set) var hitchTimeMs: Double = 0
     private(set) var over60BudgetCount = 0
     private(set) var over20MsCount = 0
     private(set) var over33MsCount = 0
@@ -24,6 +27,7 @@ struct PerformanceFrameStats {
         sampleCount += 1
         totalMs += deltaMs
         worstMs = max(worstMs, deltaMs)
+        hitchTimeMs += max(0, deltaMs - Self.sixtyFPSBudgetMs)
 
         if deltaMs > Self.sixtyFPSBudgetMs { over60BudgetCount += 1 }
         if deltaMs > 20 { over20MsCount += 1 }
@@ -32,11 +36,17 @@ struct PerformanceFrameStats {
         if deltaMs > 100 { over100MsCount += 1 }
     }
 
+    func hitchRatioMsPerSecond(overDuration duration: TimeInterval) -> Double {
+        guard duration > 0 else { return 0 }
+        return hitchTimeMs / duration
+    }
+
     mutating func snapshotAndReset() -> PerformanceFrameStatsSnapshot {
         let snapshot = PerformanceFrameStatsSnapshot(
             sampleCount: sampleCount,
             averageMs: averageMs,
             worstMs: worstMs,
+            hitchTimeMs: hitchTimeMs,
             over60BudgetCount: over60BudgetCount,
             over20MsCount: over20MsCount,
             over33MsCount: over33MsCount,
@@ -52,6 +62,7 @@ struct PerformanceFrameStatsSnapshot: Equatable {
     let sampleCount: Int
     let averageMs: Double
     let worstMs: Double
+    let hitchTimeMs: Double
     let over60BudgetCount: Int
     let over20MsCount: Int
     let over33MsCount: Int
@@ -59,27 +70,66 @@ struct PerformanceFrameStatsSnapshot: Equatable {
     let over100MsCount: Int
 
     var isEmpty: Bool { sampleCount == 0 }
+
+    func hitchRatioMsPerSecond(overDuration duration: TimeInterval) -> Double {
+        guard duration > 0 else { return 0 }
+        return hitchTimeMs / duration
+    }
+}
+
+final class PerformanceLogWriter {
+    private let queue = DispatchQueue(label: "app.trynox.nox.performance-log", qos: .utility)
+    private var fileHandle: FileHandle?
+
+    init(url: URL) throws {
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        fileHandle = try FileHandle(forWritingTo: url)
+    }
+
+    func write(_ line: String) {
+        guard let data = line.data(using: .utf8) else { return }
+        queue.async { [weak self] in
+            self?.fileHandle?.write(data)
+        }
+    }
+
+    func flush() {
+        queue.sync {}
+    }
+
+    func close() {
+        queue.sync {
+            try? fileHandle?.close()
+            fileHandle = nil
+        }
+    }
 }
 
 @MainActor
-final class PerformanceProbe {
+final class PerformanceProbe: NSObject {
     static let shared = PerformanceProbe()
+    private static let signpostLog = OSLog(
+        subsystem: "app.trynox.nox",
+        category: "Performance"
+    )
 
     private let sampleInterval: TimeInterval = 1.0 / 60.0
     private let summaryInterval: CFTimeInterval = 1.0
     private let timestampFormatter: ISO8601DateFormatter
 
     private var timer: Timer?
+    private var displayLink: AnyObject?
     private var lastTickTime: CFTimeInterval?
     private var summaryStartTime: CFTimeInterval?
     private var stats = PerformanceFrameStats()
-    private var fileHandle: FileHandle?
+    private var logWriter: PerformanceLogWriter?
     private var logURL: URL?
     private var contextProvider: (() -> String)?
     private var activeProvider: (() -> Bool)?
 
-    private init() {
+    private override init() {
         timestampFormatter = ISO8601DateFormatter()
+        super.init()
         timestampFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     }
 
@@ -92,24 +142,23 @@ final class PerformanceProbe {
     }
 
     func start() {
-        guard timer == nil else { return }
+        guard timer == nil, displayLink == nil else { return }
         guard prepareLogFile() else { return }
 
         let now = CACurrentMediaTime()
         lastTickTime = now
         summaryStartTime = now
 
-        let timer = Timer(timeInterval: sampleInterval, repeats: true) { _ in
-            Task { @MainActor in
-                PerformanceProbe.shared.handleTimerFire()
-            }
+        let sampleHz: String
+        if startDisplayLinkSampler() {
+            sampleHz = "displayLink"
+        } else {
+            startTimerSampler()
+            sampleHz = "60"
         }
-        timer.tolerance = 0.002
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
 
         mark("SESSION_START", metadata: [
-            "sampleHz": "60",
+            "sampleHz": sampleHz,
             "budgetMs": formatMs(PerformanceFrameStats.sixtyFPSBudgetMs)
         ])
 
@@ -120,10 +169,14 @@ final class PerformanceProbe {
 
     func stop() {
         mark("SESSION_STOP")
+        if #available(macOS 14.0, *), let displayLink = displayLink as? CADisplayLink {
+            displayLink.invalidate()
+        }
+        displayLink = nil
         timer?.invalidate()
         timer = nil
-        try? fileHandle?.close()
-        fileHandle = nil
+        logWriter?.close()
+        logWriter = nil
     }
 
     func mark(_ name: String, metadata: [String: String] = [:]) {
@@ -131,14 +184,52 @@ final class PerformanceProbe {
         fields.append(contentsOf: metadataFields(metadata))
         fields.append(field("context", contextProvider?() ?? "none"))
         writeEvent("MARK", fields: fields)
+        os_signpost(.event, log: Self.signpostLog, name: "PerformanceMark", "%{public}s", name)
     }
 
     func currentLogURL() -> URL? {
         logURL
     }
 
+    private func startTimerSampler() {
+        let timer = Timer(timeInterval: sampleInterval, repeats: true) { _ in
+            Task { @MainActor in
+                PerformanceProbe.shared.handleTimerFire()
+            }
+        }
+        timer.tolerance = 0.004
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    private func startDisplayLinkSampler() -> Bool {
+        if #available(macOS 14.0, *),
+           let displayLink = NSScreen.main?.displayLink(
+                target: self,
+                selector: #selector(handleDisplayLink(_:))
+           ) {
+            displayLink.preferredFrameRateRange = CAFrameRateRange(
+                minimum: 60,
+                maximum: 60,
+                preferred: 60
+            )
+            displayLink.add(to: RunLoop.main, forMode: RunLoop.Mode.common)
+            self.displayLink = displayLink
+            return true
+        }
+        return false
+    }
+
+    @available(macOS 14.0, *)
+    @objc private func handleDisplayLink(_ displayLink: CADisplayLink) {
+        handleSampleFire(now: CACurrentMediaTime())
+    }
+
     private func handleTimerFire() {
-        let now = CACurrentMediaTime()
+        handleSampleFire(now: CACurrentMediaTime())
+    }
+
+    private func handleSampleFire(now: CFTimeInterval) {
         guard let lastTickTime else {
             self.lastTickTime = now
             summaryStartTime = now
@@ -161,7 +252,8 @@ final class PerformanceProbe {
         }
 
         let summaryStart = summaryStartTime ?? now
-        if now - summaryStart >= summaryInterval {
+        let summaryDuration = now - summaryStart
+        if summaryDuration >= summaryInterval {
             let snapshot = stats.snapshotAndReset()
             summaryStartTime = now
             guard !snapshot.isEmpty else { return }
@@ -169,6 +261,8 @@ final class PerformanceProbe {
                 field("samples", snapshot.sampleCount),
                 field("avgMs", formatMs(snapshot.averageMs)),
                 field("worstMs", formatMs(snapshot.worstMs)),
+                field("hitchMs", formatMs(snapshot.hitchTimeMs)),
+                field("hitchRatio", formatMs(snapshot.hitchRatioMsPerSecond(overDuration: summaryDuration))),
                 field("over16", snapshot.over60BudgetCount),
                 field("over20", snapshot.over20MsCount),
                 field("over33", snapshot.over33MsCount),
@@ -185,8 +279,7 @@ final class PerformanceProbe {
             let logsDirectory = try performanceLogDirectory()
             let filename = "performance-\(fileTimestamp()).log"
             let url = logsDirectory.appendingPathComponent(filename)
-            FileManager.default.createFile(atPath: url.path, contents: nil)
-            fileHandle = try FileHandle(forWritingTo: url)
+            logWriter = try PerformanceLogWriter(url: url)
             logURL = url
             return true
         } catch {
@@ -209,12 +302,10 @@ final class PerformanceProbe {
     }
 
     private func writeEvent(_ event: String, fields: [String]) {
-        guard let fileHandle else { return }
+        guard let logWriter else { return }
         let timestamp = timestampFormatter.string(from: Date())
         let line = ([timestamp, event] + fields).joined(separator: " ") + "\n"
-        if let data = line.data(using: .utf8) {
-            fileHandle.write(data)
-        }
+        logWriter.write(line)
     }
 
     private func metadataFields(_ metadata: [String: String]) -> [String] {

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Notetaker
+@testable import nox
 
 /// Tests for the dictation pipeline's most fragile surfaces. These
 /// cover regressions we hit in production and want pinned down:

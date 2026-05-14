@@ -27,6 +27,7 @@ import SwiftUI
 ///     reset position to 0 (so next start is fresh), then dismiss.
 struct TeleprompterPillBody: View {
     @ObservedObject var presenter: PanelPresenter
+    @Environment(\.panelAccent) private var panelAccent: Color
     let notchOverlap: CGFloat
 
     /// Bump portion of the pill (visible apron below the notch).
@@ -224,7 +225,7 @@ struct TeleprompterPillBody: View {
         HStack(spacing: 6) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 13, weight: .heavy))
-                .foregroundStyle(DS.Color.accent)
+                .foregroundStyle(panelAccent)
             Text("Done")
                 .font(.system(size: 13, weight: .bold, design: .rounded))
                 .foregroundStyle(.white.opacity(0.95))

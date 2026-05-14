@@ -86,10 +86,19 @@ enum VideoDropScanner {
     ]
 
     static func findCandidate(in pb: NSPasteboard) -> Candidate? {
+        // 2026-05-13: every host check below now routes through
+        // `isDownloadableHost` instead of `videoHosts.contains` so
+        // Drive/Dropbox URLs flow through every pasteboard pathway
+        // (drag, clipboard, ⌥⌘V), matching the public contract of
+        // `isDownloadableHost`. Before this, the host allowlist used
+        // by drag/clipboard was a strict subset of the one
+        // advertised — Drive/Dropbox URLs got silently treated as
+        // non-downloadable on those entry points even though the
+        // hotkey path accepted them.
         if let src = pb.string(forType: chromeSourceURL),
            let url = URL(string: src),
            let host = url.host?.lowercased(),
-           videoHosts.contains(host) {
+           isDownloadableHost(host) {
             return .remoteURL(url.absoluteString)
         }
 
@@ -101,7 +110,7 @@ enum VideoDropScanner {
                 guard let url = URL(string: s),
                       (url.scheme == "http" || url.scheme == "https"),
                       let host = url.host?.lowercased() else { continue }
-                if videoHosts.contains(host) { return .remoteURL(url.absoluteString) }
+                if isDownloadableHost(host) { return .remoteURL(url.absoluteString) }
             }
         }
 
@@ -115,7 +124,7 @@ enum VideoDropScanner {
                 guard !url.isFileURL,
                       (url.scheme == "http" || url.scheme == "https"),
                       let host = url.host?.lowercased() else { continue }
-                if videoHosts.contains(host) { return .remoteURL(url.absoluteString) }
+                if isDownloadableHost(host) { return .remoteURL(url.absoluteString) }
             }
             for url in urls where url.isFileURL {
                 if videoExts.contains(url.pathExtension.lowercased()) {
@@ -128,7 +137,7 @@ enum VideoDropScanner {
             if let u = URL(string: text),
                (u.scheme == "http" || u.scheme == "https"),
                let host = u.host?.lowercased(),
-               videoHosts.contains(host) {
+               isDownloadableHost(host) {
                 return .remoteURL(u.absoluteString)
             }
             if let u = extractVideoHostURL(from: text) {
@@ -155,7 +164,10 @@ enum VideoDropScanner {
         case .remoteURL(let s):
             guard let url = URL(string: s),
                   let host = url.host?.lowercased() else { return false }
-            return videoHosts.contains(host)
+            // Use the same allowlist as findCandidate so Drive/Dropbox
+            // drags trigger the same auto-pop-to-Videos-tab behavior as
+            // video-host drags.
+            return isDownloadableHost(host)
         }
     }
 
@@ -167,7 +179,9 @@ enum VideoDropScanner {
         for m in matches {
             let s = ns.substring(with: m.range)
             guard let url = URL(string: s), let host = url.host?.lowercased() else { continue }
-            if videoHosts.contains(host) { return url.absoluteString }
+            // Pull the first downloadable URL out of free-form text —
+            // covers Drive/Dropbox alongside the video hosts.
+            if isDownloadableHost(host) { return url.absoluteString }
         }
         return nil
     }
