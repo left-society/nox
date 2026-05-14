@@ -1217,8 +1217,12 @@ final class PanelWindowController {
     }
 
     func showOnTab(_ tab: PanelTab) {
+        showOnTab(tab, mode: .click)
+    }
+
+    func showOnTab(_ tab: PanelTab, mode: OpenMode) {
         presenter.activeTab = tab
-        if !isVisible { show() }
+        if !isVisible { show(mode: mode) }
     }
 
     // MARK: - Trackpad swipe gestures (Alcove parity research applied)
@@ -4511,6 +4515,22 @@ final class PanelWindowController {
         NSLog("nox: showTeleprompterPill — morph to teleprompter=\(target.size)")
     }
 
+}
+
+enum PanelOpenSource: Equatable {
+    case explicit
+    case dragDetected
+}
+
+struct PanelOpenModePolicy {
+    static func mode(for source: PanelOpenSource) -> PanelWindowController.OpenMode {
+        switch source {
+        case .explicit:
+            return .click
+        case .dragDetected:
+            return .hover
+        }
+    }
 }
 
 // MARK: - Spring frame animator

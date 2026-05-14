@@ -1181,12 +1181,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let drag = DragMonitor(
             onImageDrag: { [weak self] in
                 Task { @MainActor in
-                    self?.panelController?.showOnTab(.images)
+                    self?.panelController?.showOnTab(
+                        .images,
+                        mode: PanelOpenModePolicy.mode(for: .dragDetected)
+                    )
                 }
             },
             onVideoDrag: { [weak self] in
                 Task { @MainActor in
-                    self?.panelController?.showOnTab(.videos)
+                    self?.panelController?.showOnTab(
+                        .videos,
+                        mode: PanelOpenModePolicy.mode(for: .dragDetected)
+                    )
                 }
             }
         )
