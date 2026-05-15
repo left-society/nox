@@ -37,6 +37,8 @@
 		9D6EDB2B2F294CBD9FA8ECFC /* PerformanceFrameStatsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E179E461831849B5BF4D2C61 /* PerformanceFrameStatsTests.swift */; };
 		SCRSHOT00A1B2C3D4E5F0001 /* ScreenshotPillPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCRSHOT00A1B2C3D4E5F0002 /* ScreenshotPillPolicy.swift */; };
 		SCRSHOT00A1B2C3D4E5F0003 /* ScreenshotPillPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCRSHOT00A1B2C3D4E5F0004 /* ScreenshotPillPolicyTests.swift */; };
+		TIMPOLL00A1B2C3D4E5F0001 /* TimingPollPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = TIMPOLL00A1B2C3D4E5F0002 /* TimingPollPolicy.swift */; };
+		TIMPOLL00A1B2C3D4E5F0003 /* TimingPollPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = TIMPOLL00A1B2C3D4E5F0004 /* TimingPollPolicyTests.swift */; };
 		35B4A484A4E1D7230530A7D0 /* RetentionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB0296047884620F7222CFC0 /* RetentionService.swift */; };
 		SCRSHARE0001A1B2C3D4E5F0 /* ScreenSharingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCRSHARE0002A1B2C3D4E5F0 /* ScreenSharingPolicy.swift */; };
 		MEDIAKEY0001A1B2C3D4E5F0 /* MediaKeyInterceptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = MEDIAKEY0002A1B2C3D4E5F0 /* MediaKeyInterceptor.swift */; };
@@ -273,6 +275,8 @@
 		E179E461831849B5BF4D2C61 /* PerformanceFrameStatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceFrameStatsTests.swift; sourceTree = "<group>"; };
 		SCRSHOT00A1B2C3D4E5F0002 /* ScreenshotPillPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotPillPolicy.swift; sourceTree = "<group>"; };
 		SCRSHOT00A1B2C3D4E5F0004 /* ScreenshotPillPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotPillPolicyTests.swift; sourceTree = "<group>"; };
+		TIMPOLL00A1B2C3D4E5F0002 /* TimingPollPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimingPollPolicy.swift; sourceTree = "<group>"; };
+		TIMPOLL00A1B2C3D4E5F0004 /* TimingPollPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimingPollPolicyTests.swift; sourceTree = "<group>"; };
 		E90BD720CF17DAEB227F4B2C /* LocalThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalThumbnailView.swift; sourceTree = "<group>"; };
 		E97F851F210BDA6D7291F2C4 /* NoteStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteStoreTests.swift; sourceTree = "<group>"; };
 		ED59E2B0BEB4430FCC7DAA77 /* LockScreenWatcher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LockScreenWatcher.swift; sourceTree = "<group>"; };
@@ -375,6 +379,7 @@
 				DE8C4545B6EB30E073A8D77E /* NoteStore.swift */,
 				97374BE114D342B88D720A4A /* PerformanceProbe.swift */,
 				SCRSHOT00A1B2C3D4E5F0002 /* ScreenshotPillPolicy.swift */,
+				TIMPOLL00A1B2C3D4E5F0002 /* TimingPollPolicy.swift */,
 				0A9EC1A0C0928D65BA1DFF10 /* QuickPasteRouter.swift */,
 				CB0296047884620F7222CFC0 /* RetentionService.swift */,
 				SCRSHARE0002A1B2C3D4E5F0 /* ScreenSharingPolicy.swift */,
@@ -563,6 +568,7 @@
 				F828A81402E3514A29BEF54D /* NotetakerTests.swift */,
 				E179E461831849B5BF4D2C61 /* PerformanceFrameStatsTests.swift */,
 				SCRSHOT00A1B2C3D4E5F0004 /* ScreenshotPillPolicyTests.swift */,
+				TIMPOLL00A1B2C3D4E5F0004 /* TimingPollPolicyTests.swift */,
 				A5497B7A683A649575231482 /* QuickPasteRouterTests.swift */,
 				7C727DFD4A4E2C994662FBCD /* RetentionServiceTests.swift */,
 				69D66C89AC7844C3B8E10CBD /* URLExtractorTests.swift */,
@@ -749,6 +755,7 @@
 				9C4454DAB3490C57222008FC /* PanelWindowController.swift in Sources */,
 				830D75EA827A4FF48657FD7A /* PerformanceProbe.swift in Sources */,
 				SCRSHOT00A1B2C3D4E5F0001 /* ScreenshotPillPolicy.swift in Sources */,
+				TIMPOLL00A1B2C3D4E5F0001 /* TimingPollPolicy.swift in Sources */,
 				F7E642499638A8FFFF5DAB75 /* PowerSourceWatcher.swift in Sources */,
 				9BAF5EA26EBA659A88DB9369 /* QuickPasteRouter.swift in Sources */,
 				35B4A484A4E1D7230530A7D0 /* RetentionService.swift in Sources */,
@@ -832,6 +839,7 @@
 				65BE75628A3DC39F43A16DCA /* NotetakerTests.swift in Sources */,
 				9D6EDB2B2F294CBD9FA8ECFC /* PerformanceFrameStatsTests.swift in Sources */,
 				SCRSHOT00A1B2C3D4E5F0003 /* ScreenshotPillPolicyTests.swift in Sources */,
+				TIMPOLL00A1B2C3D4E5F0003 /* TimingPollPolicyTests.swift in Sources */,
 				410D5B9026793F2904738A4B /* QuickPasteRouterTests.swift in Sources */,
 				2392E7D0307561B283550D39 /* RetentionServiceTests.swift in Sources */,
 				1C52CBB7DF2FD3BB973C7D95 /* URLExtractorTests.swift in Sources */,

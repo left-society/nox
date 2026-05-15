@@ -659,6 +659,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 PerformanceProbe.shared.start()
                 PerformanceProbe.shared.mark("APP_PANEL_READY")
+                // Gate the MediaRemote AppleScript timing poll on
+                // panel visibility — see `TimingPollPolicy`. The
+                // closure reads `presenter` state lazily on each
+                // tick so it picks up tab changes / show / hide
+                // without any explicit re-wire.
+                notchOrchestrator?.setMediaTimingPollGate { [weak panelController] in
+                    let p = panelController?.presenter
+                    return TimingPollPolicy.Inputs(
+                        musicPlaying: p?.nowPlaying?.isPlaying == true,
+                        panelVisible: p?.isShown == true,
+                        onMusicTab: p?.activeTab == .music
+                    )
+                }
             }
             // Eagerly warm up the on-device Whisper model. Two paths
             // converge here:

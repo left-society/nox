@@ -483,6 +483,14 @@ final class NotchOrchestrator {
 
     /// Begin observing power and media events. Idempotent — repeat
     /// calls don't double-register with IOKit or MediaRemote.
+    /// Wire the AppleScript timing poll gate. Called by AppDelegate
+    /// once the panel is ready so `MediaRemoteService` can skip the
+    /// Spotify/Music position poll when the user can't see the music
+    /// card. See `TimingPollPolicy` for the rule.
+    func setMediaTimingPollGate(_ gate: @escaping () -> TimingPollPolicy.Inputs) {
+        mediaService.timingPollGate = gate
+    }
+
     func start() {
         powerWatcher.start()
         mediaService.start()

@@ -163,6 +163,16 @@ final class MediaRemoteService {
     /// while YouTube is playing).
     private var appScriptTimingFor: String?
 
+    /// Optional gate consulted on every AppleScript timing tick.
+    /// When set and `TimingPollPolicy.shouldPollNow` returns false
+    /// for the current state, the tick skips the AppleScript send
+    /// — avoiding 30-80ms of main-thread blocking that hits hardest
+    /// in the 30s-2min post-wake window when the Apple Events bridge
+    /// is re-warming. AppDelegate wires this via
+    /// `NotchOrchestrator.setMediaTimingPollGate` once the panel is
+    /// ready; until then we behave as before (always poll).
+    var timingPollGate: (() -> TimingPollPolicy.Inputs)?
+
     /// In-memory cache of artwork bytes keyed by `title|artist` (lower-
     /// cased, trimmed). Avoids re-querying iTunes Search every time the
     /// user pauses and resumes the same track, switches tracks back to
@@ -615,6 +625,14 @@ final class MediaRemoteService {
                       last.isPlaying
                 else {
                     self?.stopAppScriptTimingTimer()
+                    return
+                }
+                // Skip the AppleScript dispatch when the user can't
+                // see the music card right now — see `TimingPollPolicy`
+                // for rationale. Timer keeps ticking so polling
+                // resumes the moment they open onto the music tab.
+                if let gate = self.timingPollGate,
+                   !TimingPollPolicy.shouldPollNow(gate()) {
                     return
                 }
                 self.refreshAppScriptTiming(forApp: appName, bundleID: bundleID)
