@@ -484,22 +484,20 @@ final class MediaRemoteAdapterService {
 
     /// Diagnostic file logger to /tmp/nox-mra.log. Re-enabled
     /// 2026-04-29 to trace why Spotify thumbnails aren't reaching
-    /// the pill. Will be reset to no-op once we find the drop point.
+    /// the pill. Routes through `MRALogWriter` so the per-call cost
+    /// is a single string format + one async dispatch — the actual
+    /// I/O happens on a serial utility-QoS background queue and
+    /// reuses a single long-lived FileHandle.
+    ///
+    /// 1-hour PerformanceProbe trace correlated `show(hover)` and
+    /// `hide()` with frame drops; the original sync `fileLog` body
+    /// was doing 5 syscalls (fileExists / open / seek / write /
+    /// close) on every call from main, ~3-5ms typical and spiking
+    /// to 30-40ms under disk pressure. With the writer pattern,
+    /// the cost is amortized to one open() at startup and one
+    /// write() per log line.
     static func fileLog(_ message: String) {
-        let path = "/tmp/nox-mra.log"
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let line = "[\(timestamp)] \(message)\n"
-        if let data = line.data(using: .utf8) {
-            if FileManager.default.fileExists(atPath: path) {
-                if let handle = FileHandle(forWritingAtPath: path) {
-                    handle.seekToEndOfFile()
-                    handle.write(data)
-                    try? handle.close()
-                }
-            } else {
-                try? data.write(to: URL(fileURLWithPath: path))
-            }
-        }
+        MRALogWriter.shared.write(message)
     }
 
     /// Convert the adapter's payload struct to our existing
@@ -605,5 +603,56 @@ final class MediaRemoteAdapterService {
         let name = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
             ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
         return name
+    }
+}
+
+
+/// Background-queue file logger for `/tmp/nox-mra.log`.
+///
+/// Mirrors `PerformanceLogWriter`: serial utility-QoS queue, a
+/// single long-lived `FileHandle` for append writes, and a one-shot
+/// failure mode (if the open fails we silently drop subsequent
+/// writes rather than re-trying on every call).
+///
+/// The writer is process-singleton because the log file is. It's
+/// only built lazily on first `write(_:)` so test builds that
+/// import `MediaRemoteAdapterService` but never log don't touch
+/// the filesystem.
+final class MRALogWriter {
+    static let shared = MRALogWriter()
+
+    private static let logURL = URL(fileURLWithPath: "/tmp/nox-mra.log")
+    private let queue = DispatchQueue(label: "app.trynox.nox.mra-log", qos: .utility)
+    private let formatter: ISO8601DateFormatter
+    private var fileHandle: FileHandle?
+    private var openAttempted = false
+
+    private init() {
+        formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    }
+
+    func write(_ message: String) {
+        // Format on the caller's thread — `Date()` + string concat
+        // is cheap and lets us capture the timestamp at call time
+        // rather than at flush time (queue can be backlogged under
+        // burst load).
+        let timestamp = formatter.string(from: Date())
+        let line = "[\(timestamp)] \(message)\n"
+        queue.async { [weak self] in
+            guard let self else { return }
+            if !self.openAttempted {
+                self.openAttempted = true
+                if !FileManager.default.fileExists(atPath: Self.logURL.path) {
+                    FileManager.default.createFile(
+                        atPath: Self.logURL.path, contents: nil)
+                }
+                self.fileHandle = try? FileHandle(forWritingTo: Self.logURL)
+                _ = try? self.fileHandle?.seekToEnd()
+            }
+            guard let handle = self.fileHandle,
+                  let data = line.data(using: .utf8) else { return }
+            try? handle.write(contentsOf: data)
+        }
     }
 }

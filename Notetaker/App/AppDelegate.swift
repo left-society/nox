@@ -2578,10 +2578,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ~80ms after the pop, which reads as a quick "captured →
         // here it is" transition rather than a hitch. Slab opens
         // during the window are now smooth because main is free.
-        panel.presenter.lastScreenshotThumbnail = nil
-        panel.enterRestingMode()
-        panel.presenter.setPendingSystemEvent(.screenshotSaved(count: pendingCount))
-        HapticFeedback.generic()
+        // Pill is suppressed when the slab is already shown or
+        // morphing — see `ScreenshotPillPolicy`. The deferred save
+        // below still runs in both cases so the Images-tab grid
+        // reflects the new capture either way.
+        let pillInputs = ScreenshotPillPolicy.Inputs(
+            slabShown: panel.presenter.isShown,
+            slabMorphing: panel.presenter.isMorphing
+        )
+        if ScreenshotPillPolicy.shouldFirePill(pillInputs) {
+            panel.presenter.lastScreenshotThumbnail = nil
+            panel.enterRestingMode()
+            panel.presenter.setPendingSystemEvent(.screenshotSaved(count: pendingCount))
+            HapticFeedback.generic()
+        }
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let data = try? Data(contentsOf: url) else {
@@ -2742,16 +2752,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if Self.pasteboardHasExplicitImage(pb),
            let (imageData, mime) = ImageDropExtractor.extract(from: pb) {
             let pendingCount = recentScreenshots.count + 1
-            // 2026-05-13: same main-thread-decode fix as
-            // handleNewScreenshot — paint the pill with the
-            // fallback glyph for one frame, decode the
-            // NSImage off-main, swap in once ready. Avoids
-            // the 50–150ms main-thread block during which a
-            // racing slab open would stutter.
-            panel.presenter.lastScreenshotThumbnail = nil
-            panel.enterRestingMode()
-            panel.presenter.setPendingSystemEvent(.screenshotSaved(count: pendingCount))
-            HapticFeedback.generic()
+            // Pill suppression mirrors handleNewScreenshot —
+            // skip the punch animation if the slab already owns
+            // the visual real estate. See `ScreenshotPillPolicy`.
+            let pillInputs = ScreenshotPillPolicy.Inputs(
+                slabShown: panel.presenter.isShown,
+                slabMorphing: panel.presenter.isMorphing
+            )
+            if ScreenshotPillPolicy.shouldFirePill(pillInputs) {
+                panel.presenter.lastScreenshotThumbnail = nil
+                panel.enterRestingMode()
+                panel.presenter.setPendingSystemEvent(.screenshotSaved(count: pendingCount))
+                HapticFeedback.generic()
+            }
             Task.detached(priority: .userInitiated) {
                 let thumbnail = NSImage(data: imageData)
                 await MainActor.run {
@@ -2850,12 +2863,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (which always include a string).
         if let (imageData, mime) = ImageDropExtractor.extract(from: pb) {
             let pendingCount = recentScreenshots.count + 1
-            // Same off-main decode pattern as the explicit-image
-            // branch above and `handleNewScreenshot`.
-            panel.presenter.lastScreenshotThumbnail = nil
-            panel.enterRestingMode()
-            panel.presenter.setPendingSystemEvent(.screenshotSaved(count: pendingCount))
-            HapticFeedback.generic()
+            let pillInputs = ScreenshotPillPolicy.Inputs(
+                slabShown: panel.presenter.isShown,
+                slabMorphing: panel.presenter.isMorphing
+            )
+            if ScreenshotPillPolicy.shouldFirePill(pillInputs) {
+                panel.presenter.lastScreenshotThumbnail = nil
+                panel.enterRestingMode()
+                panel.presenter.setPendingSystemEvent(.screenshotSaved(count: pendingCount))
+                HapticFeedback.generic()
+            }
             Task.detached(priority: .userInitiated) {
                 let thumbnail = NSImage(data: imageData)
                 await MainActor.run {
