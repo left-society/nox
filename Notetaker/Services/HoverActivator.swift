@@ -154,6 +154,27 @@ final class HoverActivator {
         // plugged in, lid closed) so a stale rect doesn't cause us to
         // either miss or spuriously fire. We just clear the cache; the
         // next mouse event recomputes lazily.
+        //
+        // 2026-05-16: do NOT reset `isInsideZone` here. Earlier this
+        // observer cleared `isInsideZone` and cancelled the tease on
+        // every screen-parameters notification — but iPhone
+        // Continuity / AirPlay / Bluetooth-display sessions on
+        // macOS fire that notification while the cursor sits
+        // unchanged inside the notch zone. The forced reset made
+        // the next 250ms poll see `inside=true && !isInsideZone`
+        // and re-fire the entire tease → dwell → activate chain
+        // ~400ms after the iPhone event, opening the slab without
+        // any cursor movement. User report 2026-05-16: "it just
+        // opens a black window without taking my cursor … happens
+        // when I use my phone connected to the mac or when I leave
+        // the phone."
+        //
+        // Just invalidating the cache is enough — `handleMouseMoved`
+        // re-evaluates `inside` against the new zone on its next
+        // tick. If the cursor genuinely left, the existing exit
+        // branch sets `isInsideZone = false` and untease fires. If
+        // the cursor is still inside (the iPhone-event case), state
+        // stays correct and no spurious activate fires.
         screenChangeObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -161,8 +182,6 @@ final class HoverActivator {
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.cachedHotZone = nil
-                self?.isInsideZone = false
-                self?.cancelTease()
                 NSLog("nox: HoverActivator screen params changed, hot zone invalidated")
             }
         }
@@ -246,9 +265,22 @@ final class HoverActivator {
         // states the screen frame could briefly be empty. Don't ever
         // fire from a zero-size rect (which would either match nothing
         // or — worse — match the origin point).
+        //
+        // 2026-05-16: do NOT reset `isInsideZone` when the zone is
+        // transiently unavailable. iPhone Continuity / AirPlay /
+        // Bluetooth-audio handoff briefly destabilizes the display
+        // graph, and `recomputeHotZone()` returns nil for a tick or
+        // two before the screen settles. The old reset turned that
+        // momentary nil into a "cursor just left the zone" state,
+        // and the very next 250ms poll (now with zone re-available)
+        // saw `inside=true && !isInsideZone` and re-fired the entire
+        // tease → dwell → activate chain ~400ms after the iPhone
+        // event — opening the slab with no cursor movement. User
+        // report 2026-05-16: "it just opens a black window without
+        // taking my cursor." Bailing without state change lets the
+        // next tick see the restored zone and find the cursor still
+        // inside it; no spurious activate fires.
         guard let zone, zone.width > 0, zone.height > 0 else {
-            isInsideZone = false
-            cancelTease()
             return
         }
 

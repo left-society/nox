@@ -261,13 +261,16 @@ final class DictationOrchestrator: ObservableObject {
     }
 
     /// Switch hotkey mode. Tears down the previous listener and
-    /// installs the new one. ALWAYS also installs a backup
-    /// ⌘⇧D Carbon hotkey — guaranteed to work via the
-    /// RegisterEventHotKey path (used by the rest of the app for
-    /// ⌥Space / ⌘⌥V), so the user has a working trigger even if
-    /// the Fn-key CGEventTap path silently fails (which happens
-    /// when Accessibility permission isn't yet granted, or on
-    /// macOS versions that deliver Fn-key events differently).
+    /// installs the new one.
+    ///
+    /// 2026-05-16: the auto-installed ⌘⇧D backup is gone. Users
+    /// running After Effects (and a few other apps that bind
+    /// ⌘⇧D to native commands) had nox silently stealing the
+    /// shortcut from them. The Fn key trigger stays as the
+    /// default discovery path; for non-Apple keyboards or users
+    /// who want a different combo, Settings → Dictation →
+    /// Shortcut now captures any modifier + key. No hidden
+    /// always-on binding.
     func setHotkeyMode(_ mode: HotkeyMode,
                        customKeyCode: UInt32 = 0,
                        customModifiers: UInt32 = 0) {
@@ -279,10 +282,6 @@ final class DictationOrchestrator: ObservableObject {
         case .customToggle:
             installCarbonHotkey(keyCode: customKeyCode, modifiers: customModifiers)
         }
-        // Backup ⌘⇧D — works regardless of mode. Carbon's
-        // RegisterEventHotKey doesn't need Accessibility
-        // permission and is known-good in this app.
-        installBackupCarbonHotkey()
     }
 
     private func installBackupCarbonHotkey() {

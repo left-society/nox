@@ -259,6 +259,16 @@ enum SettingsKey {
     // Appearance
     static let accentModeRaw = "accentModeRaw"
     static let shadowIntensityRaw = "shadowIntensityRaw"
+    /// Style of the active-tab decoration. Stores a
+    /// `TabIndicatorStyle` rawValue (Capsule / Capsule + marker /
+    /// Marker only / None). Default `.capsule` (the shipped 1.9.20
+    /// look). Read via `TabIndicatorStyle.current` from
+    /// `ScribbleTabButton` so settings flips take effect on the
+    /// next tab activation.
+    /// 2026-05-17: superseded the short-lived boolean
+    /// `tabMarkerUnderline` key — never shipped publicly, so no
+    /// migration shim needed.
+    static let tabIndicatorStyleRaw = "tabIndicatorStyleRaw"
 
     // Integrations
     static let geminiApiKey = GeminiOCRService.apiKeyDefaultsKey
@@ -290,6 +300,14 @@ enum AccentMode: String, CaseIterable, Identifiable {
     case artwork = "Artwork-derived"
     case system = "System accent"
     var id: String { rawValue }
+
+    /// Read the user's choice from UserDefaults. Defaults to
+    /// `.artwork` (the original shipped behavior) so existing
+    /// installs see no change after upgrade.
+    static var current: AccentMode {
+        AccentMode(rawValue: UserDefaults.standard.string(forKey: SettingsKey.accentModeRaw) ?? "")
+            ?? .artwork
+    }
 }
 
 enum ShadowIntensity: String, CaseIterable, Identifiable {
@@ -298,15 +316,84 @@ enum ShadowIntensity: String, CaseIterable, Identifiable {
     case deep = "Deep"
     var id: String { rawValue }
 
-    /// Map to the (contact, halo) opacity pair used by PanelRootView's
-    /// shadow stack. Subtle is what's currently shipping; Medium is
-    /// closer to the previous "more depth" attempt; Deep is for very
-    /// busy desktops.
-    var opacities: (contact: Double, halo: Double) {
+    /// Multiplier applied to the panel layer's `shadowOpacity` target
+    /// in `PanelWindowController.setShadowOpacity`. The base targets
+    /// (0.65 full-open, 0.40 morph, 0.30 secondary) were tuned for
+    /// `.medium`; scaling them lets users dial the slab's perceived
+    /// depth without re-tuning every call site individually.
+    ///   • `.subtle` (0.7×) — slab looks lighter, closer to the
+    ///     desktop. Better on busy wallpapers where a deep shadow
+    ///     muddies wallpaper detail.
+    ///   • `.medium` (1.0×) — shipped default; matches every prior
+    ///     release.
+    ///   • `.deep`   (1.4×) — slab sits "into" the desktop more,
+    ///     stronger contact-shadow feel. Best on flat/dark
+    ///     wallpapers where depth doesn't fight art.
+    /// Clamped inside the controller at 0..1 because Core Animation
+    /// silently saturates above 1.0 anyway.
+    var opacityScale: Float {
         switch self {
-        case .subtle: return (0.42, 0.22)
-        case .medium: return (0.55, 0.32)
-        case .deep: return (0.65, 0.45)
+        case .subtle: return 0.7
+        case .medium: return 1.0
+        case .deep:   return 1.4
+        }
+    }
+
+    /// Read the user's choice from UserDefaults. Defaults to
+    /// `.medium` so existing installs see no change after upgrade.
+    static var current: ShadowIntensity {
+        ShadowIntensity(rawValue: UserDefaults.standard.string(forKey: SettingsKey.shadowIntensityRaw) ?? "")
+            ?? .medium
+    }
+}
+
+/// Style of the visual chrome around the active tab button.
+/// Replaces the boolean `tabMarkerUnderline` key shipped briefly
+/// pre-release in 1.9.21 dev builds — the four-way picker is the
+/// real product surface (capsule + marker isn't binary, the
+/// underline can stand alone or be removed entirely).
+///
+/// Consumed by `ScribbleTabButton` to decide whether to render
+/// the capsule background / rim, the marker squiggle, or neither.
+enum TabIndicatorStyle: String, CaseIterable, Identifiable {
+    /// Capsule background + gradient rim only — the shipped 1.9.20
+    /// look. No marker squiggle.
+    case capsule = "Capsule"
+    /// Both — capsule chrome AND the hand-drawn lavender marker
+    /// squiggle. Maximum visual signal for "this tab is active."
+    case capsuleMarker = "Capsule + marker"
+    /// Marker squiggle only — drops the capsule entirely. Reads as
+    /// the cleanest, most editorial gesture; closer to a pen
+    /// drawing on paper than a UI control.
+    case markerOnly = "Marker only"
+    /// No chrome — just the bolder/semibold text color shift on
+    /// the active tab. For users who want the rail itself to be
+    /// the chrome, with tabs as pure typography.
+    case none = "None"
+
+    var id: String { rawValue }
+
+    /// Read the user's choice from UserDefaults. Defaults to
+    /// `.capsule` (the shipped 1.9.20 look) so existing installs
+    /// see no visual change after upgrade.
+    static var current: TabIndicatorStyle {
+        TabIndicatorStyle(rawValue: UserDefaults.standard.string(forKey: SettingsKey.tabIndicatorStyleRaw) ?? "")
+            ?? .capsule
+    }
+
+    /// Active-tab decoration includes the capsule background + rim.
+    var showsCapsule: Bool {
+        switch self {
+        case .capsule, .capsuleMarker: return true
+        case .markerOnly, .none:       return false
+        }
+    }
+
+    /// Active-tab decoration includes the hand-drawn marker squiggle.
+    var showsMarker: Bool {
+        switch self {
+        case .capsuleMarker, .markerOnly: return true
+        case .capsule, .none:             return false
         }
     }
 }
@@ -1179,14 +1266,16 @@ private struct ChargingSettings: View {
 // MARK: - Appearance
 
 private struct AppearanceSettings: View {
-    // Per BUG-119 fix: this entire section had two pickers
-    // (Accent color, Shadow intensity) that wrote to UserDefaults
-    // but no consumer ever read either key. Removed both pickers
-    // and replaced the body with a placeholder so the section
-    // header still appears (preserves Settings sidebar layout)
-    // but doesn't lie about non-existent options. Wiring real
-    // accent / shadow choice would require threading the values
-    // through PanelRootView's color + shadow stack — non-trivial.
+    // 2026-05-17: rebuilt as a real preference surface after a long
+    // stretch of being a placeholder card. Wires three knobs that
+    // had been half-built in code (TabIndicatorStyle, AccentMode,
+    // ShadowIntensity) into the panel's actual render paths.
+    //
+    // All three default to the shipped 1.9.20 behavior, so an
+    // upgrading user sees no change until they touch a picker.
+    @AppStorage(SettingsKey.tabIndicatorStyleRaw) private var tabIndicatorStyleRaw: String = TabIndicatorStyle.capsule.rawValue
+    @AppStorage(SettingsKey.accentModeRaw) private var accentModeRaw: String = AccentMode.artwork.rawValue
+    @AppStorage(SettingsKey.shadowIntensityRaw) private var shadowIntensityRaw: String = ShadowIntensity.medium.rawValue
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1195,13 +1284,44 @@ private struct AppearanceSettings: View {
                           title: "Appearance")
 
             SettingsCard {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Appearance customization is coming in a future update. Accent color and shadow intensity options are queued.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.55))
-                        .fixedSize(horizontal: false, vertical: true)
+                SettingsRow(title: "Active tab indicator",
+                            subtitle: "Capsule = shipped look. Add the hand-drawn marker squiggle, run marker-only for a cleaner pen feel, or strip both for pure typography.") {
+                    Picker("", selection: $tabIndicatorStyleRaw) {
+                        ForEach(TabIndicatorStyle.allCases) { style in
+                            Text(style.rawValue).tag(style.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 180)
                 }
-                .padding(14)
+                SettingsRow(title: "Accent color",
+                            subtitle: "Artwork-derived pulls the dominant tone from the now-playing art and falls back to lavender. System accent honors your macOS accent color (System Settings → Appearance).") {
+                    Picker("", selection: $accentModeRaw) {
+                        ForEach(AccentMode.allCases) { mode in
+                            Text(mode.rawValue).tag(mode.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 180)
+                }
+                SettingsRow(title: "Shadow intensity",
+                            subtitle: "How heavily the slab casts a shadow on the desktop. Subtle is best on busy wallpapers, Deep on flat/dark ones.",
+                            divider: false) {
+                    Picker("", selection: $shadowIntensityRaw) {
+                        ForEach(ShadowIntensity.allCases) { intensity in
+                            Text(intensity.rawValue).tag(intensity.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 180)
+                    .onChange(of: shadowIntensityRaw) { _ in
+                        // Push the new multiplier to the live panel
+                        // immediately. Without this, the slab keeps
+                        // the previous opacity until the next
+                        // show/morph re-fires setShadowOpacity.
+                        AppDelegate.shared?.panelController?.refreshShadowIntensity()
+                    }
+                }
             }
         }
     }
@@ -1542,12 +1662,6 @@ private struct DictationSettings: View {
                         .onChange(of: customModifiers) { _ in reapplyHotkey() }
                     }
                 }
-                Divider().background(SettingsTheme.rowDivider)
-                Text("⌘⇧D backup is always installed. Works regardless of which trigger you pick. If Fn doesn't fire, ⌘⇧D will.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.55))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
             }
 
             // CUSTOM VOCABULARY — biases Whisper toward known
@@ -1866,7 +1980,7 @@ private struct DictationPermissionsCard: View {
         case .authorized:
             return "Granted — nox can record your voice."
         case .notDetermined:
-            return "Tap Grant to allow nox to record your voice when you hold Fn or press ⌘⇧D."
+            return "Tap Grant to allow nox to record your voice when you hold Fn or press your custom shortcut."
         case .denied:
             return "Denied earlier. Re-enable nox in System Settings → Privacy → Microphone, then relaunch."
         case .restricted:

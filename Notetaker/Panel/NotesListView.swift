@@ -1026,7 +1026,9 @@ private struct FormattingToolbar: View {
 }
 
 /// Mic button for the note-editor toolbar. Tap to start dictating
-/// directly into the note; tap again (or use Fn / ⌘⇧D) to stop.
+/// directly into the note; tap again (or use whichever hotkey is
+/// bound — Fn by default, custom combo if the user configured one)
+/// to stop.
 /// Reflects the orchestrator's recording state via the
 /// `.notetakerDictationStateChanged` notification.
 private struct DictationToolbarButton: View {

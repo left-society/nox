@@ -1174,14 +1174,52 @@ final class PanelWindowController {
     ///     after the panel has actually arrived at notch-hidden,
     ///     so the close animation stays visually anchored by the
     ///     shadow throughout.
+    ///
+    /// 2026-05-17: target now scales by the user's Settings →
+    /// Appearance → "Shadow intensity" choice. `.medium` (1.0×)
+    /// preserves shipped behavior; `.subtle` (0.7×) and `.deep`
+    /// (1.4×) dial the slab's perceived depth without re-tuning
+    /// every individual call site. A 0 target stays a hard 0
+    /// (multiplying by anything is still 0), so the close-fade
+    /// behavior is unchanged.
     private func setShadowOpacity(_ target: Float, duration: CFTimeInterval = 0.18) {
         guard let layer = panel.contentView?.layer else { return }
+        // Cache the last requested base target so a live
+        // intensity flip (`refreshShadowIntensity()`) can re-apply
+        // the new multiplier to whatever the panel was last
+        // commanded to show, without having to re-derive it from
+        // panel state machinery.
+        lastShadowOpacityTarget = target
+        let scaled = min(target * ShadowIntensity.current.opacityScale, 1.0)
         CATransaction.begin()
         CATransaction.setAnimationDuration(duration)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
-        layer.shadowOpacity = target
+        layer.shadowOpacity = scaled
         CATransaction.commit()
     }
+
+    /// Re-apply the most recently requested shadow opacity target
+    /// with the *current* `ShadowIntensity.current.opacityScale`.
+    /// Called by `AppearanceSettings` when the user flips the
+    /// picker so the live slab visibly updates without waiting
+    /// for the next show/morph to re-fire `setShadowOpacity`.
+    ///
+    /// Public for cross-module Settings access. No-ops if the
+    /// panel hasn't been commanded to show anything yet (target
+    /// = 0), which keeps a fresh-launch Settings flip from
+    /// suddenly painting a shadow under a not-yet-visible panel.
+    func refreshShadowIntensity() {
+        guard lastShadowOpacityTarget > 0 else { return }
+        setShadowOpacity(lastShadowOpacityTarget, duration: 0.22)
+    }
+
+    /// Cached "what target was setShadowOpacity last asked for?"
+    /// — used by `refreshShadowIntensity()` to re-scale the live
+    /// shadow when the user flips Settings → Appearance →
+    /// "Shadow intensity". Starts at 0 (initial parked-hidden
+    /// state); refresh no-ops while 0 so settings flips on a
+    /// not-yet-opened panel don't paint a stray shadow.
+    private var lastShadowOpacityTarget: Float = 0
 
     func toggle() {
         if isVisible {

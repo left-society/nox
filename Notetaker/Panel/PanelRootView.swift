@@ -115,6 +115,16 @@ struct PanelRootView: View {
     /// study-or-focus branch in `pillContentOverlay`.
     @AppStorage(SettingsKey.noxStudyMode) private var noxStudyMode: Bool = false
 
+    /// User preference for the slab's accent color. Read inside
+    /// `panelAccent` to decide between artwork-derived (default)
+    /// and the macOS system accent. Bound via @AppStorage so a
+    /// flip in Settings → Appearance triggers an immediate body
+    /// re-evaluation — without the subscription, `panelAccent`
+    /// would still read the new value via `AccentMode.current`
+    /// but SwiftUI wouldn't know to invalidate the view that
+    /// owns it.
+    @AppStorage(SettingsKey.accentModeRaw) private var accentModeRaw: String = AccentMode.artwork.rawValue
+
     /// Drives `pillContentOverlay`'s focus-pill case. Active iff
     /// nox's own Focus mode is on (the only case where there's no
     /// other pill content already taking the slot — music always
@@ -3803,11 +3813,28 @@ struct PanelRootView: View {
     /// hit, so reusing this across many call sites in the same
     /// body is essentially free.
     var panelAccent: Color {
-        if let data = presenter.nowPlaying?.artworkData,
-           let color = ArtworkColor.dominant(from: data) {
-            return color
+        // 2026-05-17: honor Settings → Appearance → "Accent color".
+        // `.system` short-circuits the artwork dominant lookup and
+        // hands back the user's macOS system accent (System
+        // Settings → Appearance), so the slab stays on a stable
+        // brand color regardless of what's playing. `.artwork`
+        // (default) preserves the original artwork-derived
+        // behavior with lavender fallback.
+        switch AccentMode.current {
+        case .system:
+            // `NSColor.controlAccentColor` reflects the user's
+            // chosen system accent (Blue / Purple / Pink / Red /
+            // Orange / Yellow / Green / Graphite). Wrapped via
+            // SwiftUI.Color so it composes with our other color
+            // modifiers identically to `DS.Color.brandLavender`.
+            return Color(nsColor: NSColor.controlAccentColor)
+        case .artwork:
+            if let data = presenter.nowPlaying?.artworkData,
+               let color = ArtworkColor.dominant(from: data) {
+                return color
+            }
+            return DS.Color.brandLavender
         }
-        return DS.Color.brandLavender
     }
 
     /// Dark segmented tab rail. The panel stays matte-black, but
@@ -4276,16 +4303,36 @@ private struct MarkerStroke: Shape {
 }
 
 private struct ScribbleTabButton: View {
-    /// Feature flag for the hand-drawn lavender marker underline that
-    /// sweeps in under the active tab. Restored 2026-05-13 (premium
-    /// HUD design pass had stripped it), then disabled later same day
-    /// per user feedback — the underline collided visually with the
-    /// new capsule chrome on the active tab. Keeping all the code
-    /// (state vars, MarkerStroke shape variants, onChange/onAppear
-    /// handlers) in place so flipping this back to `true` cleanly
-    /// reinstates the gesture. Don't strip the supporting code; it's
-    /// the entire reason this file still has `MarkerStroke` defined.
-    private static let showMarkerUnderline = false
+    /// User-facing selector for the active-tab decoration. Lives
+    /// in Settings → Appearance → "Active tab indicator".
+    /// Default `.capsule` (matches the shipped 1.9.20 chrome);
+    /// the other three styles (capsule + marker, marker only,
+    /// none) let the user choose between the older sketch-style
+    /// gesture, pure marker, or pure typography.
+    ///
+    /// History (kept for context): the marker squiggle was
+    /// restored 2026-05-13 after a premium-HUD pass stripped it,
+    /// disabled same day because it collided visually with the
+    /// new capsule, then 2026-05-17 brought back as one of four
+    /// user-pickable indicator styles. All `MarkerStroke`
+    /// variants and draw-trim state stay in place so the styles
+    /// that hide the marker have no compile-time cost — don't
+    /// strip the supporting code.
+    @AppStorage(SettingsKey.tabIndicatorStyleRaw) private var tabIndicatorStyleRaw: String = TabIndicatorStyle.capsule.rawValue
+
+    /// Convenience accessor — collapses the stored raw value
+    /// into the typed enum and falls back to `.capsule` if the
+    /// stored string is ever stale (manual UserDefaults edit,
+    /// future enum case rename, etc.).
+    private var indicatorStyle: TabIndicatorStyle {
+        TabIndicatorStyle(rawValue: tabIndicatorStyleRaw) ?? .capsule
+    }
+
+    /// Whether the marker squiggle should render under the
+    /// active tab for the current style choice. Used by both
+    /// the overlay and the per-activation animation gates so
+    /// no draw-trim work runs for the marker-less styles.
+    private var showMarkerUnderline: Bool { indicatorStyle.showsMarker }
 
     let tab: PanelTab
     let isSelected: Bool
@@ -4330,26 +4377,38 @@ private struct ScribbleTabButton: View {
                 // capsule alone read as static, no tap-feedback
                 // gesture.
                 .overlay(alignment: .bottom) {
-                    if Self.showMarkerUnderline && isSelected {
+                    if showMarkerUnderline && isSelected {
                         // Marker stroke + glow now follow the
                         // shared accent color (artwork-dominant
                         // when music has art, lavender fallback)
                         // so re-enabling `showMarkerUnderline`
                         // continues to feel of-a-piece with the
                         // rest of the slab's color story.
+                        // Rendering geometry matches the original
+                        // 2026-05-13 introduction (commit ab90e1e):
+                        // 1.8pt stroke, 6pt frame, and a NEGATIVE
+                        // 3pt horizontal pad so the path extends
+                        // past each text edge. The later +8 inset
+                        // / 1.6pt / 5pt frame compressed the 60-unit
+                        // reference curve into ~24pt of effective
+                        // width, which pinched the curves into
+                        // angular jaggies (2026-05-17 user feedback:
+                        // "we had much cleaner hand draw stuff").
+                        // Restoring the original numbers so the
+                        // mark reads as a confident pen gesture,
+                        // not a ruler-tight cap.
                         MarkerStroke(variant: variant)
                             .trim(from: 0, to: drawProgress)
                             .stroke(
                                 accentColor,
-                                style: StrokeStyle(lineWidth: 1.6,
+                                style: StrokeStyle(lineWidth: 1.8,
                                                    lineCap: .round,
                                                    lineJoin: .round)
                             )
                             .shadow(color: accentColor.opacity(0.45),
                                     radius: 4)
-                            .frame(height: 5)
-                            .padding(.horizontal, 8)
-                            .padding(.bottom, 4)
+                            .frame(height: 6)
+                            .padding(.horizontal, -3)
                             .allowsHitTesting(false)
                     }
                 }
@@ -4368,7 +4427,7 @@ private struct ScribbleTabButton: View {
             // the marker underline is enabled. Body uses macOS 13's
             // single-arg `(newValue)` closure form (the two-arg
             // `(oldValue, newValue)` overload is macOS 14+).
-            guard Self.showMarkerUnderline else { return }
+            guard showMarkerUnderline else { return }
             if newValue {
                 variant = nextVariant(excluding: lastVariant)
                 lastVariant = variant
@@ -4385,10 +4444,26 @@ private struct ScribbleTabButton: View {
             // panel mounts, show the underline at full draw — no
             // entrance animation on first paint (would read as a
             // glitch, not a gesture).
-            guard Self.showMarkerUnderline else { return }
+            guard showMarkerUnderline else { return }
             if isSelected {
                 lastVariant = variant
                 drawProgress = 1
+            }
+        }
+        .onChange(of: tabIndicatorStyleRaw) { _ in
+            // User just changed the Appearance picker. If the new
+            // style still shows the marker and this tab is the
+            // active one, draw straight to full so the underline
+            // appears without waiting for the next tab switch.
+            // If the new style hides the marker, clear any
+            // in-flight stroke trim instantly.
+            if indicatorStyle.showsMarker {
+                if isSelected {
+                    lastVariant = variant
+                    drawProgress = 1
+                }
+            } else {
+                drawProgress = 0
             }
         }
     }
@@ -4410,13 +4485,18 @@ private struct ScribbleTabButton: View {
 
     @ViewBuilder
     private var segmentBackground: some View {
-        if isSelected {
+        if isSelected && indicatorStyle.showsCapsule {
             // 2026-05-13: dropped the two .shadow(...) modifiers
             // that wrapped this fill (lavender glow + drop shadow).
             // Each one was a separate GPU pass per render frame
             // during the panel open spring. Visual presence comes
             // from the gradient fill + the lavender marker
             // underline overlay — shadows were redundant accent.
+            //
+            // 2026-05-17: gated on `indicatorStyle.showsCapsule`
+            // so the marker-only / none styles get truly chrome-
+            // free inactive-looking inactive tabs (instead of
+            // selected ones still carrying the capsule).
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(
                     LinearGradient(
@@ -4443,7 +4523,10 @@ private struct ScribbleTabButton: View {
 
     @ViewBuilder
     private var segmentRim: some View {
-        if isSelected {
+        if isSelected && indicatorStyle.showsCapsule {
+            // 2026-05-17: gated on `indicatorStyle.showsCapsule`
+            // for the same reason as `segmentBackground` — marker-
+            // only and none styles drop all capsule chrome.
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(
                     LinearGradient(
