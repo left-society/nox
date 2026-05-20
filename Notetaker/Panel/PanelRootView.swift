@@ -344,6 +344,16 @@ struct PanelRootView: View {
         return UserDefaults.standard.bool(forKey: "pillSwipeToSkip")
     }
 
+    /// Settings → Music → Natural swipe direction. Default true
+    /// (left swipe = next track, matching macOS natural-scroll
+    /// trackpad behavior). Read inline so flips in Settings take
+    /// effect on the next gesture without re-mounting.
+    /// 2026-05-17 sprint Session 2 — Alcove parity.
+    private var naturalSwipeDirection: Bool {
+        if UserDefaults.standard.object(forKey: SettingsKey.naturalSwipeDirection) == nil { return true }
+        return UserDefaults.standard.bool(forKey: SettingsKey.naturalSwipeDirection)
+    }
+
     /// Stable identity for the dictation pill content — used as
     /// `.id(...)` on the SwiftUI view so phase transitions trigger
     /// the bouncy `.pillPop` transition. Three discrete states map
@@ -2958,6 +2968,16 @@ struct PanelRootView: View {
         // before the threshold commits.
         .offset(x: rubberBandedSwipeOffset)
         .simultaneousGesture(
+            // 2026-05-17 sprint Session 2 — Alcove parity. The
+            // entire decision rule now lives in SwipeGesturePolicy
+            // (extracted struct, fully unit-tested) so this view
+            // just translates DragGesture deltas into policy
+            // inputs and reacts to the policy's decision. Changes
+            // vs the 1.9.20 inline rule:
+            //   • Separate `success` and `reset` thresholds give a
+            //     soft dead-band at the start of the drag
+            //   • `naturalSwipeDirection` flips the forward axis
+            //   • Reset spring sourced from policy defaults
             DragGesture(minimumDistance: 10)
                 .onChanged { value in
                     guard pillSwipeEnabled,
@@ -2965,28 +2985,33 @@ struct PanelRootView: View {
                           presenter.isResting,
                           !presenter.isShown
                     else { return }
-                    // Only consider near-horizontal drags so that
-                    // accidental vertical motions don't register
-                    // as skips. tan(20°) ≈ 0.36 — pretty forgiving.
                     let dx = value.translation.width
                     let dy = abs(value.translation.height)
+                    // Near-horizontal gate (tan(20°) ≈ 0.36) so
+                    // diagonal-down scrolls don't trigger a skip.
                     guard dy < abs(dx) * 1.2 else { return }
                     pillSwipeOffset = dx
-                    let threshold: CGFloat = 35
-                    let direction: Int = dx > threshold ? 1
-                                       : dx < -threshold ? -1 : 0
-                    if direction != pillSwipeArmedDirection && direction != 0 {
-                        // Crossed the threshold — give a one-time
-                        // haptic so the user knows the next release
-                        // will commit. Direction-armed flag prevents
-                        // re-firing on every drag delta.
+                    let decision = SwipeGesturePolicy.decide(.init(
+                        delta: dx,
+                        phase: .changed,
+                        naturalMovement: naturalSwipeDirection,
+                        successThreshold: SwipeGesturePolicy.defaultSuccessThreshold,
+                        resetThreshold: SwipeGesturePolicy.defaultResetThreshold))
+                    switch decision {
+                    case .commitForward where pillSwipeArmedDirection != 1:
+                        // Crossed the threshold — tug haptic once
+                        // per crossing.
                         HapticFeedback.generic()
-                        pillSwipeArmedDirection = direction
-                    } else if direction == 0 && pillSwipeArmedDirection != 0 {
-                        // Drift back below threshold — disarm so the
-                        // next crossing in either direction can fire
-                        // its haptic again.
-                        pillSwipeArmedDirection = 0
+                        pillSwipeArmedDirection = 1
+                    case .commitBackward where pillSwipeArmedDirection != -1:
+                        HapticFeedback.generic()
+                        pillSwipeArmedDirection = -1
+                    case .idle, .scrubbing:
+                        if pillSwipeArmedDirection != 0 {
+                            pillSwipeArmedDirection = 0
+                        }
+                    default:
+                        break
                     }
                 }
                 .onEnded { value in
@@ -2999,20 +3024,25 @@ struct PanelRootView: View {
                         pillSwipeArmedDirection = 0
                         return
                     }
-                    let dx = value.translation.width
-                    let dy = abs(value.translation.height)
-                    let threshold: CGFloat = 35
-                    let isHorizontal = dy < abs(dx) * 1.2
-                    if isHorizontal && dx > threshold {
+                    let decision = SwipeGesturePolicy.decide(.init(
+                        delta: value.translation.width,
+                        phase: .ended,
+                        naturalMovement: naturalSwipeDirection,
+                        successThreshold: SwipeGesturePolicy.defaultSuccessThreshold,
+                        resetThreshold: SwipeGesturePolicy.defaultResetThreshold))
+                    switch decision {
+                    case .commitForward:
                         presenter.onMediaCommand?(.next)
                         HapticFeedback.alignment()
-                    } else if isHorizontal && dx < -threshold {
+                    case .commitBackward:
                         presenter.onMediaCommand?(.previous)
                         HapticFeedback.alignment()
+                    case .reset, .idle, .scrubbing:
+                        break
                     }
-                    // Snap back to centered with a soft spring so
-                    // a not-quite-far-enough drag releases naturally.
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                    withAnimation(.spring(
+                        response: SwipeGesturePolicy.resetSpringResponse,
+                        dampingFraction: SwipeGesturePolicy.resetSpringDampingFraction)) {
                         pillSwipeOffset = 0
                     }
                     pillSwipeArmedDirection = 0

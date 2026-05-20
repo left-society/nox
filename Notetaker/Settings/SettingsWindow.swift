@@ -127,6 +127,19 @@ enum SettingsKey {
     /// prompt (see `FocusStatusService.requestAuthorization`).
     static let respectFocusMode = "respectFocusMode"
 
+    /// Per-pill "allow during Focus" exceptions. When the master
+    /// `respectFocusMode` is on AND macOS Focus is active, ambient
+    /// pills are normally suppressed; each of these allows ONE pill
+    /// type to punch through. All default false (current behavior —
+    /// full suppression — is preserved for users who don't visit the
+    /// new indented rows). Routed through `FocusGatingPolicy.shouldShow`
+    /// from `PanelPresenter.setPendingSystemEvent` (2026-05-17 sprint
+    /// Session 4 — Alcove parity).
+    static let allowChargingDuringFocus    = "allowChargingDuringFocus"
+    static let allowAirDropDuringFocus     = "allowAirDropDuringFocus"
+    static let allowBluetoothDuringFocus   = "allowBluetoothDuringFocus"
+    static let allowScreenshotDuringFocus  = "allowScreenshotDuringFocus"
+
     /// nox's own "I'm locked in" Focus toggle, independent of
     /// macOS Focus. When ON, ambient pills (charger / screenshot
     /// / AirDrop / Bluetooth / track-change) get swallowed by
@@ -219,6 +232,41 @@ enum SettingsKey {
     /// next track. Read inline by `PanelRootView.pillSwipeEnabled`
     /// so a flip in Settings takes effect on the next gesture.
     static let pillSwipeToSkip = "pillSwipeToSkip"
+    /// Natural swipe direction on the resting music pill. Default
+    /// true: dragging LEFT skips forward, matching macOS "natural
+    /// scroll" (content follows the finger). Flip to false for
+    /// reading-order direction (RIGHT = next). Consumed by
+    /// `SwipeGesturePolicy.decide` via the consumer in PanelRootView.
+    /// 2026-05-17 sprint Session 2 — Alcove parity.
+    static let naturalSwipeDirection = "naturalSwipeDirection"
+    /// Tuning thresholds for the horizontal-swipe-to-skip gesture.
+    /// Hidden from Settings UI in 1.9.21 — exposed via
+    /// `SwipeGesturePolicy.defaultSuccessThreshold` /
+    /// `defaultResetThreshold` and overridable by power users via
+    /// `defaults write app.trynox` if they want a longer or shorter
+    /// throw. Promoting to an "Advanced" panel is a v1.10 decision.
+    static let horizontalSwipeSuccessThreshold = "horizontalSwipeSuccessThreshold"
+    static let horizontalSwipeResetThreshold   = "horizontalSwipeResetThreshold"
+
+    // Sound effects (1.9.21)
+    /// Master kill-switch for the ambient-sound pack. Default true
+    /// so the per-event toggles can opt in individually without a
+    /// second hop through this gate. Modeled on the existing
+    /// `hapticsEnabled` pattern.
+    static let enableSoundEffects = "enableSoundEffects"
+    /// Plays NSSound "Tink" the moment IOKit reports the charger
+    /// plugged in (rising edge of `PowerState.isCharging`).
+    /// Default false — opt-in.
+    static let playSoundOnCharging = "playSoundOnCharging"
+    /// Plays NSSound "Glass" on `BluetoothDeviceService.
+    /// onDeviceConnected`. Default false — opt-in.
+    static let playSoundOnBluetoothConnect = "playSoundOnBluetoothConnect"
+    /// Plays NSSound "Funk" when LockScreenWatcher reports the
+    /// screen has locked. Default false — opt-in.
+    static let playSoundOnLock = "playSoundOnLock"
+    /// Plays NSSound "Pop" when LockScreenWatcher reports the
+    /// screen has unlocked. Default false — opt-in.
+    static let playSoundOnUnlock = "playSoundOnUnlock"
 
     // Notes
     static let autoSaveCopiedText = "autoSaveCopiedText"
@@ -714,6 +762,23 @@ private struct GeneralSettings: View {
     @AppStorage(SettingsKey.defaultTabRaw) private var defaultTabRaw: String = DefaultTab.last.rawValue
     @AppStorage(SettingsKey.respectFocusMode) private var respectFocusMode: Bool = true
     @AppStorage(SettingsKey.showAirDropPill) private var showAirDropPill: Bool = true
+    // 2026-05-17 sprint Session 4 — per-pill Focus exceptions.
+    // Default false (full suppression) preserves the current
+    // behavior for upgrading users; each flip lets one pill type
+    // punch through `respectFocusMode` while Focus is active.
+    @AppStorage(SettingsKey.allowChargingDuringFocus)   private var allowChargingDuringFocus:   Bool = false
+    @AppStorage(SettingsKey.allowAirDropDuringFocus)    private var allowAirDropDuringFocus:    Bool = false
+    @AppStorage(SettingsKey.allowBluetoothDuringFocus)  private var allowBluetoothDuringFocus:  Bool = false
+    @AppStorage(SettingsKey.allowScreenshotDuringFocus) private var allowScreenshotDuringFocus: Bool = false
+    // 2026-05-17 sprint Session 3 — ambient sound pack. Master
+    // toggle ships on so a user who flips one per-event toggle
+    // doesn't have to flip two; per-event toggles default OFF so
+    // upgrading users get zero new sounds without explicit opt-in.
+    @AppStorage(SettingsKey.enableSoundEffects)         private var enableSoundEffects:         Bool = true
+    @AppStorage(SettingsKey.playSoundOnCharging)        private var playSoundOnCharging:        Bool = false
+    @AppStorage(SettingsKey.playSoundOnBluetoothConnect) private var playSoundOnBluetoothConnect: Bool = false
+    @AppStorage(SettingsKey.playSoundOnLock)            private var playSoundOnLock:            Bool = false
+    @AppStorage(SettingsKey.playSoundOnUnlock)          private var playSoundOnUnlock:          Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -833,6 +898,34 @@ private struct GeneralSettings: View {
                             }
                         }
                 }
+                // 2026-05-17 sprint Session 4 — per-pill Focus
+                // exceptions. Indented child toggles read as
+                // children of the master "Auto-hide pills during
+                // Focus" row above; four-space title prefix is the
+                // cheap indent trick that stays inside the existing
+                // SettingsRow without a new indented-row variant.
+                // Each row's effect: only matters when master toggle
+                // is ON and macOS Focus is currently active.
+                SettingsRow(title: "    Charging",
+                            subtitle: "Show charging pill even while a Focus mode is active.") {
+                    Toggle("", isOn: $allowChargingDuringFocus).labelsHidden()
+                        .disabled(!respectFocusMode)
+                }
+                SettingsRow(title: "    AirDrop",
+                            subtitle: "Show AirDrop arrival pill even while a Focus mode is active.") {
+                    Toggle("", isOn: $allowAirDropDuringFocus).labelsHidden()
+                        .disabled(!respectFocusMode)
+                }
+                SettingsRow(title: "    Bluetooth",
+                            subtitle: "Show Bluetooth connect / disconnect pill even while a Focus mode is active.") {
+                    Toggle("", isOn: $allowBluetoothDuringFocus).labelsHidden()
+                        .disabled(!respectFocusMode)
+                }
+                SettingsRow(title: "    Screenshot",
+                            subtitle: "Show screenshot-saved pill even while a Focus mode is active.") {
+                    Toggle("", isOn: $allowScreenshotDuringFocus).labelsHidden()
+                        .disabled(!respectFocusMode)
+                }
                 SettingsRow(title: "AirDrop arrival pill",
                             subtitle: "Pill flashes when a file lands via AirDrop. Tap to reveal in Finder.") {
                     Toggle("", isOn: $showAirDropPill).labelsHidden()
@@ -847,6 +940,40 @@ private struct GeneralSettings: View {
                     }
                     .labelsHidden()
                     .frame(width: 140)
+                }
+            }
+
+            // 2026-05-17 sprint Session 3 — ambient sound pack.
+            // Master toggle gates a set of per-event opt-ins.
+            // All event toggles default OFF so upgrading users
+            // get zero new audible feedback without explicit
+            // opt-in (NSSound built-ins via SoundEffectsService).
+            GroupTitle(title: "Sound")
+            SettingsCard {
+                SettingsRow(title: "Play sound effects",
+                            subtitle: "Master switch for the ambient sound pack. Off here means none of the per-event toggles fire.") {
+                    Toggle("", isOn: $enableSoundEffects).labelsHidden()
+                }
+                SettingsRow(title: "Charging",
+                            subtitle: "NSSound \"Tink\" when you plug in.") {
+                    Toggle("", isOn: $playSoundOnCharging).labelsHidden()
+                        .disabled(!enableSoundEffects)
+                }
+                SettingsRow(title: "Bluetooth connect",
+                            subtitle: "NSSound \"Glass\" when AirPods (or any BT audio device) connect.") {
+                    Toggle("", isOn: $playSoundOnBluetoothConnect).labelsHidden()
+                        .disabled(!enableSoundEffects)
+                }
+                SettingsRow(title: "Lock",
+                            subtitle: "NSSound \"Funk\" when the screen locks.") {
+                    Toggle("", isOn: $playSoundOnLock).labelsHidden()
+                        .disabled(!enableSoundEffects)
+                }
+                SettingsRow(title: "Unlock",
+                            subtitle: "NSSound \"Pop\" when you wake from lock.",
+                            divider: false) {
+                    Toggle("", isOn: $playSoundOnUnlock).labelsHidden()
+                        .disabled(!enableSoundEffects)
                 }
             }
         }
@@ -896,6 +1023,7 @@ private struct MusicSettings: View {
     // resting pill always shows when music is playing, which
     // is the more common preference.
     @AppStorage(SettingsKey.pillSwipeToSkip) private var pillSwipeToSkip: Bool = true
+    @AppStorage(SettingsKey.naturalSwipeDirection) private var naturalSwipeDirection: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -913,10 +1041,19 @@ private struct MusicSettings: View {
                 // toggles per BUG-119. Wiring them requires non-
                 // trivial app-state observation; out of scope here.
                 SettingsRow(title: "Swipe to skip",
-                            subtitle: "Drag the resting pill left for previous, right for next",
-                            divider: false) {
+                            subtitle: "Drag the resting pill left or right to skip tracks") {
                     Toggle("", isOn: $pillSwipeToSkip).labelsHidden()
                 }
+                // 2026-05-17 sprint Session 2 — Alcove parity. Pairs
+                // with `SwipeGesturePolicy.decide(naturalMovement:)`:
+                // ON  → left swipe = next (macOS natural-scroll model)
+                // OFF → right swipe = next (reading-order model)
+                SettingsRow(title: "Natural swipe direction",
+                            subtitle: "Swipe left for next track. Off = reverse.",
+                            divider: false) {
+                    Toggle("", isOn: $naturalSwipeDirection).labelsHidden()
+                }
+                .disabled(!pillSwipeToSkip)
             }
         }
     }

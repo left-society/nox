@@ -117,6 +117,16 @@ struct NowPlayingPillView: View {
                 : .spring(response: 0.32, dampingFraction: 0.96),
             value: isShown
         )
+        // 2026-05-17: right-click → context menu (Alcove parity).
+        // Single-line hookup; the controller in PillContextMenu.swift
+        // installs a local right-click monitor scoped to this pill's
+        // host window, builds the NSMenu from
+        // `PillContextMenuPolicy.entries`, and dispatches selected
+        // actions through the existing `onCommand` closure (for
+        // transport) plus AppDelegate / NSWorkspace / NSPasteboard
+        // (for utility items). See the doc comment at the top of
+        // PillContextMenu.swift for the full rationale.
+        .pillContextMenu(info: info, onCommand: onCommand)
     }
 
     // MARK: - Inner pill

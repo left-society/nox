@@ -616,6 +616,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // screenshot pills, so they share the same morph
             // animation system.
             env.bluetoothDeviceService.onDeviceConnected = { [weak self] device in
+                // 2026-05-17 sprint Session 3 — ambient sound pack.
+                // Policy gates double-up (pill gate AND sound gate)
+                // intentional: a user can keep the pill visible but
+                // silence the sound, or vice versa.
+                SoundEffectsService.shared.playIfEnabled(.bluetoothConnect)
                 guard Self.bluetoothPillEnabled() else { return }
                 guard let panel = self?.panelController else { return }
                 // Bring the panel up at pill geometry first — without
@@ -1320,6 +1325,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // pipeline inside `LockMusicCardWindowController` which
         // calls `orderFront` / `orderOut` on the card panel.
         orchestrator.onLockStateChange = { [weak self] locked in
+            // 2026-05-17 sprint Session 3 — ambient sound pack.
+            // .lock / .unlock map to Funk / Pop respectively; the
+            // service self-gates on the master + per-event toggles
+            // and on Focus suppression.
+            SoundEffectsService.shared.playIfEnabled(locked ? .lock : .unlock)
             self?.panelController?.presenter.isLocked = locked
         }
 
@@ -1339,6 +1349,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // show the new charging state, then auto-reverts to music
         // after `pendingSystemEventTimeout` seconds.
         orchestrator.onChargingChange = { [weak self] percent, plugged in
+            // 2026-05-17 sprint Session 3 — Tink on the rising edge
+            // of charger insertion. Orchestrator already gates this
+            // callback on `chargingChanged` so the edge guard is
+            // already handled upstream.
+            if plugged {
+                SoundEffectsService.shared.playIfEnabled(.charging)
+            }
             guard let self, let panel = self.panelController else { return }
             // Settings → Charging → Show charging pill. Default on
             // for first-launch users.

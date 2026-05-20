@@ -760,10 +760,56 @@ final class PanelPresenter: ObservableObject {
                 .bool(forKey: "noxFocusMode")
             let muteByStudy: Bool = UserDefaults.standard
                 .bool(forKey: "noxStudyMode")
+            // 2026-05-17 sprint Session 4 — per-pill Focus exceptions.
+            // Route through `FocusGatingPolicy.shouldShow` so each
+            // pill type can be granted an "allow during Focus"
+            // exception independently. Events that don't map to a
+            // PillType (downloads, note-saved, AirDrop) fall through
+            // `pillForEvent == nil` and keep the old all-or-nothing
+            // behavior — the gate returns "no mute" for them.
+            let pillForEvent: PillType? = {
+                switch event {
+                case .charging:                                   return .charging
+                case .screenshotSaved:                            return .screenshot
+                case .bluetoothConnected, .bluetoothDisconnected: return .bluetooth
+                default:                                          return nil
+                }
+            }()
+            let allowDuringFocus: Set<PillType> = {
+                let d = UserDefaults.standard
+                var s = Set<PillType>()
+                if d.bool(forKey: SettingsKey.allowChargingDuringFocus)   { s.insert(.charging) }
+                if d.bool(forKey: SettingsKey.allowAirDropDuringFocus)    { s.insert(.airdrop) }
+                if d.bool(forKey: SettingsKey.allowBluetoothDuringFocus)  { s.insert(.bluetooth) }
+                if d.bool(forKey: SettingsKey.allowScreenshotDuringFocus) { s.insert(.screenshot) }
+                return s
+            }()
             let muteByFocus: Bool = {
-                guard isFocused else { return false }
-                if UserDefaults.standard.object(forKey: "respectFocusMode") == nil { return true }
-                return UserDefaults.standard.bool(forKey: "respectFocusMode")
+                // Legacy gate — used both as the fallback for events
+                // that don't map to a PillType (downloads, noteSaved
+                // — they shipped 1.9.20 as fully Focus-suppressed
+                // and stay that way) AND as the inner check inside
+                // FocusGatingPolicy.shouldShow.
+                let respect: Bool = {
+                    if UserDefaults.standard.object(forKey: "respectFocusMode") == nil { return true }
+                    return UserDefaults.standard.bool(forKey: "respectFocusMode")
+                }()
+                guard let pill = pillForEvent else {
+                    // No per-pill exception applies — preserve 1.9.20
+                    // behavior: mute iff Focused AND respect is on.
+                    // This branch covers .downloadStarted,
+                    // .downloadCompleted, .noteSaved (all of which
+                    // were `isMutedByFocus = true` per the switch
+                    // upstream, so dropping suppression here would
+                    // have leaked them through Focus mode — review
+                    // B1 catch, 2026-05-17).
+                    return isFocused && respect
+                }
+                return !FocusGatingPolicy.shouldShow(
+                    pill: pill,
+                    isFocused: isFocused,
+                    respectFocus: respect,
+                    allowList: allowDuringFocus)
             }()
             if muteByQuiet || muteByStudy || muteByFocus {
                 // Record the mute against the FocusSessionTracker
