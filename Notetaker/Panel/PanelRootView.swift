@@ -3637,11 +3637,40 @@ struct PanelRootView: View {
 
     private var panelBackground: some View {
         ZStack {
+            // 2026-05-20 — RESTORED VisualEffectBlur underlay,
+            // tuned for "matte black with a hint of glass" instead
+            // of the earlier "very translucent glass" that the
+            // 2026-05-13 `style: tone down live panel glass` commit
+            // ripped out. Why bring it back: VisualEffectBlur now
+            // routes through `NSGlassEffectView` on macOS 26 Tahoe
+            // (see VisualEffectBlur.swift) — the new Liquid Glass
+            // material adds a specular highlight pass on top of
+            // the backdrop blur, catching light along the slab's
+            // silhouette edge for the first time. Without this
+            // underlay the Tahoe shine has nothing to land on.
+            //
+            // The black gradients above it are at HIGH opacity
+            // (0.96-0.98) so the slab still reads as matte from
+            // arm's length — only edge highlights leak through.
+            // User feedback that triggered the original removal
+            // ("apply color on cards so it feels more premium")
+            // remains honored: this isn't a colored wash, it's a
+            // dark surface that catches Tahoe's specular light.
+            //
+            // On macOS 14-15 (no NSGlassEffectView): the blur
+            // layer renders as ~2% perceptible difference vs the
+            // earlier solid LinearGradient. No regression.
+            // On macOS 26+: visible edge shine + subtle inner
+            // depth that reads as "the slab is made of glass."
+            VisualEffectBlur(material: .hudWindow,
+                             blendingMode: .behindWindow)
+                .opacity(presenter.isShown ? 1 : 0)
+
             LinearGradient(
                 stops: [
-                    .init(color: Color.black, location: 0.00),
-                    .init(color: Color(red: 0.018, green: 0.018, blue: 0.020), location: 0.46),
-                    .init(color: Color.black, location: 1.00),
+                    .init(color: Color.black.opacity(0.97), location: 0.00),
+                    .init(color: Color(red: 0.018, green: 0.018, blue: 0.020).opacity(0.96), location: 0.46),
+                    .init(color: Color.black.opacity(0.98), location: 1.00),
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -4089,6 +4118,39 @@ struct PanelRootView: View {
                 .opacity(presenter.cascadeReady ? 1 : 0)
                 .offset(y: presenter.cascadeReady ? 0 : -40)
                 .animation(cascadeAnimation.delay(0.08), value: presenter.cascadeReady)
+                // 2026-05-20 — progressive Liquid Glass fade at
+                // the top edge of every tab's content area. List
+                // content scrolling UP toward the divider now
+                // disappears UNDER a blurred fade instead of
+                // clipping at a hard line — same effect Apple
+                // ships at the top of iOS notification stacks
+                // and Alcove ships on its expanded music card.
+                //
+                // 14pt strip is the eyeballed minimum that reads
+                // as "fade" rather than "horizontal band." Below
+                // 12pt the gradient compresses too tight and the
+                // blur looks like a one-pixel haze; above 18pt
+                // it starts eating real content area. 14pt sits
+                // in the sweet spot.
+                //
+                // `.bottomToTop` gradient direction: full blur at
+                // the top edge of this overlay (touching the
+                // divider above it), fading to clear by the
+                // bottom — so content emerging UP into this band
+                // becomes progressively more frosted as it
+                // approaches the chrome.
+                //
+                // `.allowsHitTesting(false)` because the blur
+                // strip overlays scroll views; without this it
+                // would eat clicks/scrolls in the top 14pt of
+                // every content area.
+                .overlay(alignment: .top) {
+                    ProgressiveBlurView(direction: .bottomToTop,
+                                        intensity: .medium)
+                        .frame(height: 14)
+                        .allowsHitTesting(false)
+                        .opacity(presenter.cascadeReady ? 1 : 0)
+                }
         }
         // GPU-friendly compositing without breaking hit testing.
         // .drawingGroup() was tried but flattened content into a

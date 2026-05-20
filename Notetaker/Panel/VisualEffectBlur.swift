@@ -37,26 +37,18 @@ struct VisualEffectBlur: NSViewRepresentable {
     var material: NSVisualEffectView.Material
     var blendingMode: NSVisualEffectView.BlendingMode
 
-    func makeNSView(context: Context) -> NSView {
-        // Tahoe path — Liquid Glass material via NSGlassEffectView.
-        // Type-checked dynamically so the SDK doesn't need to be
-        // Tahoe-or-newer to compile. The `Selector("setMaterial:")`
-        // / `Selector("setBlendingMode:")` route is the documented
-        // KVC backdoor for setting properties Apple hasn't yet
-        // exposed via the modern SDK header on older builds.
-        if #available(macOS 26.0, *) {
-            if let glass = NSGlassEffectViewProxy.make() {
-                glass.setMaterial(material)
-                glass.setBlendingMode(blendingMode)
-                glass.setState(.active)
-                return glass
-            }
-        }
-
-        // Fallback (macOS 14-15, or if the Tahoe path failed for
-        // any reason — defensive). Behaviorally identical to the
-        // pre-1.9.21 path: a plain NSVisualEffectView with the
-        // requested material.
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        // 2026-05-20: kept on NSVisualEffectView across all macOS
+        // versions. An earlier attempt to route through
+        // `NSGlassEffectView` on macOS 26 (Tahoe) crashed at
+        // runtime — Apple's new Liquid Glass class doesn't accept
+        // NSVisualEffectView's `material` / `blendingMode` KVC
+        // keys (different API surface). Needs proper SDK headers
+        // + a separate ABI mapping; deferred until that's wired.
+        // NSVisualEffectView with `.hudWindow` material still
+        // gives nox its frosted-glass character on every shipping
+        // macOS, and is what every nox release through 1.9.21
+        // has used in production.
         let view = NSVisualEffectView()
         view.material = material
         view.blendingMode = blendingMode
@@ -68,72 +60,8 @@ struct VisualEffectBlur: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ view: NSView, context: Context) {
-        if #available(macOS 26.0, *),
-           let glass = view as? NSGlassEffectViewProxy {
-            glass.setMaterial(material)
-            glass.setBlendingMode(blendingMode)
-            return
-        }
-        if let ve = view as? NSVisualEffectView {
-            ve.material = material
-            ve.blendingMode = blendingMode
-        }
-    }
-}
-
-/// Type-erasing wrapper for `NSGlassEffectView` on macOS 26+.
-///
-/// We can't import NSGlassEffectView directly because that would
-/// require the consumer's compile SDK to be 26.0+, which would
-/// break for anyone building on Xcode 15 (Sonoma SDK). The proxy
-/// uses `NSClassFromString` to obtain the class lazily and KVC
-/// to talk to it.
-///
-/// The exposed setters (`setMaterial`, `setBlendingMode`,
-/// `setState`) take the same enums as `NSVisualEffectView` — Apple
-/// kept the API surface parallel between the two classes so
-/// migration is just a class swap. If a future macOS version
-/// renames any of these, the proxy fails closed via the optional
-/// returns in `make()` and the caller drops back to the
-/// `NSVisualEffectView` path automatically.
-@available(macOS 26.0, *)
-private final class NSGlassEffectViewProxy: NSView {
-    /// Construct an `NSGlassEffectView` instance via runtime class
-    /// lookup. Returns nil if Apple ever renames the class or if
-    /// the OS reports 26+ but the framework didn't ship the class
-    /// (shouldn't happen in practice, but the guard means we
-    /// silently fall back to NSVisualEffectView instead of crashing).
-    static func make() -> NSGlassEffectViewProxy? {
-        guard let cls = NSClassFromString("NSGlassEffectView") as? NSView.Type else {
-            return nil
-        }
-        // Instantiate via the NSView designated initializer. The
-        // resulting instance's runtime class IS NSGlassEffectView;
-        // Swift's type-system sees it as our proxy because of the
-        // forced bridge cast — KVC setters in the wrapper methods
-        // route to the real class.
-        let instance = cls.init(frame: .zero)
-        return unsafeDowncast(instance, to: NSGlassEffectViewProxy.self)
-    }
-
-    func setMaterial(_ material: NSVisualEffectView.Material) {
-        // KVC keypath matches `NSVisualEffectView` exactly, and
-        // NSGlassEffectView (per Tahoe headers) mirrors the
-        // enum-based material property. Boxing the rawValue as
-        // NSNumber because the KVC bridge handles enum types via
-        // their rawValue's NSNumber form.
-        self.setValue(NSNumber(value: material.rawValue),
-                      forKey: "material")
-    }
-
-    func setBlendingMode(_ mode: NSVisualEffectView.BlendingMode) {
-        self.setValue(NSNumber(value: mode.rawValue),
-                      forKey: "blendingMode")
-    }
-
-    func setState(_ state: NSVisualEffectView.State) {
-        self.setValue(NSNumber(value: state.rawValue),
-                      forKey: "state")
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.material = material
+        view.blendingMode = blendingMode
     }
 }
