@@ -113,8 +113,8 @@ struct NowPlayingPillView: View {
         // animations cohesive across presentations.
         .animation(
             isShown
-                ? .spring(response: 0.42, dampingFraction: 0.78)
-                : .spring(response: 0.32, dampingFraction: 0.96),
+                ? NoxAnimations.liveActivity
+                : NoxAnimations.panelClose,
             value: isShown
         )
         // 2026-05-17: right-click → context menu (Alcove parity).

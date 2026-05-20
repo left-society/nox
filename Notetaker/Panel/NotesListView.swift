@@ -1070,7 +1070,7 @@ private struct DictationToolbarButton: View {
                     }
                 }
                 .onEnded { _ in
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.5)) {
+                    withAnimation(NoxAnimations.quickAnticipation) {
                         isPressed = false
                     }
                 }
@@ -1159,7 +1159,7 @@ private struct ToolbarIconButton: View {
                     }
                 }
                 .onEnded { _ in
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.5)) {
+                    withAnimation(NoxAnimations.quickAnticipation) {
                         isPressed = false
                     }
                 }
@@ -1398,7 +1398,7 @@ struct NoteRow: View {
             }
         }
         .scaleEffect(isSelected ? 1.01 : 1.0)
-        .animation(.spring(response: 0.32, dampingFraction: 0.78), value: isSelected)
+        .animation(NoxAnimations.snappy, value: isSelected)
         .contentShape(Rectangle())
         .onHover { hovering in
             withAnimation(.rowHover) { isHovered = hovering }

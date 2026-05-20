@@ -242,7 +242,7 @@ struct FilesGridView: View {
             }
             .buttonStyle(.plain)
             Button {
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.74)) {
+                withAnimation(NoxAnimations.snappy) {
                     fileStore.clearAll()
                 }
                 HapticFeedback.levelChange()
@@ -374,7 +374,7 @@ private struct FileRow: View {
         .shadow(color: .black.opacity(0.18), radius: 1, x: 0, y: 1)
         .offset(y: hovered ? -2 : 0)
         .onHover { isHovering in
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.74)) {
+            withAnimation(NoxAnimations.snappy) {
                 hovered = isHovering
             }
         }

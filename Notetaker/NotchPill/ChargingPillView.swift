@@ -95,8 +95,8 @@ struct ChargingPillView: View {
             // on the way out so the HUD doesn't linger past its
             // welcome.
             isShown
-                ? .spring(response: 0.42, dampingFraction: 0.78)
-                : .spring(response: 0.32, dampingFraction: 0.96),
+                ? NoxAnimations.liveActivity
+                : NoxAnimations.panelClose,
             value: isShown
         )
     }

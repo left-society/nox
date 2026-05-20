@@ -475,7 +475,7 @@ struct MusicPanelView: View {
                 systemImage: liveFocusPillActive ? "bolt.fill" : "bolt",
                 isActive: liveFocusPillActive,
                 onToggle: {
-                    withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                    withAnimation(NoxAnimations.snappy) {
                         if !noxFocusMode { noxStudyMode = false }
                         noxFocusMode.toggle()
                     }
@@ -495,7 +495,7 @@ struct MusicPanelView: View {
                 systemImage: noxStudyMode ? "lightbulb.fill" : "lightbulb",
                 isActive: noxStudyMode,
                 onToggle: {
-                    withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                    withAnimation(NoxAnimations.snappy) {
                         if !noxStudyMode { noxFocusMode = false }
                         noxStudyMode.toggle()
                     }
@@ -538,7 +538,7 @@ struct MusicPanelView: View {
                 .blur(radius: ready ? 0 : 4)
                 .offset(y: ready ? 0 : -6)
                 .animation(
-                    .spring(response: 0.42, dampingFraction: 0.68)
+                    NoxAnimations.panelOpen
                         .delay(delay),
                     value: ready
                 )
@@ -1132,7 +1132,7 @@ struct MusicPanelView: View {
                     x: 0, y: 0
                 )
                 .animation(
-                    .spring(response: 0.28, dampingFraction: 0.72),
+                    NoxAnimations.snappy,
                     value: prevActive
                 )
 
@@ -1160,7 +1160,7 @@ struct MusicPanelView: View {
                     x: 0, y: 0
                 )
                 .animation(
-                    .spring(response: 0.28, dampingFraction: 0.72),
+                    NoxAnimations.snappy,
                     value: nextActive
                 )
             }
@@ -2472,7 +2472,7 @@ private struct MusicControlButton: View {
                     // damping than the default spring so the bounce
                     // is visible. Keeps the press DOWN sharp
                     // (easeOut) and only adds spring on release.
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.5)) {
+                    withAnimation(NoxAnimations.quickAnticipation) {
                         isPressed = false
                     }
                 }
@@ -2853,7 +2853,7 @@ struct LiveFocusDetailPanel: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(.white.opacity(0.07), lineWidth: 0.6)
         )
-        .animation(.spring(response: 0.34, dampingFraction: 0.78), value: state)
+        .animation(NoxAnimations.snappy, value: state)
     }
 
     /// Idle state — chip strip wrapped to 2 rows for the narrow
@@ -3181,7 +3181,7 @@ struct LiveFocusDetailPanel: View {
                     lineWidth: 0.6
                 )
         )
-        .animation(.spring(response: 0.34, dampingFraction: 0.78),
+        .animation(NoxAnimations.snappy,
                    value: isInFocusState)
     }
 
@@ -3251,7 +3251,7 @@ struct LiveFocusDetailPanel: View {
     private var controlsStrip: some View {
         VStack(spacing: 4) {
             Button {
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                withAnimation(NoxAnimations.snappy) {
                     noxFocusMode.toggle()
                 }
             } label: {
@@ -3272,7 +3272,7 @@ struct LiveFocusDetailPanel: View {
                     Toggle("", isOn: Binding(
                         get: { noxFocusMode },
                         set: { newValue in
-                            withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                            withAnimation(NoxAnimations.snappy) {
                                 noxFocusMode = newValue
                             }
                         }
@@ -3430,9 +3430,9 @@ struct LiveFocusDetailPanel: View {
         // isInFocusState catches the gradient color shift even
         // when heroState happens to be the same string (pre-timer
         // legacy guard — keep for defensive coverage).
-        .animation(.spring(response: 0.34, dampingFraction: 0.78),
+        .animation(NoxAnimations.snappy,
                    value: heroState)
-        .animation(.spring(response: 0.34, dampingFraction: 0.78),
+        .animation(NoxAnimations.snappy,
                    value: isInFocusState)
     }
 
@@ -3540,7 +3540,7 @@ struct LiveFocusDetailPanel: View {
     /// them, just with a `+` glyph instead of "Nm".
     private var customExpandChip: some View {
         Button {
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+            withAnimation(NoxAnimations.snappy) {
                 customTimerExpanded = true
             }
         } label: {
@@ -3647,7 +3647,7 @@ struct LiveFocusDetailPanel: View {
             // Cancel — quiet × that reverts to the chip strip
             // without starting anything.
             Button {
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                withAnimation(NoxAnimations.snappy) {
                     customTimerExpanded = false
                 }
             } label: {
@@ -3686,7 +3686,7 @@ struct LiveFocusDetailPanel: View {
     /// stop early.
     private func commitCustomTimer() {
         let mins = max(1, min(300, customTimerMinutes))
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+        withAnimation(NoxAnimations.snappy) {
             if !noxFocusMode { noxFocusMode = true }
             focusTimer.start(duration: TimeInterval(mins * 60))
             customTimerExpanded = false
@@ -3853,7 +3853,7 @@ struct LiveFocusDetailPanel: View {
     /// implies committing to the focus session it lives inside.
     private func durationChip(minutes: Int) -> some View {
         Button {
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+            withAnimation(NoxAnimations.snappy) {
                 if !noxFocusMode { noxFocusMode = true }
                 focusTimer.start(duration: TimeInterval(minutes * 60))
             }
@@ -4088,7 +4088,7 @@ struct LiveFocusDetailPanel: View {
             // animate together. Without this the assignment is
             // synchronous and SwiftUI snaps the toggle to its
             // new position with no transition.
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+            withAnimation(NoxAnimations.snappy) {
                 noxFocusMode.toggle()
             }
         }
@@ -4429,7 +4429,7 @@ struct LiveStudyDetailPanel: View {
                     lineWidth: 0.6
                 )
         )
-        .animation(.spring(response: 0.34, dampingFraction: 0.78),
+        .animation(NoxAnimations.snappy,
                    value: noxStudyMode)
     }
 
@@ -4501,7 +4501,7 @@ struct LiveStudyDetailPanel: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(.white.opacity(0.07), lineWidth: 0.6)
         )
-        .animation(.spring(response: 0.34, dampingFraction: 0.78), value: state)
+        .animation(NoxAnimations.snappy, value: state)
     }
 
     /// Idle state — two-row chip layout (parallel to Focus's). Top
@@ -4630,7 +4630,7 @@ struct LiveStudyDetailPanel: View {
     private var controlsStrip: some View {
         VStack(spacing: 4) {
             Button {
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                withAnimation(NoxAnimations.snappy) {
                     if !noxStudyMode {
                         noxFocusMode = false
                     }
@@ -4654,7 +4654,7 @@ struct LiveStudyDetailPanel: View {
                     Toggle("", isOn: Binding(
                         get: { noxStudyMode },
                         set: { newValue in
-                            withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                            withAnimation(NoxAnimations.snappy) {
                                 if newValue { noxFocusMode = false }
                                 noxStudyMode = newValue
                             }
@@ -4787,9 +4787,9 @@ struct LiveStudyDetailPanel: View {
                     lineWidth: 0.6
                 )
         )
-        .animation(.spring(response: 0.34, dampingFraction: 0.78),
+        .animation(NoxAnimations.snappy,
                    value: heroState)
-        .animation(.spring(response: 0.34, dampingFraction: 0.78),
+        .animation(NoxAnimations.snappy,
                    value: noxStudyMode)
     }
 
@@ -5043,7 +5043,7 @@ struct LiveStudyDetailPanel: View {
     /// quietly competing in the background.
     private func durationChip(minutes: Int) -> some View {
         Button {
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+            withAnimation(NoxAnimations.snappy) {
                 if !noxStudyMode {
                     if noxFocusMode { noxFocusMode = false }
                     noxStudyMode = true
@@ -5072,7 +5072,7 @@ struct LiveStudyDetailPanel: View {
     /// Trailing "+" chip that opens the custom-duration editor.
     private var customExpandChip: some View {
         Button {
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+            withAnimation(NoxAnimations.snappy) {
                 customTimerExpanded = true
             }
         } label: {
@@ -5165,7 +5165,7 @@ struct LiveStudyDetailPanel: View {
             .accessibilityLabel("Start custom timer")
 
             Button {
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                withAnimation(NoxAnimations.snappy) {
                     customTimerExpanded = false
                 }
             } label: {
@@ -5196,7 +5196,7 @@ struct LiveStudyDetailPanel: View {
 
     private func commitCustomTimer() {
         let mins = max(1, min(300, customTimerMinutes))
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+        withAnimation(NoxAnimations.snappy) {
             if !noxStudyMode {
                 if noxFocusMode { noxFocusMode = false }
                 noxStudyMode = true
@@ -5349,7 +5349,7 @@ struct LiveStudyDetailPanel: View {
     private var controlsCard: some View {
         VStack(spacing: 0) {
             Button {
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                withAnimation(NoxAnimations.snappy) {
                     if !noxStudyMode {
                         // Mutex with Focus.
                         noxFocusMode = false
@@ -5378,7 +5378,7 @@ struct LiveStudyDetailPanel: View {
                     Toggle("", isOn: Binding(
                         get: { noxStudyMode },
                         set: { newValue in
-                            withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                            withAnimation(NoxAnimations.snappy) {
                                 if newValue {
                                     noxFocusMode = false
                                 }

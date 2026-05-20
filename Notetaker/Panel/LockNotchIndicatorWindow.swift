@@ -365,7 +365,7 @@ private struct LockNotchIndicatorView: View {
         // Scale-pulse + spring-back. Anchor at .top keeps the pill
         // glued to the notch.
         .scaleEffect(isPressed ? 0.96 : 1.0, anchor: .top)
-        .animation(.spring(response: 0.32, dampingFraction: 0.55),
+        .animation(NoxAnimations.quickAnticipation,
                    value: isPressed)
         .animation(.easeOut(duration: 0.18), value: hoverState.isHovering)
         .animation(.easeOut(duration: 0.42), value: glowOpacity)

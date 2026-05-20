@@ -1849,7 +1849,7 @@ struct PanelRootView: View {
         // and morph via DictationPillContent's internal property
         // animations, so this curve doesn't re-trigger and the
         // user doesn't see "another layer" appear mid-stream.
-        .animation(.spring(response: 0.42, dampingFraction: 0.62),
+        .animation(NoxAnimations.panelOpen,
                    value: presenter.dictationPhase == .idle)
         // Progressive-blur swap mask. When the pill morphs from
         // one event type to another (music → charging, music →
@@ -3040,9 +3040,7 @@ struct PanelRootView: View {
                     case .reset, .idle, .scrubbing:
                         break
                     }
-                    withAnimation(.spring(
-                        response: SwipeGesturePolicy.resetSpringResponse,
-                        dampingFraction: SwipeGesturePolicy.resetSpringDampingFraction)) {
+                    withAnimation(NoxAnimations.swipeReset) {
                         pillSwipeOffset = 0
                     }
                     pillSwipeArmedDirection = 0
@@ -3330,7 +3328,7 @@ struct PanelRootView: View {
             // the "snap" the user reads as energy. Smooth interp
             // was correct but flat; this adds a tiny rebound that
             // makes the pulse feel alive.
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.55)) {
+            withAnimation(NoxAnimations.quickAnticipation) {
                 waveformPulse = 1.0
             }
         }
@@ -3491,7 +3489,7 @@ struct PanelRootView: View {
             // amplitude on the secondary oscillation (~0.7%) before
             // settling. Matches the character of anime.js's
             // `spring(1, 100, 10, 0)` — playful but composed.
-            withAnimation(.spring(response: 0.55, dampingFraction: 0.66)) {
+            withAnimation(NoxAnimations.trackArrival) {
                 trackSwapPhase = 0
             }
         }
@@ -4448,7 +4446,7 @@ private struct ScribbleTabButton: View {
         .accessibilityLabel(tab.title)
         .help(tab.title)
         .onHover { hovering in
-            withAnimation(.spring(response: 0.18, dampingFraction: 0.85)) {
+            withAnimation(NoxAnimations.quickAnticipation) {
                 isHovered = hovering
             }
         }
@@ -4876,11 +4874,11 @@ private struct PillSilhouetteReact: ViewModifier {
     /// pattern as the screenshot icon punch so all the reactions
     /// feel of a piece.
     private func triggerPuff() {
-        withAnimation(.spring(response: 0.22, dampingFraction: 0.55)) {
+        withAnimation(NoxAnimations.quickAnticipation) {
             react = 1
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
-            withAnimation(.spring(response: 0.55, dampingFraction: 0.65)) {
+            withAnimation(NoxAnimations.trackArrival) {
                 react = 0
             }
         }
@@ -4990,12 +4988,12 @@ private struct ScreenshotPillBody: View {
     /// down. Gives one capture event a satisfying pop without
     /// requiring `keyframeAnimator` (macOS 14+).
     private func triggerPunch() {
-        withAnimation(.spring(response: 0.18, dampingFraction: 0.55)) {
+        withAnimation(NoxAnimations.quickAnticipation) {
             iconPunch = 1
             flashOpacity = 0.55
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
-            withAnimation(.spring(response: 0.45, dampingFraction: 0.62)) {
+            withAnimation(NoxAnimations.panelOpen) {
                 iconPunch = 0
             }
             withAnimation(.easeOut(duration: 0.28)) {
@@ -5496,7 +5494,7 @@ private struct BluetoothPillBody: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .opacity(visible ? 1 : 0)
         .onAppear {
-            withAnimation(.spring(response: 0.36, dampingFraction: 0.65)) {
+            withAnimation(NoxAnimations.bouncy) {
                 iconScale = 1.0
             }
             // Ripple curve: ease-out so the ring leaves quickly,
@@ -5609,7 +5607,7 @@ private struct TimerRunningPillBody: View {
             // animation completes within the second.
             guard newValue > 0 && newValue <= 10 else { return }
             heartbeat = 1.06
-            withAnimation(.spring(response: 0.42, dampingFraction: 0.55)) {
+            withAnimation(NoxAnimations.panelOpen) {
                 heartbeat = 1.0
             }
         }
@@ -5722,11 +5720,11 @@ private struct TimerFinishedPillBody: View {
             // Settle pulse: small bounce after the checkmark
             // completes so the tile reads as "task done."
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.55)) {
+                withAnimation(NoxAnimations.quickAnticipation) {
                     pulse = 1.04
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-                    withAnimation(.spring(response: 0.34, dampingFraction: 0.7)) {
+                    withAnimation(NoxAnimations.snappy) {
                         pulse = 1.0
                     }
                 }
@@ -5940,7 +5938,7 @@ private struct CalendarUpcomingPillBody: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .opacity(visible ? 1 : 0)
         .onAppear {
-            withAnimation(.spring(response: 0.36, dampingFraction: 0.65)) {
+            withAnimation(NoxAnimations.bouncy) {
                 iconScale = 1.0
             }
         }
@@ -6296,7 +6294,7 @@ private struct TrackChangedPillBody: View {
             DispatchQueue.main.async {
                 artworkFlipAngle = 180
             }
-            withAnimation(.spring(response: 0.45, dampingFraction: 0.85).delay(0.28)) {
+            withAnimation(NoxAnimations.snappy.delay(0.28)) {
                 textYOffset = 0
                 textOpacity = 1.0
             }
@@ -6611,7 +6609,7 @@ private struct AirDropPillBody: View {
             // 0.6× → 1.0× scale. No arc-sweep state machine, no
             // UTI-glyph swap — just the logo appearing with a
             // tactile "pop in" so the entrance still feels alive.
-            withAnimation(.spring(response: 0.36, dampingFraction: 0.62)) {
+            withAnimation(NoxAnimations.panelOpen) {
                 iconScale = 1.0
             }
         }

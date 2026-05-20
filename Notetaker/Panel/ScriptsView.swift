@@ -280,7 +280,7 @@ struct ScriptsView: View {
         // Spring curve matched to the rest of the app's content
         // reveals (response 0.45, damping 0.85). Feels organic —
         // a touch of settle at the end without overshoot.
-        .animation(.spring(response: 0.45, dampingFraction: 0.86),
+        .animation(NoxAnimations.snappy,
                    value: bodyFieldFocused)
     }
 

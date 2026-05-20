@@ -78,7 +78,7 @@ struct DictationPillContent: View {
                 .opacity(phase.isError ? 1 : 0)
                 .scaleEffect(phase.isError ? 1 : 0.6, anchor: .center)
         }
-        .animation(.spring(response: 0.32, dampingFraction: 0.72), value: phase.indicatorKey)
+        .animation(NoxAnimations.snappy, value: phase.indicatorKey)
     }
 
     /// Red recording dot with audio-reactive pulse + a continuous
@@ -151,7 +151,7 @@ struct DictationPillContent: View {
 
             // Idle / error: empty slot (waveform fades out).
         }
-        .animation(.spring(response: 0.32, dampingFraction: 0.72), value: phase.waveformKey)
+        .animation(NoxAnimations.snappy, value: phase.waveformKey)
     }
 }
 
