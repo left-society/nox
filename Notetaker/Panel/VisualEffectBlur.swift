@@ -1,8 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// SwiftUI wrapper around `NSVisualEffectView` (or
-/// `NSGlassEffectView` on macOS 26 Tahoe) — gives any SwiftUI
+/// SwiftUI wrapper around `NSVisualEffectView` — gives any SwiftUI
 /// view tree access to macOS's native vibrancy / gaussian blur
 /// material. Used as the panel background so the slab gets a
 /// frosted-glass look that samples the desktop content directly

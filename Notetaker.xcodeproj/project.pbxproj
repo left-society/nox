@@ -18,6 +18,7 @@
 		1EECA97959A0C8077E2AAB25 /* ProgressiveBlurView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47113989466682E4EF2E7CD4 /* ProgressiveBlurView.swift */; };
 		20734AD228F94CD69FCC0C0E /* CelebrateIfRecent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97BC580878C88D99FE7AB2F /* CelebrateIfRecent.swift */; };
 		21B320683C749872644B6B1A /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC413C8739634F519E4E392A /* OnboardingView.swift */; };
+		2346BB0C644C07845394E2BD /* LiquidGlassView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F93FDA7A3F7DFBCF2EDB4A10 /* LiquidGlassView.swift */; };
 		2376F54DE78018E8CEA6E216 /* SwipeGesturePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6DB779CE93CC3BD87E1AA7B /* SwipeGesturePolicyTests.swift */; };
 		2392E7D0307561B283550D39 /* RetentionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C727DFD4A4E2C994662FBCD /* RetentionServiceTests.swift */; };
 		251BAF64E160A858D45552CE /* MarkdownTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97CDA86F6ECA5B63928EBC6 /* MarkdownTextEditor.swift */; };
@@ -280,6 +281,7 @@
 		F6681424D04E755BA93A783D /* ImageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageStore.swift; sourceTree = "<group>"; };
 		F672E90E2FFC3279639071C1 /* PillArtworkLayerView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PillArtworkLayerView.swift; sourceTree = "<group>"; };
 		F828A81402E3514A29BEF54D /* NotetakerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotetakerTests.swift; sourceTree = "<group>"; };
+		F93FDA7A3F7DFBCF2EDB4A10 /* LiquidGlassView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiquidGlassView.swift; sourceTree = "<group>"; };
 		FCST02001A2B3C4D5E6F0123 /* FocusSessionTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusSessionTracker.swift; sourceTree = "<group>"; };
 		FCTIMSRV002A2B3C4D5 /* FocusTimerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusTimerService.swift; sourceTree = "<group>"; };
 		FDD1644F617ACB89D33B0AFC /* NotchSpaceManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NotchSpaceManager.swift; sourceTree = "<group>"; };
@@ -459,6 +461,7 @@
 				CC0AB1B2C3D4E5F60123456B /* ClearConfirmOverlay.swift */,
 				2B0AC611F7E9F488A9DF5FF4 /* NoxAnimations.swift */,
 				47113989466682E4EF2E7CD4 /* ProgressiveBlurView.swift */,
+				F93FDA7A3F7DFBCF2EDB4A10 /* LiquidGlassView.swift */,
 			);
 			path = DesignSystem;
 			sourceTree = "<group>";
@@ -858,6 +861,7 @@
 				F9810BE508DC97F818D9322E /* FocusGatingPolicy.swift in Sources */,
 				DE9A96A9ECA06362DB290C26 /* NoxAnimations.swift in Sources */,
 				1EECA97959A0C8077E2AAB25 /* ProgressiveBlurView.swift in Sources */,
+				2346BB0C644C07845394E2BD /* LiquidGlassView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

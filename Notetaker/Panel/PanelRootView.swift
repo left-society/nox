@@ -3637,40 +3637,37 @@ struct PanelRootView: View {
 
     private var panelBackground: some View {
         ZStack {
-            // 2026-05-20 — RESTORED VisualEffectBlur underlay,
-            // tuned for "matte black with a hint of glass" instead
-            // of the earlier "very translucent glass" that the
-            // 2026-05-13 `style: tone down live panel glass` commit
-            // ripped out. Why bring it back: VisualEffectBlur now
-            // routes through `NSGlassEffectView` on macOS 26 Tahoe
-            // (see VisualEffectBlur.swift) — the new Liquid Glass
-            // material adds a specular highlight pass on top of
-            // the backdrop blur, catching light along the slab's
-            // silhouette edge for the first time. Without this
-            // underlay the Tahoe shine has nothing to land on.
+            // 2026-05-20 — Tahoe Liquid Glass (NSGlassEffectView)
+            // when available, NSVisualEffectView fallback below.
+            // Visible difference on macOS 26+: the slab catches a
+            // specular highlight along its silhouette edge, the
+            // signature wet-glass look Apple ships in the new
+            // OS-wide material refresh and Alcove adopts directly
+            // (verified `_OBJC_CLASS_$_NSGlassEffectView` symbol
+            // present in their 1.7.2 binary).
             //
-            // The black gradients above it are at HIGH opacity
-            // (0.96-0.98) so the slab still reads as matte from
-            // arm's length — only edge highlights leak through.
-            // User feedback that triggered the original removal
-            // ("apply color on cards so it feels more premium")
-            // remains honored: this isn't a colored wash, it's a
-            // dark surface that catches Tahoe's specular light.
+            // `AdaptiveGlassBackground` dispatches at the
+            // `if #available(macOS 26, *)` boundary so the same
+            // call site renders Liquid Glass on Tahoe and the
+            // legacy NSVisualEffectView blur on Sequoia/Sonoma.
             //
-            // On macOS 14-15 (no NSGlassEffectView): the blur
-            // layer renders as ~2% perceptible difference vs the
-            // earlier solid LinearGradient. No regression.
-            // On macOS 26+: visible edge shine + subtle inner
-            // depth that reads as "the slab is made of glass."
-            VisualEffectBlur(material: .hudWindow,
-                             blendingMode: .behindWindow)
-                .opacity(presenter.isShown ? 1 : 0)
+            // tint at 0.92 black: dark enough to keep nox's matte
+            // character, light enough that the specular pass has
+            // a visible substrate to shine off. Pre-Tahoe this
+            // value is ignored (NSVisualEffectView doesn't take
+            // a tint) — the gradients below paint the matte
+            // character there instead.
+            AdaptiveGlassBackground(
+                tint: Color.black.opacity(0.92),
+                cornerRadius: 0      // Outer clip handles silhouette
+            )
+            .opacity(presenter.isShown ? 1 : 0)
 
             LinearGradient(
                 stops: [
-                    .init(color: Color.black.opacity(0.97), location: 0.00),
-                    .init(color: Color(red: 0.018, green: 0.018, blue: 0.020).opacity(0.96), location: 0.46),
-                    .init(color: Color.black.opacity(0.98), location: 1.00),
+                    .init(color: Color.black.opacity(0.94), location: 0.00),
+                    .init(color: Color(red: 0.018, green: 0.018, blue: 0.020).opacity(0.93), location: 0.46),
+                    .init(color: Color.black.opacity(0.96), location: 1.00),
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
