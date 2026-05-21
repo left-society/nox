@@ -3514,31 +3514,6 @@ struct PanelRootView: View {
     /// state-based phase control fires deterministically every time.
     private func triggerSongChange(newKey: String) {
         NSLog("nox: 🎵 triggerSongChange firing newKey=\(newKey) oldKey=\(displayedTrackKey)")
-        // Smoother two-phase animation. User reported the previous
-        // version had the thumbnail "getting delated suddenly" mid-
-        // transition — that was caused by `easeIn` (which spends
-        // most of its time at low opacity then snaps to invisible
-        // at the very end) combined with imperfect timing between
-        // the asyncAfter and the animation completion.
-        //
-        // Fix: use `.smooth` for BOTH phases (gentle ease in/out
-        // throughout, no sudden snap), and overlap the swap by
-        // ~30ms so the new artwork starts entering BEFORE the old
-        // one is fully cleared — the eye perceives one continuous
-        // gesture instead of two sequential events.
-        let fadeOut: TimeInterval = 0.22
-        let fadeIn: TimeInterval = 0.42
-        // 2026-05-01 anime.js-inspired refinement: swap point pulled
-        // 40ms before fadeOut completes so the new artwork enters
-        // while the old one is still mid-exit. The cross-over
-        // dissolves the seam — eye reads it as one continuous
-        // motion, the way anime.js stages overlapping in/out tweens
-        // on the same element. Spring on the in-side picks up from
-        // wherever phase landed (~-0.82, not full -1), so it
-        // immediately surges back instead of starting from a dead
-        // stop at full-exit.
-        let swapPoint: TimeInterval = fadeOut - 0.04
-
         // Generation token: each invocation captures `gen` into its
         // dispatched closures, then bails on entry if the field has
         // moved on (a newer skip arrived). Prevents stale closures
@@ -3577,21 +3552,33 @@ struct PanelRootView: View {
             if pillArtworkImage != nil, let info = info,
                let nd = newData, !nd.isEmpty, nd != oldData {
                 // New cover is here and DISTINCT → real old→new flip.
-                pillNextArtwork = ArtworkCache.shared.image(
-                    data: nd, key: "\(info.title)|\(info.artist)")
-                let flipDuration: TimeInterval = 0.42
-                withAnimation(.easeInOut(duration: flipDuration)) {
-                    pillFlipAngle += 180
+                let artworkKey = "\(info.title)|\(info.artist)"
+                let runFlip: (NSImage) -> Void = { image in
+                    guard gen == trackSwapGeneration,
+                          displayedTrackKey != newKey else { return }
+                    pillNextArtwork = image
+                    let flipDuration: TimeInterval = 0.42
+                    withAnimation(.easeInOut(duration: flipDuration)) {
+                        pillFlipAngle += 180
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + flipDuration) {
+                        guard gen == trackSwapGeneration else { return }
+                        displayedNowPlaying = info
+                        displayedTrackKey = newKey
+                        if let n = pillNextArtwork { pillArtworkImage = n }
+                        pillArtworkImageKey = newKey
+                        pillNextArtwork = nil
+                        pillFlipAngle = 0
+                        trackSwapPhase = 0
+                    }
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + flipDuration) {
-                    guard gen == trackSwapGeneration else { return }
-                    displayedNowPlaying = info
-                    displayedTrackKey = newKey
-                    if let n = pillNextArtwork { pillArtworkImage = n }
-                    pillArtworkImageKey = newKey
-                    pillNextArtwork = nil
-                    pillFlipAngle = 0
-                    trackSwapPhase = 0
+                if let cached = ArtworkCache.shared.get(forKey: artworkKey) {
+                    runFlip(cached)
+                } else {
+                    ArtworkCache.shared.decode(data: nd, key: artworkKey) { image in
+                        guard let image = image else { return }
+                        runFlip(image)
+                    }
                 }
             } else {
                 // New cover not here yet (Spotify lag). KEEP the OLD cover
@@ -3605,61 +3592,6 @@ struct PanelRootView: View {
                 // retract-time sync (onReceive trackChangedFiring==false)
                 // is the safety net. Net effect: the cover never blanks.
                 ()   // intentionally do nothing — keep the old cover
-            }
-        }
-        return
-
-        // (Unreachable legacy crossfade kept below for reference.)
-        // Phase 1: anime.js-flavored ease-in-out cubic-bezier.
-        // (0.4, 0, 0.2, 1) is the same shape anime.js calls
-        // "easeInOutQuart" — slow start, accelerated middle, soft
-        // landing. Replaces SwiftUI's generic `.smooth`, which has
-        // a flatter middle that makes the artwork seem to drift out
-        // rather than commit to leaving.
-        withAnimation(.timingCurve(0.4, 0, 0.2, 1, duration: fadeOut)) {
-            trackSwapPhase = -1
-        }
-        // Phase 2: swap data and animate back to rest from the
-        // CURRENT phase (no opposite-side snap). The previous code
-        // teleported from phase=-1 to phase=+1 before springing to
-        // 0, which read as a visible "jump" — exactly what the user
-        // reported on next-click. Now the new artwork tilts back
-        // from the SAME side the old one left, one continuous
-        // motion. Less dramatic visually but smoother.
-        DispatchQueue.main.asyncAfter(deadline: .now() + swapPoint) {
-            guard gen == trackSwapGeneration else { return }
-            displayedNowPlaying = presenter.nowPlaying
-            displayedTrackKey = newKey
-            // anime.js's signature elastic settle: the new artwork
-            // surges back with a subtle 6-7% overshoot, then double-
-            // bounces into rest. response=0.55 stretches the bounce
-            // period long enough that the eye reads it as ELASTIC
-            // (not a snap), dampingFraction=0.66 leaves visible
-            // amplitude on the secondary oscillation (~0.7%) before
-            // settling. Matches the character of anime.js's
-            // `spring(1, 100, 10, 0)` — playful but composed.
-            withAnimation(NoxAnimations.trackArrival) {
-                trackSwapPhase = 0
-            }
-        }
-        // Safety reset: if the dispatched closures above never run
-        // (main-thread stall, app suspended mid-swap and resumed past
-        // the dispatch deadline, generation-guard bailed because a
-        // newer swap took over but THAT one also stalled), the
-        // artwork would be stuck at trackSwapPhase = -1 (offset -8pt,
-        // 12pt blur, alpha 0 — invisible). After the full animation
-        // budget plus generous slack we force trackSwapPhase back to
-        // 0 IF this generation is still the latest, so the pill never
-        // gets visually wedged. Wrapped in withAnimation so it doesn't
-        // pop in if it actually runs.
-        let safetyDeadline = swapPoint + fadeIn + 0.20
-        DispatchQueue.main.asyncAfter(deadline: .now() + safetyDeadline) {
-            guard gen == trackSwapGeneration else { return }
-            if trackSwapPhase != 0 {
-                NSLog("nox: ⚠️ song-change safety reset firing (phase=\(trackSwapPhase))")
-                withAnimation(.smooth(duration: 0.18)) {
-                    trackSwapPhase = 0
-                }
             }
         }
     }
@@ -3708,13 +3640,22 @@ struct PanelRootView: View {
         }
         let key = "\(info.title)|\(info.artist)"
         let bytes = info.artworkData?.count ?? 0
-        let newImage = ArtworkCache.shared.image(data: info.artworkData, key: key)
+        let newImage = ArtworkCache.shared.get(forKey: key)
         MediaRemoteAdapterService.fileLog("PILL refresh: title=\"\(info.title)\" artist=\"\(info.artist)\" bytes=\(bytes) decoded=\(newImage != nil)")
 
         if let newImage = newImage {
             pillArtworkImage = newImage
             pillArtworkImageKey = key
             return
+        }
+
+        if let data = info.artworkData {
+            ArtworkCache.shared.decode(data: data, key: key) { image in
+                let currentKey = displayedNowPlaying.map { "\($0.title)|\($0.artist)" } ?? ""
+                guard currentKey == key, let image = image else { return }
+                pillArtworkImage = image
+                pillArtworkImageKey = key
+            }
         }
 
         // No image returned (data was nil OR decode failed). Two
@@ -3739,6 +3680,13 @@ struct PanelRootView: View {
         // they preserve previous artwork on partial updates, only
         // clearing on a true full-update with explicit nil.
         if key != pillArtworkImageKey {
+            // During the track-change banner, keep the old cover visible
+            // while the new cover decodes off-main. The banner/title
+            // already tells the user the track changed; blanking the art
+            // for a cache miss is the visible glitch.
+            if presenter.trackChangedFiring {
+                return
+            }
             pillArtworkImage = nil
             pillArtworkImageKey = key
         }

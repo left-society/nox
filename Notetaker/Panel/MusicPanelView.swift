@@ -1566,12 +1566,14 @@ struct MusicPanelView: View {
                 displayedArtworkData = newInfo?.artworkData
                 if let info = newInfo, let data = info.artworkData {
                     let key = "\(info.title)|\(info.artist)"
-                    // Per BUG-012 fix: ArtworkCache.image() no longer
-                    // takes an onReady closure (it was documented as
-                    // never firing). Just consume the synchronous
-                    // return value.
-                    if let img = ArtworkCache.shared.image(data: data, key: key) {
+                    if let img = ArtworkCache.shared.get(forKey: key) {
                         displayedArtworkImage = img
+                    } else {
+                        ArtworkCache.shared.decode(data: data, key: key) { image in
+                            guard displayedTrackKey == key,
+                                  let image = image else { return }
+                            displayedArtworkImage = image
+                        }
                     }
                 }
                 return
@@ -1619,14 +1621,12 @@ struct MusicPanelView: View {
         // on `NSImage(data:)`.
         guard let info = info else {
             displayedArtworkImage = nil
+            displayedTrackKey = ""
             return
         }
         let key = "\(info.title)|\(info.artist)"
-        // Per BUG-012 fix: ArtworkCache.image() no longer takes
-        // a stale-decode-rejection closure (it never fired anyway).
-        // The synchronous decode either returns the image now or
-        // returns nil (which we propagate below).
-        let img = ArtworkCache.shared.image(data: info.artworkData, key: key)
+        displayedTrackKey = key
+        let img = ArtworkCache.shared.get(forKey: key)
         // ALWAYS update displayedArtworkImage — including when img
         // is nil (cache miss, decode in flight). Setting to nil
         // here clears any stale image from a previous track so the
@@ -1638,6 +1638,13 @@ struct MusicPanelView: View {
         // reported. The decode-completion closure replaces this
         // nil with the decoded image once ready.
         displayedArtworkImage = img
+        if img == nil, let data = info.artworkData {
+            ArtworkCache.shared.decode(data: data, key: key) { image in
+                guard displayedTrackKey == key,
+                      let image = image else { return }
+                displayedArtworkImage = image
+            }
+        }
     }
 
     /// Full out-and-in artwork swap. Now the only swap path —
@@ -1707,31 +1714,49 @@ struct MusicPanelView: View {
             // rotation reveals the actual new artwork at 90°+ rather
             // than the previous "old image rotates 178°, snap to new
             // at 89%" pattern.
-            if let info = newInfo, let data = info.artworkData {
-                let key = "\(info.title)|\(info.artist)"
-                nextArtworkImage = ArtworkCache.shared.image(data: data, key: key)
+            guard let info = newInfo, let data = info.artworkData else {
+                withAnimation(.easeInOut(duration: 0.30)) {
+                    applyDisplayed(from: newInfo)
+                }
+                return
+            }
+            let key = "\(info.title)|\(info.artist)"
+            let startFlip: (NSImage) -> Void = { image in
+                guard displayedTrackKey != newKey else { return }
+                nextArtworkImage = image
+
+                // Run the flip. easeInOut keeps the motion symmetric
+                // around 90° — the front recedes at the same rate the
+                // back approaches, so the eye reads it as one continuous
+                // rotation rather than two phases.
+                let flipDuration: TimeInterval = 0.45
+                withAnimation(.easeInOut(duration: flipDuration)) {
+                    artworkFlipAngle += 180
+                }
+
+                // Promote the back face to the front face AFTER the
+                // rotation settles, swapping displayedArtworkImage to
+                // nextArtworkImage and resetting artworkFlipAngle to 0
+                // in the same render pass.
+                DispatchQueue.main.asyncAfter(deadline: .now() + flipDuration) {
+                    applyDisplayed(from: newInfo)
+                    displayedTrackKey = newKey
+                    nextArtworkImage = nil
+                    artworkFlipAngle = 0
+                }
+            }
+            if let cached = ArtworkCache.shared.get(forKey: key) {
+                startFlip(cached)
             } else {
-                nextArtworkImage = nil
-            }
-
-            // Run the flip. easeInOut keeps the motion symmetric
-            // around 90° — the front recedes at the same rate the
-            // back approaches, so the eye reads it as one continuous
-            // rotation rather than two phases.
-            let flipDuration: TimeInterval = 0.45
-            withAnimation(.easeInOut(duration: flipDuration)) {
-                artworkFlipAngle += 180
-            }
-
-            // Promote the back face to the front face AFTER the
-            // rotation settles, swapping displayedArtworkImage to
-            // nextArtworkImage and resetting artworkFlipAngle to 0
-            // in the same render pass.
-            DispatchQueue.main.asyncAfter(deadline: .now() + flipDuration) {
-                applyDisplayed(from: newInfo)
-                displayedTrackKey = newKey
-                nextArtworkImage = nil
-                artworkFlipAngle = 0
+                ArtworkCache.shared.decode(data: data, key: key) { image in
+                    guard let image = image else {
+                        withAnimation(.easeInOut(duration: 0.30)) {
+                            applyDisplayed(from: newInfo)
+                        }
+                        return
+                    }
+                    startFlip(image)
+                }
             }
         } else {
             // Quiet crossfade — no rotation. Mirrors Apple Music's
