@@ -150,6 +150,30 @@ final class HoverActivator {
 
         recomputeHotZone()
 
+        // 2026-05-21 — FIRST-LAUNCH FIX. `currentHotZone()` caches the
+        // computed zone permanently (invalidated only on a screen-
+        // params change). On a FRESH INSTALL the screen's notch
+        // geometry isn't ready when start() first runs: NSScreen's
+        // `auxiliaryTopLeftArea` / `auxiliaryTopRightArea` are nil and
+        // `visibleFrame` may not yet exclude the menu bar, so the very
+        // first computed zone is wrong — and it sticks, because no
+        // screen-params notification fires on a quiet single-display
+        // boot. Result: the cursor never registers in the (wrong) zone
+        // and the notch "doesn't respond at all" until the app is
+        // relaunched. User report: "right after installing it acts bad."
+        //
+        // Fix: invalidate the cache a few times over the first few
+        // seconds so the zone recomputes once CoreGraphics has
+        // populated the notch geometry. Cheap (a couple of NSScreen
+        // reads) and self-correcting — by 3s the screen is always
+        // settled. The screen-params observer below still handles
+        // later display changes.
+        for delay in [0.5, 1.5, 3.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.cachedHotZone = nil
+            }
+        }
+
         // Listen for display reconfiguration (resolution change, monitor
         // plugged in, lid closed) so a stale rect doesn't cause us to
         // either miss or spuriously fire. We just clear the cache; the

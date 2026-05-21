@@ -91,12 +91,12 @@ struct WaveformView: View {
     /// faster cadence so the feedback feels connected to the gesture.
     var isInteractionActive: Bool = false
 
-    /// Number of bars. Three is the sweet spot:
-    ///   • 2 bars read as bare-minimum and feel sparse
-    ///   • 4+ bars increase the chance of sorted-staircase moments
-    ///     and reintroduce the Wi-Fi ambiguity
-    ///   • 3 bars give clear equalizer character with minimal risk
-    private let barCount = 3
+    /// Number of bars. **4** — Alcove parity (measured + user-confirmed
+    /// 4 lines in Alcove's resting pill). The center-justified layout
+    /// (bars grow up AND down from the midline) avoids the Wi-Fi-
+    /// staircase ambiguity that made higher counts risky in a bottom-
+    /// baseline design.
+    private let barCount = 4
 
     var body: some View {
         let minimumInterval = WaveformRefreshPolicy.minimumInterval(
@@ -146,12 +146,12 @@ struct WaveformView: View {
                 //   • bar 2 period 1.69s (slowest, ~0.59 Hz)
                 // π / e / √2 family — ratios irrational, the loop
                 // composed of all three never closes.
-                let periods: [Double] = [0.71, 1.13, 1.69]
+                let periods: [Double] = [0.71, 1.13, 1.69, 0.94]
                 // Phase offsets so the three bars don't start in lock-
                 // step. Different starting points + different periods
                 // = bars are never in any predictable relative
                 // configuration.
-                let phases: [Double] = [0.0, 1.7, 3.3]
+                let phases: [Double] = [0.0, 1.7, 3.3, 2.5]
 
                 for i in 0..<barCount {
                     let phase = (time / periods[i] + phases[i]) * 2 * .pi

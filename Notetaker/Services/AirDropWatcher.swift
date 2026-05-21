@@ -127,8 +127,18 @@ final class AirDropWatcher: NSObject {
                 let isFile = (flags & UInt32(kFSEventStreamEventFlagItemIsFile)) != 0
                 let isCreated = (flags & UInt32(kFSEventStreamEventFlagItemCreated)) != 0
                 let isRenamed = (flags & UInt32(kFSEventStreamEventFlagItemRenamed)) != 0
-                let isModified = (flags & UInt32(kFSEventStreamEventFlagItemModified)) != 0
-                if isFile && (isCreated || isRenamed || isModified) {
+                // NOTE: deliberately NOT keying on Modified. A real
+                // AirDrop arrives as Created (often via a temp-name
+                // Renamed), and checkAirDrop already RETRIES for the
+                // late-flushed quarantine xattr — so Created/Renamed
+                // catches every genuine AirDrop. Keying on Modified too
+                // caused the "pill appears for no reason" bug: an
+                // already-received file in Downloads/Desktop that gets
+                // touched later (Spotlight reindex, backup, an edit) re-
+                // ran checkAirDrop, still saw its old `sharingd`
+                // quarantine, and re-fired the pill. (2026-05-21)
+                _ = (flags & UInt32(kFSEventStreamEventFlagItemModified)) != 0
+                if isFile && (isCreated || isRenamed) {
                     // Per BUG-002 fix: hop into the main actor's
                     // isolation domain via `Task { @MainActor in }`.
                     // Same pattern used in MediaRemoteService for

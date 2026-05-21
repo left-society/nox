@@ -359,19 +359,27 @@ struct MusicPanelView: View {
             // in motion phase, clean settle at duration boundary,
             // no sub-pixel tail. See cascadeAnimation comment in
             // PanelRootView for the rationale.
+            // 2026-05-21 (Codex smoothness report P1 #1): the cascade
+            // reveal previously ran a 10–14pt GPU gaussian on EACH card
+            // for every frame of the open spring — a dominant per-frame
+            // cost that pushed the open morph to 48–54ms frames. Per the
+            // report ("replace blur(8–14) cascade with opacity + y
+            // offset; never blur during frame resize"), the reveal now
+            // uses ONLY opacity + offset (cheap CA layer transforms), so
+            // content still slides/fades in during the morph (no empty-
+            // slab regression the user rejected) but with zero backdrop
+            // blur cost. A small polish blur can be re-added AFTER settle
+            // later if the focus-pull feel is missed.
             nowPlayingCard
-                .blur(radius: presenter.cascadeReady ? 0 : 10)
                 .opacity(presenter.cascadeReady ? 1 : 0)
                 .offset(y: presenter.cascadeReady ? 0 : -28)
                 .animation(cascadeAnimation, value: presenter.cascadeReady)
             progressBar
-                .blur(radius: presenter.cascadeReady ? 0 : 12)
                 .opacity(presenter.cascadeReady ? 1 : 0)
                 .offset(y: presenter.cascadeReady ? 0 : -32)
                 .animation(cascadeAnimation.delay(0.04), value: presenter.cascadeReady)
             // 2026-05-02 transport + inline mini-volume row.
             iosStyleTransportRow
-                .blur(radius: presenter.cascadeReady ? 0 : 14)
                 .opacity(presenter.cascadeReady ? 1 : 0)
                 .offset(y: presenter.cascadeReady ? 0 : -36)
                 .animation(cascadeAnimation.delay(0.08), value: presenter.cascadeReady)
@@ -420,7 +428,8 @@ struct MusicPanelView: View {
         if let calendarService = AppDelegate.shared?.calendarMonitor {
             CalendarTodayPane(service: calendarService)
                 .frame(maxWidth: .infinity)
-                .blur(radius: presenter.cascadeReady ? 0 : 14)
+                // Codex report P1 #1: opacity+offset reveal only, no
+                // per-frame blur during the shell morph.
                 .opacity(presenter.cascadeReady ? 1 : 0)
                 .offset(y: presenter.cascadeReady ? 0 : -36)
                 .animation(cascadeAnimation.delay(0.10), value: presenter.cascadeReady)
@@ -1208,7 +1217,23 @@ struct MusicPanelView: View {
             .lineLimit(1)
             .truncationMode(.tail)
             .help(value)
+        // 2026-05-21 — upgraded .opacity → .interpolate. Apple WWDC23
+        // "Design dynamic Live Activities": "Text views animate
+        // content changes with BLURRED CONTENT TRANSITIONS." The
+        // `.interpolate` transition is the API that produces that
+        // blur-morph effect on text changes (vs .opacity which is
+        // just a cross-fade). Used by every shipping DI clone for
+        // title/artist swaps. See docs/sprints/2026-05-21-iphone-di-
+        // deep-research.md §5 for the WWDC verbatim.
         if #available(macOS 14.0, *) {
+            // 2026-05-21 — kept at .opacity instead of .interpolate.
+            // .interpolate produces WWDC23's "blurred content
+            // transition" effect (CIFilter blur-morph between text
+            // values) which is more polished BUT heavier on GPU
+            // than .opacity cross-fade. User reported frame drops /
+            // lag after I bumped this to .interpolate — reverting
+            // to keep frame budget free for the panel spring +
+            // NSGlassEffectView re-sampling that runs concurrently.
             base.contentTransition(.opacity)
         } else {
             base
@@ -1226,6 +1251,14 @@ struct MusicPanelView: View {
             .help(artist)
             .opacity(isHint || !artist.isEmpty ? 1 : 0)
         if #available(macOS 14.0, *) {
+            // 2026-05-21 — kept at .opacity instead of .interpolate.
+            // .interpolate produces WWDC23's "blurred content
+            // transition" effect (CIFilter blur-morph between text
+            // values) which is more polished BUT heavier on GPU
+            // than .opacity cross-fade. User reported frame drops /
+            // lag after I bumped this to .interpolate — reverting
+            // to keep frame budget free for the panel spring +
+            // NSGlassEffectView re-sampling that runs concurrently.
             base.contentTransition(.opacity)
         } else {
             base
@@ -1499,19 +1532,7 @@ struct MusicPanelView: View {
             .shadow(color: Color.black.opacity(0.4), radius: 8, x: 0, y: 4)
             .contentShape(RoundedRectangle(cornerRadius: 12))
             // Outer Y-axis rotation drives the flip. perspective: 0.5
-            // gives modest foreshortening — the right edge recedes
-            // on a forward flip, left edge on a reverse, without the
-            // exaggerated cinematic depth that read as too dramatic
-            // for a music-card swap.
-            //
-            // No `scaleEffect(x: cosineSign)` here. The previous
-            // version mirrored the WHOLE card at >90° to compensate
-            // for the back face appearing flipped — but since each
-            // face now has its own image, mirroring would also flip
-            // the back face's pre-rotation, producing the wrong
-            // result. The back face's intrinsic 180° rotation handles
-            // its own orientation; the front face is invisible at
-            // >90° so its mirroring doesn't matter.
+            // gives modest foreshortening without exaggerated depth.
             .rotation3DEffect(
                 .degrees(artworkFlipAngle),
                 axis: (x: 0, y: 1, z: 0),
@@ -1686,11 +1707,6 @@ struct MusicPanelView: View {
             // rotation reveals the actual new artwork at 90°+ rather
             // than the previous "old image rotates 178°, snap to new
             // at 89%" pattern.
-            //
-            // Resolve the next image synchronously from the cache
-            // (decodes off main thread on a miss; we accept a brief
-            // black-back-face if the decode lands mid-flip — much
-            // rarer than the previous mid-flip snap).
             if let info = newInfo, let data = info.artworkData {
                 let key = "\(info.title)|\(info.artist)"
                 nextArtworkImage = ArtworkCache.shared.image(data: data, key: key)
@@ -1708,21 +1724,9 @@ struct MusicPanelView: View {
             }
 
             // Promote the back face to the front face AFTER the
-            // rotation settles. At this moment artworkFlipAngle is
-            // 180° (or a multiple) and cos(angle) is -1 — the back
-            // face is currently visible. Swap displayedArtworkImage
-            // to nextArtworkImage and reset artworkFlipAngle to 0
-            // INSIDE the same render pass: SwiftUI batches the two
-            // state changes, the now-visible back face becomes the
-            // new front face, and cos(0) = +1 keeps it visible. No
-            // visual flash because the image content doesn't change.
-            //
-            // Text fields update at the same beat so the title /
-            // artist read out the new track at the moment the new
-            // artwork is fully facing forward. Without this, the
-            // text would update at the flip START (when SwiftUI
-            // diffs presenter.nowPlaying) and snap ahead of the
-            // visible artwork.
+            // rotation settles, swapping displayedArtworkImage to
+            // nextArtworkImage and resetting artworkFlipAngle to 0
+            // in the same render pass.
             DispatchQueue.main.asyncAfter(deadline: .now() + flipDuration) {
                 applyDisplayed(from: newInfo)
                 displayedTrackKey = newKey
@@ -2361,7 +2365,15 @@ struct MusicPanelView: View {
 private struct SymbolReplaceTransition: ViewModifier {
     func body(content: Content) -> some View {
         if #available(macOS 14.0, *) {
-            content.contentTransition(.symbolEffect(.replace))
+            // 2026-05-21 — .replace.byLayer per Apple WWDC23 +
+            // iPhone DI clone convention (jackson-storm,
+            // boring.notch). `.byLayer` is the symmetric vector-
+            // layer cross-blend Apple uses for symmetric toggle
+            // pairs like play/pause — clean morph without a
+            // directional slide. The plain `.replace` falls back
+            // to the system default behavior which is fine but
+            // less polished on toggle pairs.
+            content.contentTransition(.symbolEffect(.replace.byLayer))
         } else {
             content.contentTransition(.opacity)
         }

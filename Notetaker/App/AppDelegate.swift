@@ -2219,12 +2219,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // willFireBanner above and isMutedByFocus's
                     // .trackChanged case in PanelPresenter.
                     //
-                    // Alcove timing (measured from supplied recording):
+                    // Alcove timing (measured from supplied recording
+                    // + 2026-05-21 binary decode):
                     //   • Track changes → ~100ms beat → banner appears
-                    //   • Banner sustains ~1500ms
-                    //   • Banner dismisses ~250ms
-                    //   • Total visible: ~1850ms
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak panel] in
+                    //   • Banner sustains ~2.0s (DI "couple of seconds"
+                    //     glance per Apple Live Activity convention)
+                    //   • Banner retracts ~0.35s
+                    // 2026-05-21: beat tightened 0.25 → 0.12. The old
+                    // 0.25s beat lagged the track change noticeably;
+                    // Alcove fires at ~0.10s. 0.12 gives a hair of
+                    // buffer for Spotify's two-stage artwork emission
+                    // (metadata then JPEG ~50ms later) while still
+                    // feeling immediate.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak panel] in
                         guard let panel = panel,
                               panel.presenter.isResting,
                               !panel.presenter.isShown else { return }
@@ -2235,6 +2242,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak panel] in
                         guard let panel = panel else { return }
+                        // 2026-05-21 — retract matched to Alcove's
+                        // MEASURED sequence (Alcove 2 recording, frames
+                        // 1069-1084): the title vanishes FAST (~50ms)
+                        // and the shell width retracts GRADUALLY
+                        // (~217ms) starting at the SAME time, with the
+                        // artwork staying present throughout. So: flip
+                        // trackChangedFiring false (title fades fast,
+                        // 0.10s — see TrackChangedPillBody) AND retract
+                        // the shell immediately, together. The earlier
+                        // 0.18s-sequenced version was wrong — it made
+                        // the title linger and the shell wait. The
+                        // apron HEIGHT doesn't change on retract (only
+                        // width narrows), so the title doesn't clip
+                        // even though it fades concurrently with the
+                        // width retract.
                         panel.presenter.trackChangedFiring = false
                         panel.dismissTrackBanner {
                             panel.presenter.clearPendingSystemEvent(animated: false)
@@ -2455,9 +2477,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let np = np, !mrCacheIsStale {
                 return np.isPlaying
             }
-            // Either no MR data, or the MR cache is stale and we're
-            // trusting audio-flow alone. Either way, falling through
-            // to the audio signal.
+            // 2026-05-21: when there is NO now-playing metadata at all
+            // (np == nil), do NOT surface the resting pill off the bare
+            // CoreAudio flow signal. That "synthetic no-MR" path is what
+            // produced the black-rectangle-on-startup bug: browser/system
+            // audio flows before (or without) any MediaRemote metadata,
+            // the sustain timer trips after ~3s, and `enterRestingMode`
+            // with np==nil lands on `transientPillFrame` — whose empty-
+            // state silhouette (topR 4 / bottomR 6) reads as a flat black
+            // rectangle hanging below the notch (no artwork, no title,
+            // nothing useful to show). Alcove only surfaces the pill for
+            // real media; match that — stay tucked in the notch until
+            // metadata arrives, THEN bloom the proper music pill.
+            if np == nil {
+                return false
+            }
+            // np present but the MR cache is stale → trust the audio
+            // signal (the source is genuinely still emitting; the
+            // metadata just went stale on a non-clean stop).
             return audioOn && !noMRGated
         }()
 
