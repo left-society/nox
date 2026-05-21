@@ -338,11 +338,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the announcement when MR re-emits the same track on every
     /// position update or when the user pauses and resumes.
     private var lastAnnouncedTrackKey: String = ""
-    /// Generation token for the track-change banner lifecycle. Each
-    /// newly-announced song invalidates older delayed show/dismiss
-    /// closures so rapid skips swap in place instead of letting a
-    /// stale timer close the current banner.
-    private var trackAnnouncementGeneration: UInt64 = 0
     private var lastTransientFirstSeenAt: Date = .distantPast
 
     /// Pending pill-retract work when audio stops flowing. Cancelled
@@ -2204,7 +2199,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     && info.isPlaying
                     && panel.presenter.isResting
                     && !panel.presenter.isShown
-                    && !isUtility
                 if shouldAnnounce {
                     // Update the dedup key + cached artwork BEFORE
                     // the Focus check. We want this to advance even
@@ -2218,8 +2212,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // minutes — felt like a delayed bug.
                     lastAnnouncedTrackKey = trackKey
                     panel.presenter.lastAnnouncedTrackArtwork = info.artworkData
-                    trackAnnouncementGeneration &+= 1
-                    let announcementGeneration = trackAnnouncementGeneration
 
                     // 2026-05-09: removed the `if !isFocusSuppressed`
                     // wrapper. Track-change banner now fires
@@ -2241,7 +2233,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // feeling immediate.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak panel] in
                         guard let panel = panel,
-                              announcementGeneration == self.trackAnnouncementGeneration,
                               panel.presenter.isResting,
                               !panel.presenter.isShown else { return }
                         panel.showTrackBanner()
@@ -2250,8 +2241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         )
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak panel] in
-                        guard let panel = panel,
-                              announcementGeneration == self.trackAnnouncementGeneration else { return }
+                        guard let panel = panel else { return }
                         // 2026-05-21 — retract matched to Alcove's
                         // MEASURED sequence (Alcove 2 recording, frames
                         // 1069-1084): the title vanishes FAST (~50ms)
@@ -2267,9 +2257,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         // width narrows), so the title doesn't clip
                         // even though it fades concurrently with the
                         // width retract.
-                        guard case .trackChanged(let currentTitle, let currentArtist) = panel.presenter.pendingSystemEvent,
-                              currentTitle == info.title,
-                              currentArtist == info.artist else { return }
                         panel.presenter.trackChangedFiring = false
                         panel.dismissTrackBanner {
                             panel.presenter.clearPendingSystemEvent(animated: false)

@@ -44,11 +44,6 @@ final class ArtworkCache {
     /// view re-evaluates during the decode window.
     private var inFlight: Set<String> = []
 
-    /// Completion callbacks waiting on an in-flight decode. Multiple
-    /// views can ask for the same artwork during one render pass; all
-    /// of them should hear when the shared decode finishes.
-    private var waiters: [String: [@MainActor (NSImage?) -> Void]] = [:]
-
     /// Background queue for decode work. Concurrent so multiple
     /// tracks' decodes can run in parallel (cheap on modern CPUs).
     private let decodeQueue = DispatchQueue(
@@ -69,8 +64,9 @@ final class ArtworkCache {
     /// Schedule a background decode for the given data + key. When
     /// the decode completes, calls `onReady` on the main queue with
     /// the decoded image (or nil if decode failed). Idempotent:
-    /// scheduling the same key again while a decode is in flight joins
-    /// the existing work and receives the same completion.
+    /// scheduling the same key again while a decode is in flight is
+    /// a no-op for that call's onReady — only the first scheduler's
+    /// completion fires.
     ///
     /// Cost is computed from data length so NSCache's `totalCostLimit`
     /// gets a meaningful number to weigh evictions against.
@@ -80,15 +76,13 @@ final class ArtworkCache {
             onReady(cached)
             return
         }
-        // Already decoding for this key — join the decode instead of
-        // dropping the callback. Dropped callbacks were enough to leave
-        // one surface stuck on a placeholder while another warmed cache.
-        if inFlight.contains(key) {
-            waiters[key, default: []].append(onReady)
-            return
-        }
+        // Already decoding for this key — drop the dup. The first
+        // scheduler's onReady will fire when done; this caller's
+        // onReady is silently dropped. In practice the view will
+        // re-evaluate on the published cache update via our notify
+        // pattern below if needed (callers can cache-check after).
+        if inFlight.contains(key) { return }
         inFlight.insert(key)
-        waiters[key] = [onReady]
 
         // Background decode + main-actor completion. Earlier this
         // used `DispatchQueue.main.async`, which puts the closure
@@ -100,6 +94,12 @@ final class ArtworkCache {
         // `Task { @MainActor in ... }` correctly hops into the
         // main actor, so all isolated reads/writes work and
         // `onReady` actually fires.
+        // NOTE: This async path is kept for API completeness but is
+        // currently unused — `image(...)` now decodes synchronously
+        // because the previous Task { @MainActor in ... } completion
+        // hop was silently dropping the onReady call in production
+        // (verified by NSLog instrumentation: the Task block
+        // executed but the closure call to onReady never fired).
         decodeQueue.async {
             let image = NSImage(data: data)
             Task { @MainActor in
@@ -108,17 +108,13 @@ final class ArtworkCache {
                     self.cache.setObject(image, forKey: key as NSString, cost: cost)
                 }
                 self.inFlight.remove(key)
-                let callbacks = self.waiters.removeValue(forKey: key) ?? []
-                for callback in callbacks {
-                    callback(image)
-                }
+                onReady(image)
             }
         }
     }
 
-    /// Convenience wrapper: returns a cached image if available and
-    /// starts a background decode on miss. It never decodes on the
-    /// caller's thread.
+    /// Convenience wrapper: returns a cached image if available, or
+    /// decodes synchronously and caches the result.
     ///
     /// Per BUG-012 fix: the previous signature carried an
     /// `onReady` callback parameter that was documented as
@@ -128,9 +124,15 @@ final class ArtworkCache {
     /// The unused parameter is removed; callers should consume
     /// the synchronous return value.
     ///
-    /// Callers that need to update UI on a miss should call
-    /// `decode(data:key:onReady:)` and guard the callback against
-    /// stale track identity.
+    /// Per BUG-011: the decode IS synchronous on the main thread
+    /// (~30-50ms for a typical 1MB JPEG, once per track). Earlier
+    /// async attempts via Task { @MainActor in ... } silently
+    /// dropped the callback completion, leaving the pill stuck at
+    /// the placeholder. Synchronous decode is the safe path. To
+    /// avoid the main-thread hitch at swap time, callers can
+    /// pre-warm the cache for upcoming tracks via `decode(...)`
+    /// — that DOES go off-main and the result is then a free O(1)
+    /// hit when the swap happens.
     func image(data: Data?, key: String) -> NSImage? {
         // 2026-05-01: cache lookup by key BEFORE the data-nil guard.
         // YouTube (and other browser tabs) re-emit MediaRemote info
@@ -149,9 +151,11 @@ final class ArtworkCache {
         if let cached = cache.object(forKey: key as NSString) {
             return cached
         }
-        if let data = data {
-            decode(data: data, key: key) { _ in }
-        }
-        return nil
+        guard let data = data else { return nil }
+        // Synchronous decode + cache write. Main-thread block is
+        // bounded (~50ms) and only happens once per track.
+        guard let image = NSImage(data: data) else { return nil }
+        cache.setObject(image, forKey: key as NSString, cost: data.count)
+        return image
     }
 }
