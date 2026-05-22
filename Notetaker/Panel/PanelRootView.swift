@@ -3416,15 +3416,22 @@ struct PanelRootView: View {
                 refreshPillArtworkImage()
                 return
             }
+            // `trackChangedFiring` is raised before the panel grows, so
+            // it can suppress ordinary pill swaps during AppDelegate's
+            // pre-banner beat. Do NOT start the cover flip on that early
+            // flag: the shell is still compact. Wait for
+            // `trackBannerVisualActive`, which means the real
+            // `.trackChanged` event has been installed and the banner
+            // shell is expanding.
+            if presenter.trackChangedFiring && !trackBannerVisualActive {
+                return
+            }
+
             // Alcove-parity rework (2026-05-21): the track-change is now
             // the small pill ITSELF expanding into a banner (not a
-            // separate banner view). So the pill's cover SHOULD transition
-            // to the NEW track DURING the announcement, in step with the
-            // title apron dropping below. We therefore no longer HOLD the
-            // old cover during `.trackChanged` / `trackChangedFiring` —
-            // fall through to `triggerSongChange` so the cover crossfades
-            // old→new. (Previously we held here because the retired
-            // separate banner owned the cover swap.)
+            // separate banner view). So the pill's cover transitions to
+            // the NEW track during the announcement, in step with the
+            // title apron dropping below.
             if displayedNowPlaying == nil {
                 trackSwapPhase = -1
             }
@@ -3443,6 +3450,25 @@ struct PanelRootView: View {
             // the "snap" the user reads as energy. Smooth interp
             // was correct but flat; this adds a tiny rebound that
             // makes the pulse feel alive.
+            withAnimation(NoxAnimations.quickAnticipation) {
+                waveformPulse = 1.0
+            }
+        }
+        .onChange(of: trackBannerVisualActive) { active in
+            guard active else { return }
+            let newKey = trackKey
+            guard !newKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  newKey != displayedTrackKey,
+                  presenter.nowPlaying != nil else { return }
+            if displayedNowPlaying == nil {
+                trackSwapPhase = -1
+            }
+            triggerSongChange(newKey: newKey)
+            var snap = Transaction()
+            snap.disablesAnimations = true
+            withTransaction(snap) {
+                waveformPulse = 0.85
+            }
             withAnimation(NoxAnimations.quickAnticipation) {
                 waveformPulse = 1.0
             }
@@ -3645,11 +3671,12 @@ struct PanelRootView: View {
                         trackSwapPhase = 0
                     }
                 }
-                // Unified expand: ~60ms lag (was 0.34s) so the flip rides in
-                // WITH the shell, not after. Silent resting swaps (no banner)
-                // flip immediately.
-                if presenter.trackChangedFiring {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.06, execute: runFlip)
+                // During a banner, the caller already waits for
+                // `trackBannerVisualActive` before calling this method.
+                // Add only a tiny content lag so the shell leads by a
+                // frame or two. Silent resting swaps flip immediately.
+                if trackBannerVisualActive {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.04, execute: runFlip)
                 } else {
                     runFlip()
                 }
