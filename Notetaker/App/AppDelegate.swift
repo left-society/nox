@@ -2167,6 +2167,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // artwork when it's changing the music and the
                     // thing expanding".
                     panel.presenter.bannerFromArtwork = panel.presenter.nowPlaying?.artworkData
+                    // Pre-warm the incoming cover during the 120ms pre-banner
+                    // beat. The pill flip queries ArtworkCache while the
+                    // banner is already animating; if that first lookup has
+                    // to decode a JPEG synchronously, the artwork can lag the
+                    // title and burn a frame. Alcove tokenizes a media-change
+                    // snapshot before the visual swap; this is nox's local
+                    // equivalent.
+                    if let data = info.artworkData, !data.isEmpty {
+                        ArtworkCache.shared.decode(data: data, key: predictedTrackKey) { _ in }
+                    }
                 }
 
                 // Detect track CHANGE (title or artist differs from
@@ -2308,7 +2318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // display. Only fires when bytes are non-nil and
                     // actually different — no-op for repeated same-
                     // bytes emissions.
-                    _ = bytes
+                    ArtworkCache.shared.decode(data: bytes, key: trackKey) { _ in }
                     panel.presenter.lastAnnouncedTrackArtwork = info.artworkData
                 }
             }

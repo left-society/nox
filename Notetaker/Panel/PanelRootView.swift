@@ -762,24 +762,17 @@ struct PanelRootView: View {
                 Group {
                     if trackBannerVisualActive && !presenter.isShown {
                         trackTitleApron
-                            // 2026-05-22 UNIFIED REVEAL — frame-by-frame of the
-                            // ACTUAL Alcove recording (Areac 2 vs Area 4, 20fps
-                            // expand strips) disproves the old §4 decode that
-                            // claimed content materializes AFTER the shell.
-                            // Alcove brings the title + art in WITH the shell as
-                            // one cohesive card; nox's 0.18s gap made it read as
-                            // "empty slab drops, THEN text pops in" (the visible
-                            // non-premium tell). Apple's WWDC18/23 rule: content
-                            // lags the surface by ~50ms on a SLOWER curve that
-                            // OVERLAPS the expand — never a long fixed delay. So:
-                            // 0.04s lag (~one frame) + a 0.24s fade that runs
-                            // DURING the 0.30s shell expand, settling just after.
-                            // Still arrives from BELOW (down-up, +5pt) for the
-                            // BlurReplace.downUp feel. Retract unchanged (0.10).
+                            // 2026-05-22 frame re-check (Alcove mp4 vs Area 4):
+                            // nox was making the title readable at ~0.30s, while
+                            // Alcove's line stays faint until the body is already
+                            // established. Keep the shell leading the content by
+                            // ~100ms; the inner TrackTitleApronText does the
+                            // down-up blur replacement, this outer transition is
+                            // just the first-reveal mask.
                             .transition(.asymmetric(
                                 insertion: .opacity
                                     .combined(with: .offset(y: 5))
-                                    .animation(.easeOut(duration: 0.24).delay(0.04)),
+                                    .animation(.easeOut(duration: 0.18).delay(0.10)),
                                 removal: .opacity
                                     .animation(.easeOut(duration: 0.10))
                             ))
@@ -3968,9 +3961,12 @@ struct PanelRootView: View {
                 endPoint: .trailing
             )
         )
-        // Center the title vertically in the apron (Alcove: title center
-        // sits ~18pt below the menu-bar line, ~mid-apron) at 12pt font.
-        .frame(height: PanelWindowController.trackBannerBump, alignment: .center)
+        // Frame evidence: Alcove's title is smaller/dimmer and begins a
+        // touch above our previous centered 12pt line. Top-aligning inside
+        // the 32pt apron with a 7pt inset lands the visual center close to
+        // Alcove while keeping the one-line label contained.
+        .padding(.top, 7)
+        .frame(height: PanelWindowController.trackBannerBump, alignment: .top)
         .padding(.top, notchOverlap)
     }
 
@@ -6559,22 +6555,22 @@ private struct TrackTitleApronText: View {
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: "music.note")
-                .font(.system(size: 10, weight: .regular))
-                .foregroundStyle(.white.opacity(0.5))
+                .font(.system(size: 9.5, weight: .regular))
+                .foregroundStyle(.white.opacity(0.48))
 
             Text(displayedTitle)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.85))
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(0.80))
                 .lineLimit(1)
                 .truncationMode(.tail)
 
             if !displayedArtist.isEmpty {
                 Text("·")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.48))
                 Text(displayedArtist)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.85))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.80))
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -6588,7 +6584,7 @@ private struct TrackTitleApronText: View {
             displayedTitle = title
             displayedArtist = artist
             phase = 1
-            DispatchQueue.main.async {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
                 withAnimation(.easeOut(duration: 0.16)) {
                     phase = 0
                 }
