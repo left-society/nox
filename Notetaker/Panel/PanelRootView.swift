@@ -760,7 +760,7 @@ struct PanelRootView: View {
             // never re-creates.
             .overlay(alignment: .top) {
                 Group {
-                    if presenter.trackChangedFiring && !presenter.isShown {
+                    if trackBannerVisualActive && !presenter.isShown {
                         trackTitleApron
                             // 2026-05-22 UNIFIED REVEAL — frame-by-frame of the
                             // ACTUAL Alcove recording (Areac 2 vs Area 4, 20fps
@@ -3864,11 +3864,11 @@ struct PanelRootView: View {
         // Resting = 19pt; GROWS to 26pt during a track-change. (Frame-by-frame
         // vs Alcove confirmed banner cover sizes are comparable — the parity
         // gap is the staged REVEAL, not the size; see expand-timing fix.)
-        .frame(width: presenter.trackChangedFiring ? 26 : 19,
-               height: presenter.trackChangedFiring ? 26 : 19)
-        .clipShape(RoundedRectangle(cornerRadius: presenter.trackChangedFiring ? 6 : 4.5,
+        .frame(width: trackBannerVisualActive ? 26 : 19,
+               height: trackBannerVisualActive ? 26 : 19)
+        .clipShape(RoundedRectangle(cornerRadius: trackBannerVisualActive ? 6 : 4.5,
                                     style: .continuous))
-        .animation(.easeOut(duration: 0.28), value: presenter.trackChangedFiring)
+        .animation(.easeOut(duration: 0.28), value: trackBannerVisualActive)
         .compositingGroup()
         // Y-axis FLIP on track change — cover turns over (old→new),
         // staying visible (Alcove parity).
@@ -3906,6 +3906,15 @@ struct PanelRootView: View {
         return false
     }
 
+    /// `trackChangedFiring` is raised one beat before the banner is
+    /// installed so non-banner pill swaps can be suppressed. Visual
+    /// banner elements must wait for the actual `.trackChanged` event;
+    /// otherwise the title/artwork grow inside the compact pill before
+    /// the shell expands.
+    private var trackBannerVisualActive: Bool {
+        presenter.trackChangedFiring && isAnnouncingTrack
+    }
+
     /// Title/artist row that drops into the banner apron during a
     /// track-change. Rendered as an overlay BELOW the notch zone so the
     /// SAME music pill (its own artwork + running waveform) appears to
@@ -3914,38 +3923,10 @@ struct PanelRootView: View {
     /// fires). Styling mirrors the retired TrackChangedPillBody apron.
     private var trackTitleApron: some View {
         let info = presenter.nowPlaying
-        // 2026-05-22 — smooth the TITLE swap (was a 1-frame hard cut). The
-        // apron stays mounted while you skip (trackChangedFiring holds), so
-        // the title string changed instantly. `.contentTransition(.opacity)`
-        // cross-fades old→new in place, driven by the `.animation(value:
-        // trackKey)` below. NOTE: a true blur-replace is NOT a
-        // `ContentTransition` — `.blurReplace` is a `Transition` that needs
-        // an `.id` change, which NSHostingView animates unreliably in this
-        // codebase (the documented reason `triggerSongChange` uses explicit
-        // state, not `.transition`). So an opacity content cross-fade is the
-        // reliable in-place match. Artwork still flips (see `pillArtwork`).
-        return HStack(spacing: 5) {
-            Image(systemName: "music.note")
-                .font(.system(size: 10, weight: .regular))
-                .foregroundStyle(.white.opacity(0.5))
-            Text(info?.title ?? "")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.85))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .contentTransition(.opacity)
-            if let artist = info?.artist, !artist.isEmpty {
-                Text("·")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.5))
-                Text(artist)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .contentTransition(.opacity)
-            }
-        }
+        return TrackTitleApronText(
+            title: info?.title ?? "",
+            artist: info?.artist ?? ""
+        )
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, alignment: .center)
         .mask(
@@ -3964,9 +3945,6 @@ struct PanelRootView: View {
         // sits ~18pt below the menu-bar line, ~mid-apron) at 12pt font.
         .frame(height: PanelWindowController.trackBannerBump, alignment: .center)
         .padding(.top, notchOverlap)
-        // Animate the title-string change so `.contentTransition` fires
-        // the blur-replace on each swap. ~0.18s ≈ Alcove's content reveal.
-        .animation(.easeOut(duration: 0.18), value: trackKey)
     }
 
     // MARK: - Background layers
@@ -6534,6 +6512,89 @@ private struct CalendarUpcomingPillBody: View {
         let t = date.timeIntervalSinceReferenceDate
         let omega = 2.0 * Double.pi / 0.66   // 1.5Hz
         return (sin(t * omega) + 1.0) / 2.0
+    }
+}
+
+// MARK: - Track-changed title apron
+
+private struct TrackTitleApronText: View {
+    let title: String
+    let artist: String
+
+    @State private var displayedTitle: String = ""
+    @State private var displayedArtist: String = ""
+    @State private var phase: CGFloat = 1
+    @State private var generation: Int = 0
+    @State private var seeded: Bool = false
+
+    private var key: String { "\(title)|\(artist)" }
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "music.note")
+                .font(.system(size: 10, weight: .regular))
+                .foregroundStyle(.white.opacity(0.5))
+
+            Text(displayedTitle)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.85))
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            if !displayedArtist.isEmpty {
+                Text("·")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.5))
+                Text(displayedArtist)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
+        .offset(y: phase * 4)
+        .blur(radius: abs(phase) * 5)
+        .opacity(max(0, 1 - abs(phase)))
+        .onAppear {
+            guard !seeded else { return }
+            seeded = true
+            displayedTitle = title
+            displayedArtist = artist
+            phase = 1
+            DispatchQueue.main.async {
+                withAnimation(.easeOut(duration: 0.16)) {
+                    phase = 0
+                }
+            }
+        }
+        .onChange(of: key) { _ in
+            swapToCurrentTrack()
+        }
+    }
+
+    private func swapToCurrentTrack() {
+        let nextTitle = title
+        let nextArtist = artist
+        generation &+= 1
+        let myGen = generation
+
+        withAnimation(.easeOut(duration: 0.07)) {
+            phase = -1
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.065) {
+            guard myGen == generation else { return }
+            displayedTitle = nextTitle
+            displayedArtist = nextArtist
+
+            var snap = Transaction()
+            snap.disablesAnimations = true
+            withTransaction(snap) {
+                phase = 1
+            }
+            withAnimation(.easeOut(duration: 0.16)) {
+                phase = 0
+            }
+        }
     }
 }
 
