@@ -756,7 +756,7 @@ private struct GeneralSettings: View {
     // are gone, no consumer ever read these keys. SettingsKey
     // constants are kept in the parent enum for now in case
     // we wire them properly in a later iteration.
-    @AppStorage(SettingsKey.hoverDwellSeconds) private var hoverDwellSeconds: Double = 0.10
+    @AppStorage(SettingsKey.hoverDwellSeconds) private var hoverDwellSeconds: Double = 0.18
     @AppStorage(SettingsKey.hoverHotZoneWidth) private var hoverHotZoneWidth: Double = 300
     @AppStorage(SettingsKey.hapticsEnabled) private var hapticsEnabled: Bool = true
     @AppStorage(SettingsKey.defaultTabRaw) private var defaultTabRaw: String = DefaultTab.last.rawValue

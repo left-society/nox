@@ -169,13 +169,15 @@ final class PanelWindowController {
     /// end where the visible silhouette is only 200×14.
     static let haloPadding: CGFloat = 100
     /// Corner radius of the inner glass panel itself. Tuned through
-    /// 20 → 28 → 34: the latest bump pushes us into squircle territory
-    /// (radius/min-side ≈ 0.09 at 380pt width) so the bottom corners
-    /// read as a smooth continuous curve instead of a clipped arc.
-    /// This is the same proportion Apple uses on the Dynamic Island
-    /// expanded card on iPhone — the visual cue users associate most
-    /// strongly with "notch HUD" surfaces.
-    static let innerCornerRadius: CGFloat = 34
+    /// 20 → 28 → 34 → 44 → 60. The squircle CURVATURE (exponent 3.2 in
+    /// `noxContinuousCornerPoints`) already matches Alcove's measured
+    /// slab corner (0.276·R), so the corner SHAPE is right — the "hard
+    /// looking edges" the user kept seeing were the RADIUS being too small
+    /// for the wide slab: 44pt was still ≈8% of width, reading as a tight,
+    /// near-rectangular corner. 2026-05-22: 44 → 60 (frame-by-frame vs
+    /// Alcove, whose corner is a far gentler, larger turn) so the soft
+    /// squircle actually reads as soft instead of a sharp shoulder.
+    static let innerCornerRadius: CGFloat = 60
     /// Closed-pill geometry. The morph is now driven entirely by
     /// `NSAnimationContext.runAnimationGroup` animating
     /// `panel.animator().setFrame(...)` between these two frames — pure
@@ -293,11 +295,30 @@ final class PanelWindowController {
     /// → "only moving down of the notch not the other sides." The
     /// fix is to flip the ratio: width grow > height grow.
     ///
-    ///   • teasePillWidth = 213 → +28pt past hardware notch
-    ///     (14pt visible spread on each side)
-    ///   • teasePillBump = 8 → modest visible drop below menu bar
-    static let teasePillWidth: CGFloat = 213
-    static let teasePillBump: CGFloat = 8
+    /// 2026-05-22 (frame-by-frame recording of the no-music open): the
+    /// "substantial" 245/11 reach grew into a DISTINCT pill shape that
+    /// lingered, then the slab grew from it — the two read as two
+    /// disconnected pieces ("no-music touch feels glitchy"). The music
+    /// pill never does this because its reach is a tiny +14pt nudge. So
+    /// make the no-music reach the SAME subtle whisper: a small emerge
+    /// just past the notch that the open flows out of as ONE motion,
+    /// instead of a distinct intermediate pill the slab jumps from.
+    ///   • teasePillWidth 245 → 205  (+~14pt past the notch, like music)
+    ///   • teasePillBump   11 → 4   (a hint of drop, not a hanging shape)
+    static let teasePillWidth: CGFloat = 205
+    static let teasePillBump: CGFloat = 4
+    /// 2026-05-22 — NO-MUSIC reach→open SETTLE. The no-music reach is a
+    /// BIG grow (notch → ~245pt pill); the music reach is tiny (+14pt). The
+    /// reach runs on NSAnimationContext, whose MODEL frame == the target
+    /// while animating, so `haltInflightFrameAnimation` (called at open
+    /// start) snaps `panel.frame` to that target. If the open fires before
+    /// the big reach has visually landed, that snap is a visible few-px
+    /// JUMP — the "no-music touch feels glitchy" report (2026-05-22). The
+    /// music pill's tiny reach makes the same snap ~1px (invisible).
+    /// Briefly letting the reach SETTLE before the open removes the jump.
+    /// (Tried 0 — that exposed the glitch. The 70ms also reads as the
+    /// "sweet" reach beat the user liked. Music opens skip this entirely.)
+    static let teaseReachHoldSeconds: TimeInterval = 0.0
     /// Track-change announcement banner — Alcove parity, measured
     /// from the user-supplied frame-by-frame screen recording in
     /// `~/Downloads/alcove/Alcove 2/` (frames 750–870). When a new
@@ -615,6 +636,19 @@ final class PanelWindowController {
     // the previous `?? NSScreen.main` fallbacks.
     private var activeScreen: NSScreen
     private var displayObserver: NSObjectProtocol?
+    /// Space-change observer — instant for native (green-button)
+    /// fullscreen, which creates a Space.
+    private var spaceObserver: NSObjectProtocol?
+    /// Self-correcting 1.5s poll. Browser HTML5 fullscreen is a window
+    /// RESIZE (no Space change), so we re-check live every tick. Because
+    /// it re-evaluates from scratch each time, `environmentSuppressed` can
+    /// NEVER get stuck (the prior regression that hid the pill forever).
+    private var fullscreenPollTimer: Timer?
+    /// True while a fullscreen app/video covers the notch display — the
+    /// resting pill retracts into the hidden notch. Set ONLY by
+    /// `setEnvironmentSuppressed` (driven by the poll/observer's live
+    /// check); `enterRestingMode` only READS it.
+    private(set) var environmentSuppressed = false
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -1030,6 +1064,10 @@ final class PanelWindowController {
         if let observer = displayObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        if let observer = spaceObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        fullscreenPollTimer?.invalidate()
     }
 
     private var shadowStateSubscription: AnyCancellable?
@@ -1620,7 +1658,35 @@ final class PanelWindowController {
         }
     }
 
-    func show(mode: OpenMode = .click) {
+    func show(mode: OpenMode = .click, afterTeaseHold: Bool = false) {
+        // 2026-05-22 — REACH + BRIEF HOLD cursor reaction. On a NO-MUSIC
+        // hover tease the panel has already grown to the tease frame (the
+        // "the notch noticed you" reach). Let it SIT there for
+        // `teaseReachHoldSeconds` before committing the open, so the
+        // reach reads as a distinct beat rather than flowing straight
+        // into the slab. (Once today's desync-snap fix removed the
+        // shrink, the reach blended seamlessly into the open and the user
+        // felt the "sweet touch effect" had gone.) We re-enter show()
+        // after the hold with `afterTeaseHold = true`; nothing touches
+        // the frame during the hold, so the panel simply rests at the
+        // reached tease frame, then animateOpen blends from there.
+        //
+        // Scope: only NO-MUSIC (`!presenter.isResting`). Music-pill opens
+        // keep their separately-tuned immediate feel. If the cursor
+        // leaves during the hold, dismissTease() flips `isTeasing` false
+        // and the re-entry aborts below (no open).
+        if isTeasing && !afterTeaseHold && !presenter.isResting {
+            MediaRemoteAdapterService.fileLog("PANEL reach-hold — no-music tease, holding \(Int(Self.teaseReachHoldSeconds * 1000))ms at tease frame before open")
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.teaseReachHoldSeconds) { [weak self] in
+                self?.show(mode: mode, afterTeaseHold: true)
+            }
+            return
+        }
+        if afterTeaseHold && !isTeasing {
+            // Cursor left during the hold → tease was dismissed. Abort.
+            MediaRemoteAdapterService.fileLog("PANEL reach-hold — tease dismissed during hold, aborting open")
+            return
+        }
         MediaRemoteAdapterService.fileLog("PANEL show() ENTRY — mode=\(mode) isVisible=\(isVisible) panel.isVisible=\(panel.isVisible) panel.alpha=\(panel.alphaValue) presenter.isShown=\(presenter.isShown) presenter.isResting=\(presenter.isResting) frame=\(Int(panel.frame.width))x\(Int(panel.frame.height))")
         PerformanceProbe.shared.mark("PANEL_SHOW_ENTRY", metadata: [
             "mode": "\(mode)"
@@ -1628,10 +1694,15 @@ final class PanelWindowController {
         // Clear any in-flight tease state — we're going to a full open
         // now, so the tease has served its purpose. If show() was called
         // from a non-tease entry point (click, hotkey), this is a no-op.
-        // If we got here via tease promotion (HoverActivator dwell), the
-        // existing `if !panel.isVisible` guard below correctly skips
-        // the pillFrame snap so animateOpen blends smoothly from the
-        // tease frame into the slab.
+        //
+        // Capture `wasTeasing` BEFORE clearing it: the desync-recovery
+        // snap below needs to know we arrived via a tease promotion.
+        // 2026-05-22 bug — without this, the NO-MUSIC tease→open snapped
+        // the grown tease pill back to notch-hidden before the open
+        // spring, so the empty-state pill visibly "shrank for a mini
+        // second before opening" (user report). See the snap guard
+        // below for the full diagnosis + /tmp/nox-mra.log evidence.
+        let wasTeasing = isTeasing
         isTeasing = false
         openMode = mode
         // Defensive reset of swipe progress signals at the start of
@@ -1762,7 +1833,7 @@ final class PanelWindowController {
         let hiddenStart = notchHiddenFrame(for: screen)
         if !panel.isVisible {
             panel.setFrame(hiddenStart, display: false)
-        } else if !isVisible && !presenter.isResting {
+        } else if !isVisible && !presenter.isResting && !wasTeasing {
             // Desync — controller says hidden but NSWindow says visible
             // AND we are NOT in resting-pill mode. In resting mode
             // (music playing → pill anchored at the notch), the
@@ -1775,6 +1846,25 @@ final class PanelWindowController {
             // codex-hammering / interrupted-hide case (which leaves
             // the panel at slab geometry with no music) triggers
             // recovery.
+            //
+            // 2026-05-22 — added `&& !wasTeasing`. The NO-MUSIC tease
+            // has the SAME signature as a desync: `tease()` orders the
+            // panel front (panel.isVisible=true) but never sets the
+            // controller's `isVisible`, and with no music
+            // `presenter.isResting` is false too. So promoting a
+            // no-music tease to a full open fell into THIS branch and
+            // snapped the grown tease pill (≈443×143) down to
+            // notch-hidden before `animateOpen` regrew it → the
+            // empty-state "shrink for a mini second before opening" the
+            // user reported. /tmp/nox-mra.log confirmed it: every
+            // no-music hover open logged "desync recovery"; every
+            // music open (isResting=true) did not. The music case was
+            // already protected by `!presenter.isResting`; `!wasTeasing`
+            // adds the symmetric protection for the no-music tease, so
+            // animateOpen now blends from the live tease frame into the
+            // slab (one continuous grow, no shrink). A genuine
+            // interrupted-hide desync is NOT teasing, so it still
+            // recovers here.
             MediaRemoteAdapterService.fileLog("PANEL desync recovery — controller.isVisible=false but panel.isVisible=true, forcing frame to hiddenStart")
             panel.setFrame(hiddenStart, display: false)
         }
@@ -1839,9 +1929,14 @@ final class PanelWindowController {
         // even starts — would feel as "lag at the moment I clicked,"
         // distinct from per-frame stutter.
         let setupT0 = CACurrentMediaTime()
-        // Start the pure-Core-Animation morph. NSAnimationContext drives
-        // panel.animator().setFrame at the window-server level — GPU-
-        // accelerated, no SwiftUI body re-evaluation per frame.
+        // Start the open morph from REST — no follow-through kick. WWDC18
+        // "Designing Fluid Interfaces" (the Music-minibar example, which IS
+        // this exact case — a small bar tapping up into Now Playing): a
+        // hover/click open has NO momentum, so it must NOT overshoot —
+        // "100% damping … smooth, graceful, and seamless." Overshoot is
+        // ONLY to reward a momentum gesture (swipe). The earlier
+        // follow-through velocity added a bounce here that read as the
+        // "tingle, not sweet" the user described. Removed.
         animateOpen(to: slabFrame)
         let setupMs = (CACurrentMediaTime() - setupT0) * 1000
         if setupMs > 1.0 {
@@ -2657,6 +2752,147 @@ final class PanelWindowController {
                 self?.handleDisplayReconfigure()
             }
         }
+        // 2026-05-22 — FULLSCREEN-HIDE (re-enabled). Retract the resting
+        // music/Focus pill into the hidden notch while a fullscreen app or
+        // HTML5 video covers the notch screen, and restore it when the user
+        // leaves fullscreen. Two complementary drivers:
+        //
+        //   1. SPACE OBSERVER — fires the instant the user enters/leaves a
+        //      fullscreen Space (native app fullscreen, 4-finger swipe).
+        //      Instant response, no polling lag for the common case.
+        //
+        //   2. SELF-CORRECTING 1s POLL — catches in-window HTML5 video
+        //      fullscreen (Chrome/Safari/YouTube), which does NOT change
+        //      Spaces, so the observer never sees it. The poll ALSO makes
+        //      the flag impossible to strand: every tick re-derives the
+        //      state from a LIVE fullscreen check, so even if some edge
+        //      transition left the flag wrong, the next tick corrects it.
+        //
+        // Why this no longer strands the pill (the bug that disabled it):
+        //   • `enterRestingMode` is now a READ-ONLY gate — it never SETS
+        //     the flag, and it affirms `isResting=true` BEFORE the gate, so
+        //     the restore path's `isResting` guard always holds.
+        //   • `refreshEnvironmentSuppression` only suppresses when anchored
+        //     (nowPlaying/Focus) — Swift short-circuits the CGWindowList
+        //     check when there's nothing to hide, so the no-music/transient
+        //     pill is never touched (no "no-music pill shrinks" glitch) and
+        //     the poll is cheap when idle.
+        spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshEnvironmentSuppression()
+            }
+        }
+        fullscreenPollTimer = Timer.scheduledTimer(
+            withTimeInterval: 1.0, repeats: true
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshEnvironmentSuppression()
+            }
+        }
+    }
+
+    /// True when a fullscreen app/video covers the notch display: a
+    /// normal-layer (kCGWindowLayer == 0) window that is full-width AND
+    /// covers the dock (height ≥ screen − 44). We do NOT require the top
+    /// at y=0 — browser HTML5 fullscreen sits BELOW the auto-hiding menu
+    /// bar (verified: Chrome fullscreen = y=33, 1728×1084), so dock
+    /// coverage is what separates it from a merely MAXIMIZED window
+    /// (which leaves the dock, ~1025 tall). CGWindowList bounds/layer need
+    /// no Screen Recording permission, so this stays permission-free.
+    @MainActor
+    private func isNotchScreenFullscreen() -> Bool {
+        let screen = panel.screen ?? activeScreen
+        let sw = screen.frame.width
+        let sh = screen.frame.height
+        guard let list = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+        ) as? [[String: Any]] else { return false }
+        for info in list {
+            guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
+                  let b = info[kCGWindowBounds as String] as? [String: CGFloat],
+                  let w = b["Width"], let h = b["Height"] else { continue }
+            if w >= sw - 4 && h >= sh - 44 { return true }
+        }
+        return false
+    }
+
+    /// Re-evaluate fullscreen and retract/restore the pill. Driven by the
+    /// Space observer and the self-correcting poll.
+    @MainActor
+    func refreshEnvironmentSuppression() {
+        // Only suppress when there's actually a MUSIC/Focus pill to hide.
+        // With no anchor the resting pill is already tucked in the notch,
+        // so suppressing is pointless — and worse, it could retract a
+        // VISIBLE transient pill (screenshot / charging / AirDrop) out
+        // from under the user mid-display: the "no-music pill sometimes
+        // shrinks" glitch. Gating on the anchor means the fullscreen poll
+        // never touches the no-music / transient pill at all.
+        let anchored = presenter.nowPlaying != nil || presenter.isFocused
+        setEnvironmentSuppressed(anchored && isNotchScreenFullscreen())
+    }
+
+    /// Retract the resting pill into the hidden notch while fullscreen is
+    /// active (`suppressed`), or restore it when the desktop returns.
+    /// No-op while a full slab is open or a tease is in flight — those own
+    /// the geometry; the flag still gates `enterRestingMode` so a music
+    /// tick can't pop the pill over fullscreen content.
+    @MainActor
+    func setEnvironmentSuppressed(_ suppressed: Bool) {
+        guard suppressed != environmentSuppressed else { return }
+        environmentSuppressed = suppressed
+        MediaRemoteAdapterService.fileLog(
+            "ENV suppressed=\(suppressed) isVisible=\(isVisible) isTeasing=\(isTeasing) "
+            + "isResting=\(presenter.isResting) nowPlaying=\(presenter.nowPlaying != nil)")
+        if isVisible || isTeasing { return }
+        let screen = panel.screen ?? activeScreen
+        currentSpring?.cancel()
+        currentSpring = nil
+        if suppressed {
+            let target = notchHiddenFrame(for: screen)
+            guard panel.frame != target else { return }
+            presenter.isAtNotchHidden = true
+            setShadowOpacity(0.0)
+            let spring = SpringFrameAnimator(stiffness: 300, damping: 34, mass: 1.0)
+            spring.shadowTickHandler = { [weak self] in self?.updateShadowPath() }
+            currentSpring = spring
+            spring.animate(panel: panel, from: panel.frame, to: target) { [weak self] in
+                self?.currentSpring = nil
+                self?.panel.setFrame(target, display: true)
+                self?.updateShadowPath()
+            }
+        } else {
+            // Restore whenever an anchor remains (music/Focus). We do NOT
+            // gate on `isResting` — a stale `isResting=false` was what
+            // stranded the pill hidden after fullscreen exited (the original
+            // bug). We're already past the isVisible/isTeasing guard, so the
+            // resting pill IS the correct state here; affirm it rather than
+            // trust a flag the suppression window may have left stale.
+            guard presenter.nowPlaying != nil || presenter.isFocused else {
+                MediaRemoteAdapterService.fileLog(
+                    "ENV restore: no anchor — leaving notch tuck to enterRestingMode")
+                return
+            }
+            presenter.isResting = true
+            let target = closedPillFrame(for: screen)
+            guard panel.frame != target else { return }
+            presenter.isAtNotchHidden = false
+            panel.alphaValue = 1
+            panel.orderFrontRegardless()
+            setShadowOpacity(0.12)
+            MediaRemoteAdapterService.fileLog("ENV restore → closedPill (fullscreen exited)")
+            let spring = SpringFrameAnimator(stiffness: 300, damping: 32, mass: 1.0)
+            spring.shadowTickHandler = { [weak self] in self?.updateShadowPath() }
+            currentSpring = spring
+            spring.animate(panel: panel, from: panel.frame, to: target) { [weak self] in
+                self?.currentSpring = nil
+                self?.panel.setFrame(target, display: true)
+                self?.updateShadowPath()
+            }
+        }
     }
 
     /// Handle plug/unplug/lid/resolution change. We re-resolve the
@@ -3276,7 +3512,10 @@ final class PanelWindowController {
     /// animation, with the SwiftUI content-overlay blur (40pt → 0
     /// over the same window) playing through. Close edges a hair
     /// faster than open — confident retreat.
-    private func animateOpen(to target: NSRect) {
+    /// `initialVelocity` retained (default 0) for a future swipe-driven open
+    /// that genuinely carries momentum (WWDC18: reward momentum with a
+    /// little overshoot). Hover/click opens pass 0 — no momentum, no bounce.
+    private func animateOpen(to target: NSRect, initialVelocity: Double = 0) {
         animationGeneration &+= 1
         let myGen = animationGeneration
         PerformanceProbe.shared.mark("PANEL_OPEN_ANIMATE_START", metadata: [
@@ -3385,8 +3624,19 @@ final class PanelWindowController {
         //   ω = 2π/0.40 = 15.71  →  stiffness = ω² ≈ 247
         //   ζ = 0.787  →  damping = 2·ω·ζ ≈ 25
         //
-        // Was 195/28 (critically damped, no overshoot). The new
-        // 247/25 has mild bounce — what Alcove actually ships.
+        // 2026-05-22 — EXACTLY Alcove's measured open. Recorded Alcove's own
+        // hover-open frame-by-frame: its expand has a subtle, alive settle —
+        // NOT flat. Two wrong turns this session bracketed it:
+        //   • 247/25 + follow-through kick (~5% overshoot) → "tingles"
+        //   • 247/31 critically damped (0% overshoot)      → "flat / previous"
+        // Alcove's actual spring sits between: Spring(0.40, bounce 0.21),
+        // ζ≈0.787 → stiffness 247, damping 25 → ~1.8% overshoot. A single
+        // gentle bounce-back of ~9px on the slab — "alive," not a tingle.
+        // No follow-through kick (that's what over-bounced it). This is the
+        // value the user never got to feel cleanly because the kick was
+        // always bolted on. (The WWDC18 "100% damping" rule is for a generic
+        // tap; Alcove — the user's explicit reference — ships this subtle
+        // bounce, and matching Alcove is the goal.)
         let spring = SpringFrameAnimator(stiffness: 247, damping: 25, mass: 1.0)
         // Wire the GPU shadowPath update into each spring tick so
         // the shadow follows the morphing panel size in real time.
@@ -3403,7 +3653,7 @@ final class PanelWindowController {
         // especially on the first cold render after install.
         setShadowOpacity(0.12)
         currentSpring = spring
-        spring.animate(panel: panel, from: start, to: target) { [weak self] in
+        spring.animate(panel: panel, from: start, to: target, initialVelocity: initialVelocity) { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
             self.panel.setFrame(target, display: true)
             self.updateShadowPath()
@@ -3843,6 +4093,20 @@ final class PanelWindowController {
         // visible after the morph settles.
         if isTeasing { return }
 
+        // Fullscreen suppression — READ-ONLY gate. While a fullscreen
+        // app/video covers the notch screen, stay parked in the hidden
+        // notch even if music starts. We never SET the flag here (the
+        // poll/observer own it and keep it self-correcting); setting it
+        // from a transient live-check is what stranded the pill before.
+        if environmentSuppressed {
+            let screen = activeScreen
+            let target = notchHiddenFrame(for: screen)
+            presenter.isAtNotchHidden = true
+            if panel.frame != target { panel.setFrame(target, display: false) }
+            panel.alphaValue = 0
+            return
+        }
+
         let screen = activeScreen
         // CHOOSE PILL GEOMETRY based on music state:
         //   • Music playing → music pill (302pt × 44pt) so the
@@ -4002,6 +4266,13 @@ final class PanelWindowController {
         guard presenter.isResting else { return }
         if isVisible { return }
         if isTeasing { return }
+        // Fullscreen: the pill is suppressed (retracted into the notch).
+        // Do NOT expand a banner — it would fight the fullscreen
+        // suppression poll (banner expands ↔ poll retracts every 1.5s),
+        // producing the "expands with no smooth animation, empty for ~2s"
+        // conflict. In fullscreen, track changes update silently; the pill
+        // restores with the current track when the user leaves fullscreen.
+        if environmentSuppressed { return }
 
         let screen = panel.screen ?? activeScreen
         let target = trackBannerFrame(for: screen)

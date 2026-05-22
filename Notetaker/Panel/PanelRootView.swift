@@ -286,6 +286,13 @@ struct PanelRootView: View {
     /// mid-swap (Alcove keeps the cover visible, rotating).
     @State private var pillFlipAngle: Double = 0
     @State private var pillNextArtwork: NSImage? = nil
+    /// 2026-05-22: the OLD cover, FROZEN at flip start. The flip's FRONT
+    /// face renders from THIS (not `pillArtworkImage`) while a flip is in
+    /// flight, so the racing refresh handlers (which can re-point
+    /// `pillArtworkImage` to the new cover or a placeholder mid-flip)
+    /// can't turn the rotation into a blank→new or new→new "flip onto
+    /// itself". Captured in `triggerSongChange`, cleared on completion.
+    @State private var pillFlipFromArtwork: NSImage? = nil
 
     /// Sentinel for the "music has ever played in this session" state.
     /// Distinguishes a TRUE first-ever load (no animation — there's
@@ -755,17 +762,24 @@ struct PanelRootView: View {
                 Group {
                     if presenter.trackChangedFiring && !presenter.isShown {
                         trackTitleApron
-                            // Alcove seamless timing (decode §4): the title
-                            // materializes AFTER the shell finishes
-                            // expanding (~0.18s delay), fast (easeOut 0.14),
-                            // arriving from BELOW (down-up, +5pt) like
-                            // Alcove's BlurReplace.downUp. On retract it
-                            // leaves promptly (0.10), no delay — the old
-                            // title clears as the shell recedes.
+                            // 2026-05-22 UNIFIED REVEAL — frame-by-frame of the
+                            // ACTUAL Alcove recording (Areac 2 vs Area 4, 20fps
+                            // expand strips) disproves the old §4 decode that
+                            // claimed content materializes AFTER the shell.
+                            // Alcove brings the title + art in WITH the shell as
+                            // one cohesive card; nox's 0.18s gap made it read as
+                            // "empty slab drops, THEN text pops in" (the visible
+                            // non-premium tell). Apple's WWDC18/23 rule: content
+                            // lags the surface by ~50ms on a SLOWER curve that
+                            // OVERLAPS the expand — never a long fixed delay. So:
+                            // 0.04s lag (~one frame) + a 0.24s fade that runs
+                            // DURING the 0.30s shell expand, settling just after.
+                            // Still arrives from BELOW (down-up, +5pt) for the
+                            // BlurReplace.downUp feel. Retract unchanged (0.10).
                             .transition(.asymmetric(
                                 insertion: .opacity
                                     .combined(with: .offset(y: 5))
-                                    .animation(.easeOut(duration: 0.14).delay(0.18)),
+                                    .animation(.easeOut(duration: 0.24).delay(0.04)),
                                 removal: .opacity
                                     .animation(.easeOut(duration: 0.10))
                             ))
@@ -1048,10 +1062,16 @@ struct PanelRootView: View {
             //     With the continuous-corner sampler (noxContinuousCornerPoints,
             //     n=3.2) the intermediate shapes read smooth, so growing the
             //     radius in lockstep with the frame now looks intentional.
-            //   CLOSE radii: 158/25 (Apple .smooth(0.50), ~320ms)
+            //   CLOSE radii: 2026-05-22 — synced to the close FRAME spring
+            //   (PanelWindowController 438/36, response 0.30). Was 158/25
+            //   (~0.50s), so the corners kept rounding for ~0.20s AFTER the
+            //   frame had already shrunk — they trailed the silhouette
+            //   (code-audit divergence). Matching the frame's spring makes
+            //   the corners track the shrink in lockstep = one cohesive
+            //   close, not corners-lagging-the-frame.
             .animation(presenter.isShown
                        ? .timingCurve(0.32, 0.72, 0, 1, duration: 0.40)
-                       : .interpolatingSpring(mass: 1.0, stiffness: 158, damping: 25, initialVelocity: 0),
+                       : .interpolatingSpring(mass: 1.0, stiffness: 438, damping: 36, initialVelocity: 0),
                        value: presenter.isShown)
             // ALSO animate the corner radii when pendingSystemEvent
             // changes (e.g. .volumeChanged → nil). Without this, the
@@ -2641,7 +2661,14 @@ struct PanelRootView: View {
     @ViewBuilder
     private var combinedPillContent: some View {
         let info = presenter.nowPlaying
-        let waveformIsPlaying: Bool = info?.isPlaying ?? presenter.isAudioFlowing
+        // 2026-05-22 PERF: pause the waveform whenever the pill isn't
+        // actually on screen — when it's tucked in the notch (fullscreen
+        // suppression / hidden), the TimelineView was still ticking and
+        // re-rendering this glass-backed pill every frame for nothing
+        // (perf log: ~800 missed-60fps spikes/min with notchHidden=true).
+        // The waveform only animates when the pill is genuinely visible.
+        let waveformIsPlaying: Bool =
+            (info?.isPlaying ?? presenter.isAudioFlowing) && !presenter.isAtNotchHidden
         // Pick tracker matching the active mode so the timer in the
         // hybrid music-and-mode pill reads the right session start.
         // Same fall-through to the presenter's *SessionStartedAt
@@ -3570,6 +3597,21 @@ struct PanelRootView: View {
         // artwork-arrival emission re-enters this path and flips then —
         // so the flip still fires the moment the real cover lands, with
         // no defer-pause.
+        // 2026-05-22 — KEEP THE 3D ARTWORK FLIP. The team master-synthesis
+        // + the Alcove binary's `disableArtworkFlip` symbol prove Alcove
+        // flips the cover (CALayer transform); "artwork = blur-replace" was
+        // a decode TRAP. An earlier blur-dissolve experiment here is
+        // reverted to this flip.
+        //
+        // The real gap (synthesis #2, "biggest visible feel win") was that
+        // content read TWO-STAGE: the flip was DEFERRED 0.34s after the
+        // shell, so you saw "empty slab drops, THEN cover turns over" — and
+        // under skipping that deferred flip got generation-cancelled before
+        // it fired (→ the hard cut the user reported). Apple WWDC18/23:
+        // content lags the surface by ~50ms on a slower curve, NOT a long
+        // fixed delay. Fix: defer 0.34 → 0.06s so the flip rides in WITH the
+        // shell, and a rapid skip can't outrun a 60ms defer. (Title
+        // BlurReplace lives in `trackTitleApron`; flip speed in `pillArtwork`.)
         do {
             let info = presenter.nowPlaying
             let oldData = displayedNowPlaying?.artworkData
@@ -3577,34 +3619,46 @@ struct PanelRootView: View {
             if pillArtworkImage != nil, let info = info,
                let nd = newData, !nd.isEmpty, nd != oldData {
                 // New cover is here and DISTINCT → real old→new flip.
-                pillNextArtwork = ArtworkCache.shared.image(
+                let newImg = ArtworkCache.shared.image(
                     data: nd, key: "\(info.title)|\(info.artist)")
-                let flipDuration: TimeInterval = 0.42
-                withAnimation(.easeInOut(duration: flipDuration)) {
-                    pillFlipAngle += 180
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + flipDuration) {
+                // FREEZE the old cover on the FRONT face for the whole turn
+                // — `pillArtworkImage` is mutated by racing refresh handlers,
+                // so the flip view reads `pillFlipFromArtwork` while
+                // `pillNextArtwork` is set (see `pillArtwork`).
+                let runFlip = {
                     guard gen == trackSwapGeneration else { return }
-                    displayedNowPlaying = info
-                    displayedTrackKey = newKey
-                    if let n = pillNextArtwork { pillArtworkImage = n }
-                    pillArtworkImageKey = newKey
-                    pillNextArtwork = nil
-                    pillFlipAngle = 0
-                    trackSwapPhase = 0
+                    pillFlipFromArtwork = pillArtworkImage
+                    pillNextArtwork = newImg
+                    let flipDuration: TimeInterval = 0.28
+                    withAnimation(.easeInOut(duration: flipDuration)) {
+                        pillFlipAngle += 180
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + flipDuration) {
+                        guard gen == trackSwapGeneration else { return }
+                        displayedNowPlaying = info
+                        displayedTrackKey = newKey
+                        if let n = pillNextArtwork { pillArtworkImage = n }
+                        pillArtworkImageKey = newKey
+                        pillNextArtwork = nil
+                        pillFlipFromArtwork = nil
+                        pillFlipAngle = 0
+                        trackSwapPhase = 0
+                    }
+                }
+                // Unified expand: ~60ms lag (was 0.34s) so the flip rides in
+                // WITH the shell, not after. Silent resting swaps (no banner)
+                // flip immediately.
+                if presenter.trackChangedFiring {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.06, execute: runFlip)
+                } else {
+                    runFlip()
                 }
             } else {
-                // New cover not here yet (Spotify lag). KEEP the OLD cover
-                // visible — do NOT advance displayedTrackKey / refresh
-                // (that cleared the cover to a placeholder = the "fading
-                // issue" the user reported). Leaving displayedTrackKey at
-                // the OLD value means the NEXT emission (when the artwork
-                // bytes finally arrive — key still differs from the held
-                // old key) re-enters this same track-change path and flips
-                // old→new with the real cover. If it never arrives, the
-                // retract-time sync (onReceive trackChangedFiring==false)
-                // is the safety net. Net effect: the cover never blanks.
-                ()   // intentionally do nothing — keep the old cover
+                // New cover not here yet (Spotify two-stage emission). KEEP
+                // the OLD cover visible — don't advance displayedTrackKey /
+                // refresh (that blanks the cover). The next emission (real
+                // bytes, key still differs) re-enters and flips old→new.
+                ()
             }
         }
         return
@@ -3700,8 +3754,13 @@ struct PanelRootView: View {
     /// instantly — no re-decode, no flash, no main-thread block.
 
     private func refreshPillArtworkImage() {
-        guard let info = displayedNowPlaying else {
-            MediaRemoteAdapterService.fileLog("PILL refresh: displayedNowPlaying=nil → clearing pillArtworkImage")
+        // 2026-05-22 — fall back to the LIVE now-playing cover when the
+        // lagged `displayedNowPlaying` is briefly nil (e.g. on open before
+        // it repopulates). Without this the left side went DARK for ~2s
+        // (user report) because the cover was cleared. Only truly clear
+        // when there's no music at all (both nil).
+        guard let info = displayedNowPlaying ?? presenter.nowPlaying else {
+            MediaRemoteAdapterService.fileLog("PILL refresh: no now-playing → clearing pillArtworkImage")
             pillArtworkImage = nil
             pillArtworkImageKey = ""
             return
@@ -3738,12 +3797,16 @@ struct PanelRootView: View {
         // (TheBoredTeam/boring.notch) uses in NowPlayingController:
         // they preserve previous artwork on partial updates, only
         // clearing on a true full-update with explicit nil.
-        if key != pillArtworkImageKey {
-            pillArtworkImage = nil
-            pillArtworkImageKey = key
-        }
-        // else: same track, no new image — keep existing
-        // pillArtworkImage on screen. Don't update pillArtworkImageKey.
+        // 2026-05-22 — DON'T clear to a dark placeholder on a track change.
+        // Previously `key != pillArtworkImageKey` set pillArtworkImage = nil,
+        // which (a) flashed the left side DARK for ~2s until the new cover
+        // decoded and (b) left the banner flip's FRONT face blank, so it
+        // "didn't flip with the previous card" (user). Keep the PREVIOUS
+        // cover on screen: the flip uses it as the genuine old→new front,
+        // and the new cover lands via the `if let newImage` path above the
+        // moment ArtworkCache has it (boring.notch's "preserve on diff").
+        // Intentionally keep the existing pillArtworkImage; don't advance
+        // the key, so a later refresh keeps trying until the new decodes.
     }
 
     /// Front face shown when cos(angle)>0, back face when <0 — the
@@ -3763,10 +3826,17 @@ struct PanelRootView: View {
     /// state-timing; this avoids that by preloading the back face and
     /// promoting on a generation-guarded completion (same as the slab).
     private var pillArtwork: some View {
-        ZStack {
+        // While a flip is in flight (pillNextArtwork set), the FRONT face
+        // must show the OLD cover captured at flip start — NOT the live
+        // `pillArtworkImage`, which a racing refresh can re-point to the
+        // new cover (→ "flip onto itself") or nil (→ blank→new flip).
+        let frontImg: NSImage? = pillNextArtwork != nil
+            ? (pillFlipFromArtwork ?? pillArtworkImage)
+            : pillArtworkImage
+        return ZStack {
             // FRONT — current (old) cover.
             Group {
-                if let img = pillArtworkImage {
+                if let img = frontImg {
                     Image(nsImage: img)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
@@ -3791,9 +3861,9 @@ struct PanelRootView: View {
                     .opacity(pillFlipCosineSign < 0 ? 1 : 0)
             }
         }
-        // Resting = 19pt; GROWS to 26pt during a track-change (Alcove's
-        // banner cover size). Gated on `trackChangedFiring` (flips at the
-        // retract START) so the cover shrinks IN SYNC with the pill.
+        // Resting = 19pt; GROWS to 26pt during a track-change. (Frame-by-frame
+        // vs Alcove confirmed banner cover sizes are comparable — the parity
+        // gap is the staged REVEAL, not the size; see expand-timing fix.)
         .frame(width: presenter.trackChangedFiring ? 26 : 19,
                height: presenter.trackChangedFiring ? 26 : 19)
         .clipShape(RoundedRectangle(cornerRadius: presenter.trackChangedFiring ? 6 : 4.5,
@@ -3807,9 +3877,13 @@ struct PanelRootView: View {
                           anchor: .center, perspective: 0.5)
         // The pill-content host nils the transaction animation (to make
         // the pill removal instant); that would SNAP the flip. Re-assert
-        // the flip curve here so the rotation actually turns.
+        // the flip curve here so the rotation actually turns. This
+        // re-assertion is the EFFECTIVE flip duration (it overrides the
+        // nil'd `withAnimation` in `triggerSongChange`). 2026-05-22:
+        // 0.42 → 0.28 per the team synthesis (#5) — Alcove's micro-motions
+        // are ~0.20–0.28s; 0.42 read a touch slow.
         .transaction { t in
-            if t.animation == nil { t.animation = .easeInOut(duration: 0.42) }
+            if t.animation == nil { t.animation = .easeInOut(duration: 0.28) }
         }
         // Crossfade fallback — no-op while `trackSwapPhase == 0` (the
         // flip path keeps it at 0). Used only when old/new art isn't
@@ -3840,6 +3914,16 @@ struct PanelRootView: View {
     /// fires). Styling mirrors the retired TrackChangedPillBody apron.
     private var trackTitleApron: some View {
         let info = presenter.nowPlaying
+        // 2026-05-22 — smooth the TITLE swap (was a 1-frame hard cut). The
+        // apron stays mounted while you skip (trackChangedFiring holds), so
+        // the title string changed instantly. `.contentTransition(.opacity)`
+        // cross-fades old→new in place, driven by the `.animation(value:
+        // trackKey)` below. NOTE: a true blur-replace is NOT a
+        // `ContentTransition` — `.blurReplace` is a `Transition` that needs
+        // an `.id` change, which NSHostingView animates unreliably in this
+        // codebase (the documented reason `triggerSongChange` uses explicit
+        // state, not `.transition`). So an opacity content cross-fade is the
+        // reliable in-place match. Artwork still flips (see `pillArtwork`).
         return HStack(spacing: 5) {
             Image(systemName: "music.note")
                 .font(.system(size: 10, weight: .regular))
@@ -3849,6 +3933,7 @@ struct PanelRootView: View {
                 .foregroundStyle(.white.opacity(0.85))
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .contentTransition(.opacity)
             if let artist = info?.artist, !artist.isEmpty {
                 Text("·")
                     .font(.system(size: 12, weight: .medium))
@@ -3858,6 +3943,7 @@ struct PanelRootView: View {
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .contentTransition(.opacity)
             }
         }
         .padding(.horizontal, 14)
@@ -3878,6 +3964,9 @@ struct PanelRootView: View {
         // sits ~18pt below the menu-bar line, ~mid-apron) at 12pt font.
         .frame(height: PanelWindowController.trackBannerBump, alignment: .center)
         .padding(.top, notchOverlap)
+        // Animate the title-string change so `.contentTransition` fires
+        // the blur-replace on each swap. ~0.18s ≈ Alcove's content reveal.
+        .animation(.easeOut(duration: 0.18), value: trackKey)
     }
 
     // MARK: - Background layers

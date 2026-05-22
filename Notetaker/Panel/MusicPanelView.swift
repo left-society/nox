@@ -166,6 +166,18 @@ struct MusicPanelView: View {
     /// Promoted to displayedArtworkImage at flip completion; reset
     /// to nil after promotion so the next flip starts clean.
     @State private var nextArtworkImage: NSImage? = nil
+    /// 2026-05-22 — PRELOAD-THEN-FLIP. When a track changes but its
+    /// cover hasn't decoded yet (Spotify's two-stage emission: title
+    /// first, cover ~100ms-2s later), we can't flip to a cover that
+    /// isn't here. Instead of crossfading to a DARK placeholder (the
+    /// "2s darkness on the left" the user reported) and then hard-
+    /// swapping the cover in (so it "flips but not with the previous
+    /// card"), we KEEP the previous cover on the front face and record
+    /// the awaited key here. The same-track artwork-refresh in
+    /// `onChange(nowPlaying)` fires the real old→new flip the instant
+    /// the cover lands. This matches Alcove's measured rule: prepare
+    /// the artwork first, THEN flip — never show a blank/dark card.
+    @State private var pendingFlipKey: String? = nil
     /// Source-app sound volume on a 0-1 scale. Polled on track
     /// change and dispatched on slider drag. Spotify and Apple Music
     /// both expose `sound volume` (0-100) in AppleScript.
@@ -1469,7 +1481,16 @@ struct MusicPanelView: View {
                 // source-icon fallback chain is preserved so first-
                 // paint and missing-art cases still work.
                 Group {
-                    if let image = displayedArtworkImage {
+                    // 2026-05-22 — RENDER-LEVEL never-black + always-have-a-
+                    // previous-face. State-level seeding kept failing (the
+                    // card mounts once while no cover exists, then the state
+                    // never re-seeds on open), so fall back HERE, at draw
+                    // time, to the last cover ArtworkCache decoded. This
+                    // can't be bypassed by @State update timing: if a cover
+                    // was EVER decoded this session, the card shows it
+                    // instead of the near-black placeholder, and a flip
+                    // always has a real front (previous) face.
+                    if let image = displayedArtworkImage ?? ArtworkCache.shared.lastDecoded {
                         Image(nsImage: image)
                             .resizable()
                             .interpolation(.high)
@@ -1571,7 +1592,29 @@ struct MusicPanelView: View {
                     // never firing). Just consume the synchronous
                     // return value.
                     if let img = ArtworkCache.shared.image(data: data, key: key) {
-                        displayedArtworkImage = img
+                        // 2026-05-22 — if a track change was waiting for its
+                        // cover (preload-then-flip), the cover JUST arrived →
+                        // run the deferred old→new FLIP now. The front face is
+                        // still the PREVIOUS track's cover (we kept it during
+                        // the lag), so this genuinely flips previous→new
+                        // instead of hard-swapping. Otherwise it's a normal
+                        // same-track async-artwork refresh → swap in place.
+                        if pendingFlipKey == newKey, displayedArtworkImage != nil {
+                            nextArtworkImage = img
+                            let flipDuration: TimeInterval = 0.30
+                            withAnimation(.easeInOut(duration: flipDuration)) {
+                                artworkFlipAngle += 180
+                            }
+                            let promoteKey = newKey
+                            DispatchQueue.main.asyncAfter(deadline: .now() + flipDuration) {
+                                displayedArtworkImage = img
+                                nextArtworkImage = nil
+                                artworkFlipAngle = 0
+                                if pendingFlipKey == promoteKey { pendingFlipKey = nil }
+                            }
+                        } else {
+                            displayedArtworkImage = img
+                        }
                     }
                 }
                 return
@@ -1627,17 +1670,32 @@ struct MusicPanelView: View {
         // The synchronous decode either returns the image now or
         // returns nil (which we propagate below).
         let img = ArtworkCache.shared.image(data: info.artworkData, key: key)
-        // ALWAYS update displayedArtworkImage — including when img
-        // is nil (cache miss, decode in flight). Setting to nil
-        // here clears any stale image from a previous track so the
-        // slab shows the placeholder source-app icon during the
-        // decode window. Without this clear, the OLD track's
-        // artwork would camp on screen while the new track's
-        // metadata (title, artist, album) was already displayed —
-        // exactly the "thumbnail is not changing" bug the user
-        // reported. The decode-completion closure replaces this
-        // nil with the decoded image once ready.
-        displayedArtworkImage = img
+        // 2026-05-22 — KEEP the previous cover on a cache miss instead of
+        // flashing the dark placeholder. Previously this set
+        // `displayedArtworkImage = img` unconditionally, so when img was
+        // nil (Spotify's cover lags the title by ~100ms-2s) the left side
+        // went DARK for that whole window — the "2s darkness on the left
+        // when it opens" the user reported. Holding the prior cover is
+        // exactly Alcove's behaviour (prepare art first; never blank the
+        // card). The cover swaps in via the same-track refresh in
+        // `onChange(nowPlaying)` the moment ArtworkCache decodes it (and,
+        // on a real track change, via the preload-then-flip path). Only
+        // the `info == nil` guard above (no track at all) clears it.
+        if let img = img {
+            displayedArtworkImage = img
+        } else if displayedArtworkImage == nil {
+            // 2026-05-22 — COLD OPEN / no cached cover for this track yet
+            // (cover bytes lag the title) AND nothing already on screen.
+            // Don't show the near-black placeholder ("completely black on
+            // open" — and a subsequent flip would have no FRONT face, so
+            // it "tilts without the before artwork"). Seed the last cover
+            // ArtworkCache decoded — almost always THIS track (it was just
+            // playing in the pill) — so the card is never black and the
+            // flip always has a real previous face. Self-corrects on the
+            // next emission.
+            displayedArtworkImage = ArtworkCache.shared.lastDecoded
+        }
+        MediaRemoteAdapterService.fileLog("MUSICCARD applyDisplayed: title=\"\(info.title)\" bytes=\(info.artworkData?.count ?? 0) decodedNow=\(img != nil) lastDecoded=\(ArtworkCache.shared.lastDecoded != nil) shown=\(displayedArtworkImage != nil)")
     }
 
     /// Full out-and-in artwork swap. Now the only swap path —
@@ -1718,7 +1776,9 @@ struct MusicPanelView: View {
             // around 90° — the front recedes at the same rate the
             // back approaches, so the eye reads it as one continuous
             // rotation rather than two phases.
-            let flipDuration: TimeInterval = 0.45
+            // 2026-05-22 — 0.45 → 0.30s. Alcove's measured artwork micro-
+            // motions are ~0.28s; 0.45 read a touch slow vs the reference.
+            let flipDuration: TimeInterval = 0.30
             withAnimation(.easeInOut(duration: flipDuration)) {
                 artworkFlipAngle += 180
             }
@@ -1733,10 +1793,25 @@ struct MusicPanelView: View {
                 nextArtworkImage = nil
                 artworkFlipAngle = 0
             }
+        } else if oldHasArt {
+            // 2026-05-22 — PRELOAD-THEN-FLIP. The new cover hasn't decoded
+            // yet (Spotify two-stage lag), so we can't flip TO it. Do NOT
+            // crossfade to a dark/blank card (that was the "2s darkness" +
+            // "flips but not with the previous card" bug). Keep the
+            // PREVIOUS cover on the front face, update only the text, and
+            // DEFER the flip — the same-track refresh in
+            // `onChange(nowPlaying)` runs the real old→new flip the instant
+            // the cover lands (front is still the old cover, so it
+            // genuinely flips previous→new). Alcove's rule: prepare the
+            // art, THEN flip; never show a blank card.
+            displayedTitle = newInfo?.title ?? ""
+            displayedArtist = newInfo?.artist ?? ""
+            displayedAlbum = newInfo?.album ?? ""
+            displayedArtworkData = newInfo?.artworkData
+            displayedTrackKey = newKey
+            pendingFlipKey = newKey
         } else {
-            // Quiet crossfade — no rotation. Mirrors Apple Music's
-            // own mini-player swap behaviour for placeholder
-            // states, and stops the "rotating too much" feel.
+            // Neither side has art → quiet crossfade, no rotation.
             withAnimation(.easeInOut(duration: 0.30)) {
                 applyDisplayed(from: newInfo)
                 displayedTrackKey = newKey

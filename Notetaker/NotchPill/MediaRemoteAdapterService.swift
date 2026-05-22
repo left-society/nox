@@ -94,6 +94,23 @@ final class MediaRemoteAdapterService {
     /// `MediaRemoteService.publish()` pipeline.
     var onSnapshot: ((NowPlayingInfo?) -> Void)?
 
+    /// 2026-05-22 PERF dedup. `--no-diff` makes the adapter re-emit a FULL
+    /// snapshot every ~50ms; the only field that changes during steady
+    /// playback is `elapsedTime` (the position tick). Each emit churned
+    /// `presenter.nowPlaying` → a re-evaluation of the glass-backed pill
+    /// ~20×/sec even at rest (perf log: idle pill pinned at ~55fps with
+    /// periodic hitches). The slab progress bar self-computes position from
+    /// wall-clock (`info.currentPosition(at:)`), so it does NOT need these
+    /// position-only ticks. We therefore suppress an emit when nothing the
+    /// UI shows changed — pushing only on a real change (track / artwork /
+    /// play-state) or a position JUMP (a seek the progress base must
+    /// resync to). `lastEmissionElapsed` is updated on EVERY emission so a
+    /// seek is detected against the immediately-prior emit, not an
+    /// accumulating drift.
+    private var lastSnapshotKey: String?
+    private var lastEmissionElapsed: Double?
+    private var lastEmitAt: Date = .distantPast
+
     /// True once `start()` succeeded and the perl subprocess is
     /// running. Public so callers can check before falling back
     /// to the dlsym path.
@@ -456,6 +473,27 @@ final class MediaRemoteAdapterService {
         }
 
         let info = translate(payload)
+        // PERF dedup (see lastSnapshotKey): drop position-only re-emits so the
+        // glass pill doesn't re-render ~20×/sec at rest.
+        if let info = info {
+            let key = "\(info.title)|\(info.artist)|\(info.artworkData?.count ?? 0)|\(info.isPlaying)"
+            let elapsed = info.elapsedTime ?? 0
+            let isSeek = abs(elapsed - (lastEmissionElapsed ?? elapsed)) > 2.0
+            lastEmissionElapsed = elapsed
+            // Real change (track/artwork/play-state) or seek → emit now.
+            // Otherwise it's just the position tick: THROTTLE to ~1Hz so the
+            // pill stops re-rendering 20×/sec, while downstream still gets a
+            // heartbeat well inside the 1.5s quiet-watchdog window.
+            let throttled = (key == lastSnapshotKey) && !isSeek
+                && Date().timeIntervalSince(lastEmitAt) < 1.0
+            if throttled { return }
+            lastSnapshotKey = key
+            lastEmitAt = Date()
+        } else {
+            lastSnapshotKey = nil
+            lastEmissionElapsed = nil
+            lastEmitAt = .distantPast
+        }
         Self.fileLog("MRA snapshot: bundle=\(payload.bundleIdentifier ?? "nil") title=\"\(payload.title ?? "")\" artist=\"\(payload.artist ?? "")\" art=\(payload.artworkData?.count ?? 0)b → out art=\(info?.artworkData?.count ?? 0)b")
         onSnapshot?(info)
     }

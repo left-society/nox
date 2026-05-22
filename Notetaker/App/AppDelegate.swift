@@ -338,6 +338,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the announcement when MR re-emits the same track on every
     /// position update or when the user pauses and resumes.
     private var lastAnnouncedTrackKey: String = ""
+    /// Monotonic token for the track-change banner's auto-dismiss timer.
+    /// Each announcement bumps it and captures the value; the +2.0s
+    /// dismiss closure only retracts if its captured token is STILL the
+    /// latest. A newer skip bumps the token, so the older skip's dismiss
+    /// bails — the banner stays up and just SWAPS CONTENT in place (title
+    /// + art flip), then retracts 2.0s after the LAST skip. This is the
+    /// swap-in-place / reset-dwell behavior confirmed by frame-by-frame
+    /// comparison AND the Alcove decode (binary `notificationCloseGeneration`;
+    /// banner-motion-spec: "if a new track arrives while the banner is
+    /// still visible, swap in place and reset dwell. Do not close/reopen").
+    /// Without it each skip's independent dismiss retracted the banner
+    /// mid-dwell → the "collapse-and-regrow per track / separate thing"
+    /// the recordings showed.
+    private var trackBannerGeneration: UInt64 = 0
     private var lastTransientFirstSeenAt: Date = .distantPast
 
     /// Pending pill-retract work when audio stops flowing. Cancelled
@@ -2143,6 +2157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     && panel.presenter.isResting
                     && !panel.presenter.isShown
                     && !isUtility
+                    && !panel.environmentSuppressed   // no banner while fullscreen-hidden
                 if willFireBanner {
                     panel.presenter.trackChangedFiring = true
                     // Capture the OLD artwork BEFORE updating nowPlaying.
@@ -2199,6 +2214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     && info.isPlaying
                     && panel.presenter.isResting
                     && !panel.presenter.isShown
+                    && !panel.environmentSuppressed   // no banner while fullscreen-hidden
                 if shouldAnnounce {
                     // Update the dedup key + cached artwork BEFORE
                     // the Focus check. We want this to advance even
@@ -2231,17 +2247,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // buffer for Spotify's two-stage artwork emission
                     // (metadata then JPEG ~50ms later) while still
                     // feeling immediate.
+                    //
+                    // SWAP-IN-PLACE token (2026-05-22). Bump BEFORE
+                    // scheduling so each skip captures a unique gen; the
+                    // +2.0s dismiss below bails unless it's still latest.
+                    trackBannerGeneration &+= 1
+                    let bannerGen = trackBannerGeneration
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak panel] in
                         guard let panel = panel,
                               panel.presenter.isResting,
                               !panel.presenter.isShown else { return }
+                        // showTrackBanner no-ops if already expanded (an
+                        // earlier skip's banner is still up), so this just
+                        // swaps content in place: the new title + the
+                        // album-art flip driven by the .trackChanged event.
                         panel.showTrackBanner()
                         panel.presenter.setPendingSystemEvent(
                             .trackChanged(title: info.title, artist: info.artist)
                         )
                     }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak panel] in
-                        guard let panel = panel else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self, weak panel] in
+                        guard let self, let panel = panel else { return }
+                        // STALE-DISMISS GUARD: if a newer skip bumped the
+                        // generation since we were scheduled, leave the
+                        // banner up — the newer skip's dismiss owns the
+                        // retract. This turns rapid skips into ONE
+                        // continuous banner that swaps content, instead of
+                        // collapsing to compact + regrowing per track (the
+                        // "separate thing" the recordings showed).
+                        guard self.trackBannerGeneration == bannerGen else { return }
                         // 2026-05-21 — retract matched to Alcove's
                         // MEASURED sequence (Alcove 2 recording, frames
                         // 1069-1084): the title vanishes FAST (~50ms)
@@ -2475,7 +2509,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let effectivelyPlaying: Bool = {
             if let np = np, !mrCacheIsStale {
-                return np.isPlaying
+                if np.isPlaying { return true }
+                // 2026-05-22 ROOT-CAUSE FIX. MediaRemote sometimes reports
+                // isPlaying=FALSE while audio is actively flowing — Spotify
+                // in particular publishes the track metadata but leaves its
+                // playback-state flag stuck `false`. nox then hid the pill
+                // even though the song was clearly playing (user: "music
+                // change … the whole thing becomes empty for 2 sec" — the
+                // pill never showed). So: if there's REAL now-playing
+                // metadata AND CoreAudio shows audio flowing (and we're not
+                // MR-gated), the track IS playing — trust the audio signal
+                // over the stuck flag. np==nil still returns false below, so
+                // this can't resurrect the empty-notch black-rectangle bug
+                // (that was the no-metadata path).
+                return audioOn && !noMRGated
             }
             // 2026-05-21: when there is NO now-playing metadata at all
             // (np == nil), do NOT surface the resting pill off the bare
@@ -2507,12 +2554,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // enterRestingMode is idempotent.
             panel.enterRestingMode()
         } else {
-            // 1.5s debounce so brief gaps (track changes, scrubs)
-            // don't flicker the pill. After 1.5s of no effective
-            // playback the pill collapses to the notch silhouette
-            // — UNLESS Focus mode is anchoring the pill (in which
-            // case we keep the focus session indicator visible
-            // even with no audio).
+            // Grace LINGER before the music pill closes. 2026-05-22:
+            // 1.5s → 4.0s (user: "when there is no music let's have
+            // sometime before closing the music pill — right now it's
+            // instant"). So when audio stops, the pill stays on the last
+            // track for ~4s, then smoothly collapses into the notch —
+            // instead of vanishing almost immediately. Still covers brief
+            // gaps (track changes, scrubs) without flicker, and Focus mode
+            // still anchors the pill independently of this timer.
             let work = DispatchWorkItem { [weak self] in
                 guard let self else { return }
                 if !self.pillHasAnyAnchor() {
@@ -2521,7 +2570,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.audioFlowingRetractWork = nil
             }
             audioFlowingRetractWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: work)
         }
     }
 

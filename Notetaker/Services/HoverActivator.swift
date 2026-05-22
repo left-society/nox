@@ -37,21 +37,27 @@ final class HoverActivator {
 
     /// How long the cursor must remain inside the hot zone before we
     /// fire `onActivate`. Tuning history:
-    ///   • 0.10s: snappy default per user direction (2026-05-06).
-    ///     Earlier exploration in this band:
-    ///       0.12s/0.14s: hair-trigger — every cursor swing past the
-    ///         notch popped the panel.
-    ///       0.27s: more conservative middle ground (the previous
-    ///         default before the user dialed the feel down).
-    ///       0.40s: too slow.
-    ///   • Users can still dial it from Settings → General → Open
-    ///     delay if they want it slower; the slider range
-    ///     (0.10–0.60s) covers everything that felt sane in testing.
+    ///   • 0.10s: "snappy" — but the reach/tease animation is 0.18s, so
+    ///     the open COMMITTED before the reach even finished. The user
+    ///     never felt the "notch noticed you, reaching toward you" beat;
+    ///     it just blanked open. User 2026-05-22: "opening it too fucking
+    ///     fast … give the feeling that apple feel BEFORE opening."
+    ///   • 0.22s: deliberately LONGER than the 0.18s reach so it settled
+    ///     AND held a ~40ms beat before opening. The user read that beat
+    ///     as the open being TWO SEPARATE STEPS — "it nudges, pauses, then
+    ///     jumps open" (2026-05-22). The hold WAS the pause.
+    ///   • 0.18s (current): matches the reach duration so the open commits
+    ///     the instant the reach finishes — no hold, no pause. The reach
+    ///     flows straight into the bloom (and the bloom carries a small
+    ///     follow-through velocity so the handoff doesn't dip to a stop —
+    ///     see `animateOpen`'s initialVelocity). One continuous gesture.
+    ///   • Users can still dial it from Settings → General → Open delay
+    ///     (slider 0.10–0.60s).
     /// Reads from `@AppStorage("hoverDwellSeconds")` — falling back
     /// to this default when no user override is set.
     private var dwellSeconds: TimeInterval {
         let stored = UserDefaults.standard.double(forKey: "hoverDwellSeconds")
-        return stored > 0 ? stored : 0.10
+        return stored > 0 ? stored : 0.18
     }
 
     /// Lockout window after a fire. Without this, a user who just
@@ -335,17 +341,16 @@ final class HoverActivator {
         // straight to the slab + drop picker.
         let isDragging = isDragEvent || (NSEvent.pressedMouseButtons & 1) != 0
 
-        // DIAGNOSTIC LOGGING (verbose). Helps trace why the drop picker
-        // isn't appearing during drags. Remove once confirmed working.
-        if inside != isInsideZone {
-            NSLog("🔍 HoverActivator: cursor zone change inside=\(inside) wasInside=\(isInsideZone) isDragEvent=\(isDragEvent) buttons=\(NSEvent.pressedMouseButtons)")
-        }
-
+        // 2026-05-22: removed the per-move diagnostic NSLogs from this hot
+        // path. They fired on every zone change / tease / activate — i.e.
+        // on the exact frames the "reach" animates — and NSLog does
+        // synchronous I/O. The smoothness report flagged this as hover-path
+        // overhead; dropping it keeps the reach clean (Alcove's hover is
+        // event-driven controller state with no logging in the loop).
         if inside && !isInsideZone {
             isInsideZone = true
             // Cooldown blocks BOTH the tease bloom and the activate.
             if Date() < cooldownUntil {
-                NSLog("🔍 HoverActivator: skipping (cooldown)")
                 return
             }
 
@@ -356,7 +361,6 @@ final class HoverActivator {
                 // route the in-flight drag into the panel and the
                 // DropPickerView renders in time for the user to
                 // drop on a zone.
-                NSLog("🔍 HoverActivator → activate (drag fast path)")
                 cooldownUntil = Date().addingTimeInterval(cooldownSeconds)
                 onActivate()
                 return
@@ -370,7 +374,6 @@ final class HoverActivator {
             let work = DispatchWorkItem { [weak self] in
                 guard let self, self.isInsideZone, !self.teaseFired else { return }
                 self.teaseFired = true
-                NSLog("nox: HoverActivator → tease")
                 self.onTeaseStart()
                 self.armDwellTimer()
             }
@@ -436,7 +439,6 @@ final class HoverActivator {
             self.teaseFired = false
             self.dwellWorkItem = nil
             self.cooldownUntil = Date().addingTimeInterval(self.cooldownSeconds)
-            NSLog("nox: HoverActivator → activate")
             self.onActivate()
         }
         dwellWorkItem = work

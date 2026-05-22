@@ -133,6 +133,13 @@ final class ArtworkCache {
     /// pre-warm the cache for upcoming tracks via `decode(...)`
     /// — that DOES go off-main and the result is then a free O(1)
     /// hit when the swap happens.
+    /// 2026-05-22 — the most-recently-returned decoded cover. Used as a
+    /// never-black fallback when the music slab opens cold and the
+    /// current track's cover isn't cached yet (cover bytes lag the
+    /// title). Almost always the current track (it was just playing in
+    /// the pill), and self-corrects on the next emission.
+    private(set) var lastDecoded: NSImage?
+
     func image(data: Data?, key: String) -> NSImage? {
         // 2026-05-01: cache lookup by key BEFORE the data-nil guard.
         // YouTube (and other browser tabs) re-emit MediaRemote info
@@ -149,6 +156,7 @@ final class ArtworkCache {
         // different the caller's key won't be in the cache and we
         // fall through to the decode-or-nil paths below.
         if let cached = cache.object(forKey: key as NSString) {
+            lastDecoded = cached
             return cached
         }
         guard let data = data else { return nil }
@@ -156,6 +164,7 @@ final class ArtworkCache {
         // bounded (~50ms) and only happens once per track.
         guard let image = NSImage(data: data) else { return nil }
         cache.setObject(image, forKey: key as NSString, cost: data.count)
+        lastDecoded = image
         return image
     }
 }
