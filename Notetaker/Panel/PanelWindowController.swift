@@ -3423,6 +3423,35 @@ final class PanelWindowController {
                 ])
             }
         }
+
+        // 2026-05-22 SAFETY NET for the "slab splits, wallpaper through the
+        // gap, after switching tabs" bug. If ANOTHER morph bumps
+        // `animationGeneration` mid-resize (volume HUD, a second tab switch,
+        // an environment-suppression cancel), the spring's completion above
+        // bails on its gen guard and never runs the final `setFrame(target)`
+        // — leaving the panel stuck at the OLD tab's (shorter) height while
+        // the SwiftUI content is already the NEW (taller) tab. Both the
+        // background and the content are clipped to `panelSilhouette` (sized
+        // to the panel frame), so the too-short frame clips the silhouette
+        // above the new content and the desktop shows through the gap.
+        // Re-assert the CURRENT tab's target after the spring should have
+        // settled (ungated by generation, so an interrupted resize still
+        // converges). Cheap no-op when the frame already matches.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+            guard let self, self.isVisible, self.presenter.isShown else { return }
+            let screen = self.panel.screen ?? self.activeScreen
+            let want = self.openSlabFrame(for: screen, tab: self.presenter.activeTab)
+            guard abs(self.panel.frame.height - want.height) > 1
+                    || abs(self.panel.frame.width - want.width) > 1 else { return }
+            MediaRemoteAdapterService.fileLog(
+                "TAB-RESIZE safety net: frame \(Int(self.panel.frame.width))x\(Int(self.panel.frame.height)) "
+                + "!= tab \(self.presenter.activeTab.rawValue) target "
+                + "\(Int(want.width))x\(Int(want.height)) — forcing (was the split-slab gap)")
+            self.currentSpring?.cancel()
+            self.currentSpring = nil
+            self.panel.setFrame(want, display: true)
+            self.updateShadowPath()
+        }
     }
 
     /// Settle any in-flight `NSAnimationContext` animation on
