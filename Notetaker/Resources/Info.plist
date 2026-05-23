@@ -50,7 +50,7 @@
 	<key>SUFeedURL</key>
 	<string>https://trynox.app/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>n/eovhDL82Gp75QMByGpBpwU9/SpYLFEFOoElzSIkoo=</string>
+	<string>kYR6EH2ZY6j2+QcoZuL5UvRkmzEA4dC1mlpBkMAxML8=</string>
 	<key>SUScheduledCheckInterval</key>
 	<integer>14400</integer>
 </dict>
