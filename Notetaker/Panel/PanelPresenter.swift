@@ -57,6 +57,19 @@ final class PanelPresenter: ObservableObject {
     /// Resets to 0 on commit / cancel / show / hide.
     @Published var swipeOffsetY: CGFloat = 0
 
+    /// Horizontal content offset during a two-finger SIDE swipe, in
+    /// points. Applied as a SwiftUI `.offset(x:)` on the panel
+    /// composition so the pill/slab visibly slides toward the swipe
+    /// with Apple's rubber-band resistance, then springs back. This is
+    /// the VISIBLE "stretch" on left/right swipes (2026-05-23) — the
+    /// previous side-swipe only switched tracks with button feedback
+    /// and never moved the pill, so the elastic stretch was invisible.
+    /// PanelWindowController writes `RubberBand.resist(...)` here each
+    /// gesture tick; the `.interactiveSpring` on the consumer smooths
+    /// and springs it home. Slides within the window's halo so it never
+    /// clips. Resets to 0 on commit / cancel / end / show / hide.
+    @Published var swipeOffsetX: CGFloat = 0
+
     /// CoreAudio-driven "is any user-facing app actually outputting
     /// audio right now?" signal. Sourced from
     /// `SystemAudioWatcher.isAudioFlowing` via NotchOrchestrator.
@@ -79,6 +92,16 @@ final class PanelPresenter: ObservableObject {
     /// "buttery smooth jelly" rather than the jittery wobble the
     /// user reported.
     @Published var isMorphing: Bool = false
+
+    /// 2026-05-24 — True while the no-music tease is in flight (panel
+    /// grown into the touch-feel pill, but not yet committed to a
+    /// full open). Set by `PanelWindowController.tease()`, cleared
+    /// by `dismissTease()` / `animateOpen()`. PanelRootView reads
+    /// this to pick softer silhouette corners during the reach (the
+    /// default empty-state 4pt top / 6pt bottom radii read as "sharp
+    /// top corners" once the tease pill is big enough to expose the
+    /// shoulder — see user feedback against toch feel.mp4 reference).
+    @Published var isTeasing: Bool = false
 
     /// 2026-05-04: per-frame cost fix for slab open. The cascade
     /// (header / segmented / divider / content + music card sub-
@@ -251,6 +274,14 @@ final class PanelPresenter: ObservableObject {
     /// constructed before the orchestrator exists; the delegate
     /// installs this closure once both have been built.
     var onMediaCommand: ((MediaRemoteService.Command) -> Void)?
+
+    /// 2026-05-23 — seek dispatch. MusicPanelView calls this with the
+    /// target time in seconds when the user drags the progress bar;
+    /// AppDelegate wires it to `NotchOrchestrator.handleSeek`, which
+    /// routes by source (Spotify/Music AppleScript, browser JS injection,
+    /// or perl adapter). Optional for the same reason as `onMediaCommand`
+    /// — the orchestrator may not exist yet at presenter-construction.
+    var onSeek: ((TimeInterval) -> Void)?
 
     /// "Bring the source app for the now-playing track to the front."
     /// Wired by AppDelegate to NotchOrchestrator.openSourceApp, which

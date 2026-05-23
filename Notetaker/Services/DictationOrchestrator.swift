@@ -186,20 +186,34 @@ final class DictationOrchestrator: ObservableObject {
     /// outside Xcode painful. Writing every important event to a
     /// known file path means `tail -f /tmp/nox-dictation.log`
     /// always works.
+    ///
+    /// 2026-05-24 — REWORKED for production. The previous implementation
+    /// did SYNCHRONOUS file I/O (open + seek + write + close, plus a
+    /// fresh ISO8601DateFormatter allocation) on the caller's thread,
+    /// PLUS a synchronous NSLog. dlog is called from drag handlers
+    /// (draggingEntered / Exited / Ended / performDragOperation / etc.)
+    /// AND hot panel paths AND parkAtNotchHidden. During a drag where
+    /// AppKit fires multiple enter/exit cycles per resize, this was
+    /// running rapid-fire file I/O on the drag-event thread — visible
+    /// as the "drag and drop becomes laggy and jittery" the user
+    /// reports.
+    ///
+    /// New implementation:
+    ///   • Release builds: NO-OP. The diagnostic value is zero for
+    ///     end users and the cost is real. Returns immediately.
+    ///   • Debug builds: timestamp formatted on caller's thread (cheap
+    ///     string), actual write routed through a serial background
+    ///     queue (no main / drag-thread blocking). Same pattern as
+    ///     MediaRemoteAdapterService.fileLog → MRALogWriter.
     static let debugLogPath = "/tmp/nox-dictation.log"
     nonisolated static func dlog(_ message: String) {
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let line = "[\(timestamp)] \(message)\n"
-        if let data = line.data(using: .utf8) {
-            if let handle = FileHandle(forWritingAtPath: debugLogPath) {
-                handle.seekToEndOfFile()
-                handle.write(data)
-                handle.closeFile()
-            } else {
-                FileManager.default.createFile(atPath: debugLogPath, contents: data, attributes: nil)
-            }
-        }
-        NSLog("nox: %@", message)
+        #if DEBUG
+        DictationDLogWriter.shared.write(message)
+        #else
+        // Release: no-op. Caller pays only the cost of the call
+        // itself (no formatter allocation, no syscall, no NSLog).
+        _ = message
+        #endif
     }
 
     init() {
@@ -876,4 +890,49 @@ extension Notification.Name {
     /// enable nox. Previously this failure was log-only — users had no
     /// way to know why hold-to-talk silently did nothing.
     static let noxDictationAccessibilityMissing = Notification.Name("nox.dictation.accessibilityMissing")
+}
+
+/// 2026-05-24 — Background-queue writer for DictationOrchestrator.dlog
+/// (DEBUG only). Mirrors `MRALogWriter` in MediaRemoteAdapterService:
+/// timestamp formatting happens on the caller's thread (cheap string),
+/// actual write is queued onto a serial utility-QoS queue holding a
+/// single long-lived FileHandle. No syscalls on drag-event threads,
+/// no per-call ISO8601DateFormatter allocation, no synchronous NSLog.
+///
+/// Process-singleton because the log file is. Lazily opened on first
+/// write so test builds that import DictationOrchestrator but never
+/// log don't touch the filesystem.
+final class DictationDLogWriter {
+    static let shared = DictationDLogWriter()
+    private static let logURL = URL(fileURLWithPath: DictationOrchestrator.debugLogPath)
+    private let queue = DispatchQueue(label: "app.trynox.nox.dictation-dlog", qos: .utility)
+    private let formatter: ISO8601DateFormatter
+    private var fileHandle: FileHandle?
+    private var openAttempted = false
+
+    private init() {
+        formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    }
+
+    func write(_ message: String) {
+        // Format on the caller's thread — cheap, captures timestamp at
+        // call time rather than at flush time.
+        let timestamp = formatter.string(from: Date())
+        let line = "[\(timestamp)] \(message)\n"
+        queue.async { [weak self] in
+            guard let self else { return }
+            if !self.openAttempted {
+                self.openAttempted = true
+                if !FileManager.default.fileExists(atPath: Self.logURL.path) {
+                    FileManager.default.createFile(atPath: Self.logURL.path, contents: nil)
+                }
+                self.fileHandle = try? FileHandle(forWritingTo: Self.logURL)
+                _ = try? self.fileHandle?.seekToEnd()
+            }
+            guard let handle = self.fileHandle,
+                  let data = line.data(using: .utf8) else { return }
+            try? handle.write(contentsOf: data)
+        }
+    }
 }

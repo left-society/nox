@@ -44,6 +44,7 @@
 		5499A9601CB963C14FB01FD9 /* LocalWhisperService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D0433C667BB1E97BF099E71 /* LocalWhisperService.swift */; };
 		57CB3FF58705FAF285235AFA /* VideosGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98E3F8A6AFB9CFA5A2888105 /* VideosGridView.swift */; };
 		5A21EE0001AABB001AABB001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5A21EE0002AABB002AABB002 /* Sparkle */; };
+		WAVE0001A1B2C3D4E0001AAA /* Wave in Frameworks */ = {isa = PBXBuildFile; productRef = WAVE0002A1B2C3D4E0002BBB /* Wave */; };
 		5C3B3FD9E4616938A9D93D0C /* LocalThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90BD720CF17DAEB227F4B2C /* LocalThumbnailView.swift */; };
 		5EC5EF6A866198545A06C4D4 /* TimerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F1E3E1BEEAFD3C78135FAA7 /* TimerService.swift */; };
 		640131856A47354072120A76 /* FocusStatusService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F2BCA1A49368682B2BD7E7D /* FocusStatusService.swift */; };
@@ -323,6 +324,7 @@
 				B3E37B3CBA9C92C1D08C7ACC /* HotKey in Frameworks */,
 				EF5A0E85CB9FDA540373327C /* WhisperKit in Frameworks */,
 				5A21EE0001AABB001AABB001 /* Sparkle in Frameworks */,
+				WAVE0001A1B2C3D4E0001AAA /* Wave in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -632,6 +634,7 @@
 				C16A2E7CC8B24487D4795D88 /* HotKey */,
 				325189C692EF7A0950D7EB97 /* WhisperKit */,
 				5A21EE0002AABB002AABB002 /* Sparkle */,
+				WAVE0002A1B2C3D4E0002BBB /* Wave */,
 			);
 			productName = Notetaker;
 			productReference = 3DD697F40719E395F5EBE88F /* Notetaker.app */;
@@ -687,6 +690,7 @@
 				07B7421E8D8C1F3EFCF305E1 /* XCRemoteSwiftPackageReference "HotKey" */,
 				886C59FFFE241691F87D5950 /* XCRemoteSwiftPackageReference "WhisperKit" */,
 				5A21EE0003AABB003AABB003 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				WAVE0003A1B2C3D4E0003CCC /* XCRemoteSwiftPackageReference "Wave" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 24F822B585F5803D2A806378 /* Products */;
@@ -908,14 +912,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = Notetaker/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.9.21;
+				MARKETING_VERSION = 1.9.22;
 				PRODUCT_BUNDLE_IDENTIFIER = app.trynox;
 				PRODUCT_NAME = nox;
 				SDKROOT = macosx;
@@ -946,14 +950,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = Notetaker/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.9.21;
+				MARKETING_VERSION = 1.9.22;
 				PRODUCT_BUNDLE_IDENTIFIER = app.trynox;
 				PRODUCT_NAME = nox;
 				SDKROOT = macosx;
@@ -1172,6 +1176,14 @@
 				minimumVersion = 0.9.0;
 			};
 		};
+		WAVE0003A1B2C3D4E0003CCC /* XCRemoteSwiftPackageReference "Wave" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/jtrivedi/Wave";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.3.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1194,6 +1206,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 07B7421E8D8C1F3EFCF305E1 /* XCRemoteSwiftPackageReference "HotKey" */;
 			productName = HotKey;
+		};
+		WAVE0002A1B2C3D4E0002BBB /* Wave */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = WAVE0003A1B2C3D4E0003CCC /* XCRemoteSwiftPackageReference "Wave" */;
+			productName = Wave;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

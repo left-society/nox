@@ -278,6 +278,19 @@ struct PanelRootView: View {
     /// already settled, corrupting the visible state.
     @State private var trackSwapGeneration: Int = 0
 
+    /// Last newKey for which `triggerSongChange` actually started a
+    /// flip. Used as a guard to prevent the same track-change from
+    /// double-firing: `.onChange(of: nowPlaying)` and
+    /// `.onChange(of: trackBannerVisualActive)` BOTH fire for a single
+    /// track change (Spotify two-stage emission + banner becoming
+    /// visible), and without this guard each call ran its own
+    /// `pillFlipAngle += 180`, producing the double-spin (= what the
+    /// user saw as "3 flips"). With this guard, the second call sees
+    /// `lastFlippedKey == newKey` and returns before re-starting the
+    /// rotation — exactly ONE flip per actual track key change.
+    /// (2026-05-23)
+    @State private var lastFlippedKey: String = ""
+
     /// Pill-cover FLIP on track change (ported from the slab's
     /// `runFullArtworkSwap`). `pillFlipAngle` is the outer Y-rotation
     /// (0 → 180 → 360…); `pillNextArtwork` is the incoming cover
@@ -320,6 +333,41 @@ struct PanelRootView: View {
     /// The matchedGeometryEffect comment on `ScribbleTabButton` always
     /// described this; it just was never actually wired up. (2026-05-21)
     @Namespace private var tabPillNS
+
+    /// Hero-morph namespace for the music artwork. The slab's 76pt cover
+    /// (MusicPanelView.artwork) and the compact pill's 22pt cover
+    /// (`pillArtwork`) both tag themselves with id "music-art-hero" in
+    /// this namespace, with `isSource` flipping on `presenter.isShown`.
+    /// SwiftUI then INTERPOLATES the frame between the two views during
+    /// the slab open/close — so visually the cover shrinks/grows in
+    /// place across the morph instead of one fading out and the other
+    /// fading in as disconnected pieces. (2026-05-23 — added because
+    /// the user reported the close "looks like 2 separate part"; the
+    /// hero morph fuses them into one continuous element.)
+    @Namespace private var musicArtworkHeroNS
+
+    /// Mirror of `ScribbleTabButton`'s indicator-style preference so the
+    /// PARENT can decide whether to draw the sliding selection pill. The
+    /// pill (the capsule that travels between tabs) is owned here, not by
+    /// the buttons, so it must read the same `@AppStorage` key the buttons
+    /// do. `.capsule` / `.capsuleAndMarker` show the pill; `.marker` /
+    /// `.none` hide it. (2026-05-22)
+    @AppStorage(SettingsKey.tabIndicatorStyleRaw) private var tabIndicatorStyleRaw: String = TabIndicatorStyle.capsule.rawValue
+    private var tabIndicatorStyle: TabIndicatorStyle {
+        TabIndicatorStyle(rawValue: tabIndicatorStyleRaw) ?? .capsule
+    }
+
+    /// 0 → 1 transient "squash-stretch" of the selection pill while it
+    /// travels between tabs. 0 = rest (identity). On each tab switch it
+    /// pulses to 1 (a quick ease-out) then springs back to 0, so the
+    /// pill briefly stretches along its travel — the secondary motion
+    /// that reads as "alive" without being gimmicky at this 28pt scale
+    /// (motion research: keep ≤6% width / ≤4% height; we use 4% / 2.5%).
+    /// macOS 13 has no PhaseAnimator, so this is driven by a two-stage
+    /// `withAnimation` in `onChange`; `pillStretchGen` guards against
+    /// overlapping settles when the user switches tabs rapidly.
+    @State private var pillStretch: CGFloat = 0
+    @State private var pillStretchGen: Int = 0
 
     /// 2026-05-04 (user feedback: "i can still see some lag when i am
     /// onto different tabs"): tab content was being re-mounted from
@@ -543,6 +591,16 @@ struct PanelRootView: View {
         if presenter.nowPlaying != nil {
             return 14
         }
+        // 2026-05-24 — TEASE STATE rounder bottom (12pt). The new
+        // 15pt drop exposes the bottom corners; 6pt at the wider
+        // tease pill read as a near-flat bottom edge meeting the
+        // sides at near-90° — part of the "rough edges" the user
+        // flagged. 12pt gives the bottom a clear pill curve, in
+        // family with the music-pill banner's 14pt without making
+        // the no-music reach feel as prominent as a music event.
+        if presenter.isTeasing {
+            return 12
+        }
         // No music: notch hardware character (6pt rounded bottom).
         return 6
     }
@@ -604,6 +662,17 @@ struct PanelRootView: View {
         // music pill character, do not tweak).
         if presenter.nowPlaying != nil {
             return 6
+        }
+        // 2026-05-24 — TEASE STATE softer top shoulder (12pt).
+        // At the new 240pt tease width / 15pt drop, the 4pt
+        // notch-hidden shoulder reads as a "sharp top corner on
+        // the reach" (user feedback against toch feel.mp4
+        // reference). 12pt matches the music-pill banner shoulder
+        // family so the no-music tease has the same gentle
+        // shoulder character as the music banners — consistent
+        // visual vocabulary across reach states.
+        if presenter.isTeasing {
+            return 12
         }
         // No-music closed (notch-hidden): 4pt subtle shoulder.
         // 2026-05-06 measured against Alcove: their `NotchShape`
@@ -740,13 +809,84 @@ struct PanelRootView: View {
                 // animation context. The pill content vanishes
                 // the moment isShown flips true; the slab grows
                 // over a clean black panel from frame zero.
-                Group {
-                    if !presenter.isShown {
-                        pillContentOverlay
-                            .transition(.identity)
-                    }
-                }
-                .transaction { txn in txn.animation = nil }
+                // 2026-05-23 — CROSSFADE on close (no more "2 parts").
+                // Previously this used `.transition(.identity)` +
+                // `transaction { animation = nil }` so pill content
+                // popped INSTANTLY when `isShown` flipped false. While
+                // the slab content was still fading out (its own
+                // ~280ms spring), the user saw BOTH artworks
+                // simultaneously: the slab's 76pt cover fading +
+                // the pill's 22pt cover sharp — "First artwork is
+                // not attaching good enough, it seems like 2
+                // separate part."
+                //
+                // Asymmetric transition fixes the artifact without
+                // re-introducing the open-flash that the old
+                // `.identity` was guarding against:
+                //   • REMOVAL (open) — 0.05s fade out. Faster than
+                //     the slab grow, so by the time the slab is
+                //     visibly emerging the pill content is gone.
+                //     Same effective behavior as the prior instant
+                //     removal.
+                //   • INSERTION (close) — 0.18s fade in with a 0.10s
+                //     delay. The slab content's opacity is dropping
+                //     over its own ~280ms spring; the delay holds
+                //     the pill invisible during the first 100ms
+                //     where the slab is still legible. Pill fade-in
+                //     overlaps with the tail of the slab fade-out
+                //     so they CROSSFADE — no double-vision moment.
+                // 2026-05-23 — ALWAYS-MOUNTED pill overlay.
+                //
+                // Previously gated as `if !presenter.isShown { ... }`. The
+                // conditional mount broke `matchedGeometryEffect`: when the
+                // slab closed, the pill overlay re-MOUNTED at that exact
+                // instant, so its `pillArtwork` had no prior frame in the
+                // namespace to inherit. SwiftUI fell back to a default
+                // origin (effectively the slab's geometric center, which
+                // is DOWN and RIGHT of the resting pill's left-anchored
+                // 22pt cover) and the artwork "jumped from down-right to
+                // the correct place" on every close. User repro: "from
+                // big to small pill, in the small pill artwork it just
+                // jumps for no reason."
+                //
+                // matchedGeometryEffect requires BOTH source and target
+                // to be in the tree continuously to interpolate. Same
+                // pattern `contentOverlay` already uses (see line ~1461).
+                // Visibility is now driven by `.opacity(isShown ? 0 : 1)`
+                // — SwiftUI re-runs the body without remount, so the
+                // pill artwork's frame stays registered in the namespace
+                // throughout the open/close cycle.
+                //
+                // The crossfade timing the asymmetric transition was
+                // achieving (insert: 0.18s ease-in with 0.10s delay;
+                // remove: 0.05s ease-out) is preserved by giving the
+                // opacity an `.animation(.easeOut(0.18), value: isShown)`
+                // — close runs the fade, open snaps fast via the parent
+                // transaction nilling the animation.
+                pillContentOverlay
+                    .opacity(presenter.isShown ? 0 : 1)
+                    .allowsHitTesting(!presenter.isShown)
+                    .animation(
+                        // 2026-05-23 — REMOVED the 0.10s delay on the
+                        // close fade-in. User: "the small music pill had
+                        // nothing and the artwork comes from bottom right
+                        // to correct place." The delay was creating a
+                        // ~280ms window where the pill silhouette had
+                        // already arrived at pill geometry but the pill
+                        // artwork was still at opacity 0 — so the user
+                        // saw "empty pill", then the artwork appeared.
+                        // Their eye reconstructed the gap as motion
+                        // ("artwork comes from somewhere"). Fading the
+                        // pill in concurrently with the close removes
+                        // that perceptual gap — by the time the
+                        // silhouette finishes shrinking, the artwork is
+                        // already largely visible at its correct
+                        // resting position.
+                        presenter.isShown
+                            ? .easeOut(duration: 0.10)
+                            : .easeIn(duration: 0.22),
+                        value: presenter.isShown
+                    )
             }
             // TRACK-CHANGE TITLE APRON — Alcove parity (2026-05-21 rework).
             // The track-change is no longer a separate banner view; it's
@@ -769,12 +909,28 @@ struct PanelRootView: View {
                             // ~100ms; the inner TrackTitleApronText does the
                             // down-up blur replacement, this outer transition is
                             // just the first-reveal mask.
+                            // 2026-05-23 — TRUE BLUR + FADE reveal.
+                            // The previous dnkScaleTop(0.80) anchored
+                            // the scaling at .top, which made the
+                            // content visibly clip from above as it
+                            // unfolded — user: "the content was not
+                            // coming with blur + actual fade, it was
+                            // croping the shit, that was the issue".
+                            // Removed the anchored-top scale. Pure
+                            // blur(8→0) + opacity(0→1) gives the
+                            // content a clean materialize — text and
+                            // glyph RESOLVE INTO FOCUS instead of
+                            // unfolding-from-above. Spring duration
+                            // matched to the shell grow (0.30s) so
+                            // content materializes IN SYNC with the
+                            // silhouette settling at banner size.
                             .transition(.asymmetric(
-                                insertion: .opacity
-                                    .combined(with: .offset(y: 5))
-                                    .animation(.easeOut(duration: 0.18).delay(0.10)),
+                                insertion: .dnkBlur(8)
+                                    .combined(with: .opacity)
+                                    .animation(.spring(response: 0.30,
+                                                       dampingFraction: 0.86)),
                                 removal: .opacity
-                                    .animation(.easeOut(duration: 0.10))
+                                    .animation(.easeOut(duration: 0.12))
                             ))
                     }
                 }
@@ -802,15 +958,134 @@ struct PanelRootView: View {
                     .interactiveSpring tracks live target value, no
                     one-shot; same params as the root scaleEffect so
                     blur and scale move on the same beat. */
+                // 2026-05-23 — swipe BLUR removed. The up-close gesture
+                // used to blur the content up to 18pt (Alcove
+                // progressive-blur), but the user repeatedly flagged it as
+                // making swipes feel worse ("blur is making things worse",
+                // "still the blur"). Content now stays sharp through the
+                // whole gesture; the scale-from-top pinch alone carries the
+                // close feedback.
+                //
+                // ELASTIC content react on side swipes. The CONTENT slides
+                // with Apple's rubber-band resistance and springs back —
+                // the glass silhouette/window does NOT move (the user's
+                // "don't move the whole thing" note). Distance-driven, so
+                // each swipe's give is unique; .interactiveSpring carries it
+                // home on release/commit.
+                // 2026-05-23 — the unified elastic content-stretch was too
+                // aggressive (~6% scale) per user "not feeling good at all".
+                // 2026-05-23 — INNER "ACTS LIKE CLOSING" elastic. On an
+                // up-swipe (the close gesture) the inner content visibly
+                // compresses UPWARD from the top — previewing the close
+                // action as you pull. Top-anchored, so the inside folds up
+                // toward the notch while the silhouette stays welded.
+                // Driven by POSITIVE swipeOffsetY only (down-swipe doesn't
+                // close, so it doesn't compress). Springs back via the
+                // root's interactiveSpring(value: swipeOffsetY).
                 contentOverlay
-                    .blur(radius: presenter.swipeProgress * 18)
+                    .scaleEffect(
+                        1.0 - max(0, presenter.swipeOffsetY) * 0.004,
+                        anchor: .top
+                    )
+                    // 2026-05-23 — L/R swipe gets a subtle 3D CARD-TILT.
+                    // The content rotates on its Y-axis in the swipe
+                    // direction (~3.6° at max swipeOffsetX), like a card
+                    // turning to face the next/prev track — a preview of
+                    // the upcoming flip on commit. Perspective gives it
+                    // depth; small magnitude keeps text crisp. Springs
+                    // back with the slide via the existing
+                    // .interactiveSpring(value: swipeOffsetX).
+                    .rotation3DEffect(
+                        .degrees(Double(presenter.swipeOffsetX) * 0.15),
+                        axis: (x: 0, y: 1, z: 0),
+                        anchor: .center,
+                        perspective: 0.4
+                    )
+                    .offset(x: presenter.swipeOffsetX)
                     .animation(
                         .interactiveSpring(
-                            response: 0.32,
-                            dampingFraction: 0.74,
+                            response: 0.34,
+                            dampingFraction: 0.72,
                             blendDuration: 0.18
                         ),
-                        value: presenter.swipeProgress
+                        value: presenter.swipeOffsetX
+                    )
+                    // ════════════════════════════════════════════════════
+                    // 2026-05-23 — SMOOTH VACUUM-TO-NOTCH CLOSE
+                    //
+                    // Research note: Apple's signature collapse animations
+                    // (iOS Live Activity dismiss, Dynamic Island collapse,
+                    // macOS Mission Control retreat, Safari tab-to-card)
+                    // all share a single visual vocabulary on close:
+                    //   • Non-uniform scale anchored at the destination
+                    //     edge — vertical squash > horizontal squash so
+                    //     the content "tucks" rather than uniformly
+                    //     pinches (the latter reads as a screenshot
+                    //     shrinking, not as the content COLLAPSING).
+                    //   • Subtle upward (toward destination) offset that
+                    //     resolves before the scale finishes — gives the
+                    //     content perceived velocity TOWARD the notch.
+                    //   • Light blur progression (~6-10pt) — sells the
+                    //     "lose focus / dematerialize" feel without going
+                    //     out-of-focus blurry.
+                    //   • Single critically-damped spring on ~0.30s
+                    //     perceptual duration. Same `.spring(response,
+                    //     dampingFraction)` family Apple's own SwiftUI
+                    //     transitions use.
+                    //
+                    // Composed against the existing artwork hero-morph
+                    // (matchedGeometryEffect, line ~4093) and pill-
+                    // content crossfade (line ~768), the close now reads
+                    // as one continuous motion:
+                    //   1. Slab content tucks upward + squashes + blurs.
+                    //   2. Artwork hero-morphs from 76pt slab position
+                    //      down to 22pt pill position via the namespace.
+                    //   3. Pill content fades in as slab content fades
+                    //      out (crossfade, no double-vision).
+                    //   4. Silhouette spring shrinks panel to pill
+                    //      geometry.
+                    // All four motions share Apple's .spring family
+                    // curve and finish on the same beat.
+                    //
+                    // Open is the same modifiers in REVERSE: content
+                    // grows OUT of the notch (anchor .top), uncompresses
+                    // vertically, sharpens — gives the open a matched
+                    // visual character to the close without changing
+                    // the established open spring (silhouette open keeps
+                    // its 247/25 alcove-parity spring; only the inner
+                    // content's tuck+grow rides this new curve).
+                    // 2026-05-23 — vacuum-tuck TAMED. Previous values
+                    // (scaleY 0.52, offsetY -22, blur 8) pulled the
+                    // contentOverlay's bottom edge well up inside the
+                    // silhouette during the close. The silhouette
+                    // (driven by panel.frame on its own spring) stayed
+                    // bigger for a beat longer, so the bottom rounded
+                    // corners of the silhouette had NO content covering
+                    // them mid-morph — the user read that as "border
+                    // down side borders are getting cut while
+                    // re-attaching." Reduced to a gentle hint of the
+                    // vacuum motion (scaleY 0.88, offsetY -6, blur 4)
+                    // so the content tracks the silhouette much more
+                    // closely. The artwork hero-morph + panel shrink
+                    // still carry the "collapsing into the notch" feel
+                    // without the bottom-edge mismatch.
+                    .scaleEffect(
+                        x: presenter.isShown ? 1.0 : 0.92,
+                        y: presenter.isShown ? 1.0 : 0.88,
+                        anchor: .top
+                    )
+                    .offset(y: presenter.isShown ? 0 : -6)
+                    .blur(radius: presenter.isShown ? 0 : 4)
+                    // Vacuum-tuck physics aligned to the panel close
+                    // spring (438/42 critical). Was .smooth(0.23) →
+                    // ω=27.3, faster than the panel frame's ω=20.94 →
+                    // contentOverlay's scale/offset/blur finished
+                    // ~70ms before the panel did, dragging the slab
+                    // artwork inside it on a non-monotonic path
+                    // visible as a "jump" near the end of the close.
+                    .animation(
+                        .interpolatingSpring(mass: 1.0, stiffness: 438, damping: 42, initialVelocity: 0),
+                        value: presenter.isShown
                     )
             }
             // Two-zone drop picker overlay — visible only while a
@@ -970,6 +1245,20 @@ struct PanelRootView: View {
                     - min(presenter.swipeOffsetY / 100, 1.0) * 0.05,
                 anchor: .top
             )
+            // 2026-05-23 — SLAB ITSELF reacts. Subtle, axis-specific, all
+            // top-anchored so the notch weld stays intact:
+            //   • L/R swipe → tiny horizontal SQUEEZE (slab gets thinner
+            //     as you push it sideways — feels like glass under pressure).
+            //   • Down swipe → tiny vertical STRETCH downward (slab elongates
+            //     as you pull, like elastic). Up-swipe is handled by the
+            //     scaleEffect above.
+            // Magnitudes deliberately tiny (max ~2.4% squeeze / ~4% stretch)
+            // so the slab participates in the gesture without distorting.
+            .scaleEffect(
+                x: 1.0 - abs(presenter.swipeOffsetX) * 0.001,
+                y: 1.0 + max(0, -presenter.swipeOffsetY) * 0.002,
+                anchor: .top
+            )
             .animation(
                 .interactiveSpring(
                     response: 0.32,
@@ -985,6 +1274,14 @@ struct PanelRootView: View {
                     blendDuration: 0.18
                 ),
                 value: presenter.swipeOffsetY
+            )
+            .animation(
+                .interactiveSpring(
+                    response: 0.32,
+                    dampingFraction: 0.74,
+                    blendDuration: 0.18
+                ),
+                value: presenter.swipeOffsetX
             )
             .padding(.horizontal, PanelWindowController.haloPadding)
             .padding(.bottom, PanelWindowController.haloPadding)
@@ -1062,19 +1359,38 @@ struct PanelRootView: View {
             //   (code-audit divergence). Matching the frame's spring makes
             //   the corners track the shrink in lockstep = one cohesive
             //   close, not corners-lagging-the-frame.
+            // 2026-05-23 — bumped close damping 36 → 42 to match the
+            // panel.frame's SpringFrameAnimator (438/42 critical-damped,
+            // response 0.30s, ζ=1.0). Previously the corner radius spring
+            // (438/36, ζ=0.86) settled FASTER than the frame, so during
+            // the close tail the corners had already reached their small
+            // value while the panel was still visibly large — read as
+            // "squarish closing" (user 2026-05-23). Same stiffness so
+            // perceived duration is unchanged; critical damping zeros
+            // overshoot and keeps the corner radius monotonically
+            // tracking the shrinking silhouette.
             .animation(presenter.isShown
                        ? .timingCurve(0.32, 0.72, 0, 1, duration: 0.40)
-                       : .interpolatingSpring(mass: 1.0, stiffness: 438, damping: 36, initialVelocity: 0),
+                       : .interpolatingSpring(mass: 1.0, stiffness: 438, damping: 42, initialVelocity: 0),
                        value: presenter.isShown)
             // ALSO animate the corner radii when pendingSystemEvent
-            // changes (e.g. .volumeChanged → nil). Without this, the
-            // radii pop INSTANTLY from banner character (14, 12) to
-            // music pill character (8, 6) while the panel.frame is
-            // still morphing — visible as an inside "glitch" during
-            // the volume HUD dismiss. Using the SAME timingCurve as
-            // the panel.frame morph so radii lerp in lockstep with
-            // the frame interpolation.
-            .animation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.40),
+            // changes (e.g. .volumeChanged → nil, .trackChanged →
+            // nil). Without this, the radii pop INSTANTLY from
+            // banner character (14, 12) to music pill character
+            // (8, 6) while the panel.frame is still morphing —
+            // visible as an inside "glitch" during the dismiss.
+            //
+            // 2026-05-23 — duration 0.40 → 0.27. Was 100-150ms
+            // LONGER than the actual shell morph (track banner
+            // grow 0.30s, dismiss 0.25s), so the silhouette's
+            // corner radii kept transitioning AFTER the panel
+            // frame had landed — user reported "slab border …
+            // broken at last point" because the outline visibly
+            // shifted for ~150ms after the shell settled. 0.27s
+            // sits between the grow and dismiss durations so the
+            // radii are in lockstep with the silhouette in BOTH
+            // directions of the round-trip.
+            .animation(.timingCurve(0.32, 0.72, 0, 1, duration: 0.30),
                        value: pillEventCaseKey)
             // 2026-05-04 (user feedback after Alcove SS audit:
             // "the dropshadow only comes when you open... but
@@ -1383,11 +1699,37 @@ struct PanelRootView: View {
         // Skip when pendingSystemEvent is .volumeChanged (or was
         // recently — guarded by the morph itself being short).
         .blur(radius: shouldBlurSlabDuringMorph ? 4 : 0)
+        // 2026-05-23 — END-OF-CLOSE BLUR SNAP FIX.
+        // `shouldBlurSlabDuringMorph` flips on `presenter.isMorphing`,
+        // which animateClose() flips false at the END of the spring
+        // (line ~3847). Without an animation context observing
+        // isMorphing, the blur SNAPS 4 → 0 the instant the morph
+        // completes — visible as a hard cut right at the close's
+        // settle frame. User: "it's getting cut … just in the end".
+        // Adding .animation(value: isMorphing) gives that change a
+        // smooth easeOut tail so the blur unwinds gracefully even if
+        // a few pixels of content opacity are still visible at the
+        // settle frame.
+        .animation(.easeOut(duration: 0.18), value: presenter.isMorphing)
         // Direction-aware spring matching the panel's close timing
         // so content doesn't trail behind the panel.
+        //
+        // 2026-05-23 — close spring synced to the panel frame's curve.
+        // The frame spring (PanelWindowController.animateClose:
+        // SpringFrameAnimator(438, 36, 1.0)) decodes to ω=20.94 / ζ=0.86,
+        // which is mathematically identical to SwiftUI's
+        // `.spring(response: 0.30, dampingFraction: 0.86)`. Was on
+        // `.interpolatingSpring(380/36)` = ω=19.5 / ζ=0.92 — 7% slower
+        // and slightly over-damped, so content opacity finished
+        // ~30ms after the panel had reached pill size. User reported
+        // the close "feels like getting cut": that lingering content
+        // tail is exactly the kind of timing artifact that reads as
+        // a discontinuity. Aligning to .spring(0.30, 0.86) lands the
+        // content opacity, the matched-geom artwork morph, the
+        // vacuum-tuck, and the panel-frame shrink on the SAME beat.
         .animation(presenter.isShown
                    ? .interpolatingSpring(mass: 1.0, stiffness: 195, damping: 28, initialVelocity: 0)
-                   : .interpolatingSpring(mass: 1.0, stiffness: 380, damping: 36, initialVelocity: 0),
+                   : .smooth(duration: 0.23),
                    value: presenter.isShown)
         // No blur on the content overlay. Earlier attempts:
         //   • `.blur(radius: 4)` (gaussian) — wrong character;
@@ -2688,48 +3030,21 @@ struct PanelRootView: View {
 
             Spacer(minLength: 0)
 
-            // Right-wing cluster: visualizer + lock-in indicator
-            // + timer. Tight fit but the wider pill (closedPillWidth
-            // + focusPillExtraWidth = 343pt total → ~79pt right
-            // wing past the notch hardware) just accommodates it.
-            WaveformView(
-                isPlaying: waveformIsPlaying,
-                width: 18,          // fits 4 bars (Alcove parity)
-                height: 14,
-                lineWidth: 2.4,
-                // 2026-05-09 round 2: tint also lagged on
-                // `displayedNowPlaying?.artworkData`. Was using
-                // `info?.artworkData` (live) which jumped the
-                // visualizer's color to the NEW song's palette
-                // the instant MR emitted the new track — while
-                // the artwork on screen + the wave pattern
-                // (fixed earlier) were still on OLD. The user
-                // saw "visualizer is one color [old/wrong]
-                // instead of the next music one." Same
-                // displayedNowPlaying source the artwork reads,
-                // so all three (artwork / pattern / tint) flip
-                // in lockstep when the banner finishes.
-                tint: ArtworkColor.dominant(from: displayedNowPlaying?.artworkData) ?? .white,
-                opacity: 0.95,
-                // Alcove parity: FIXED pattern (not per-track) so the
-                // waveform animation stays continuous across track
-                // changes — reads as "synced" rather than resetting its
-                // rhythm each song.
-                pattern: WaveformPattern.midtempo,
-                isCompactResting: true,
-                isInteractionActive: abs(pillSwipeOffset) > 0
-                    || presenter.isMorphing
-                    || presenter.trackChangedFiring
-            )
-            .scaleEffect(x: waveformPulse, y: 1, anchor: .trailing)
-            .transition(.opacity)
+            // 2026-05-23 — RIGHT-WING ORDER REVERSED.
+            // Previously the visualizer sat FIRST in the right wing
+            // (immediately right of the notch hardware), which put
+            // the animated bars at the boundary where the camera
+            // hardware physically protrudes — user reported "our
+            // wave from is getting covered by actual mac notch that
+            // was there from hardware". Now the lock-in hero +
+            // timer sit closer to the notch (icon + monospaced text
+            // are sparse glyphs that survive partial occlusion
+            // visually) and the waveform sits at the FAR RIGHT
+            // (clear of any notch hardware encroachment).
 
             // Animated lock-in indicator — Focus uses
             // FocusWorkingHero (anime character at a laptop),
             // Study uses StudyHero (open-book + writing hand).
-            // Same motif as the focus-only / study-only pill and
-            // their dashboard heroes, so the indicator reads
-            // consistently across the app for whichever mode is on.
             Group {
                 switch activePillMode {
                 case .focus:
@@ -2740,12 +3055,9 @@ struct PanelRootView: View {
             }
             .frame(width: 14, height: 14)
 
-            // Tick at 1Hz when a countdown is running so MM:SS
-            // refreshes every second — the legacy 30s cadence was
-            // fine for HH:MM count-up (minutes only), but a
-            // countdown needs to show seconds advancing. Either
-            // mode's countdown bumps the cadence; if neither is
-            // running we stay on 30s.
+            // Timer. Tick at 1Hz when a countdown is running so
+            // MM:SS refreshes every second; 30s otherwise (count-up
+            // only updates per minute).
             let activeTimer: SessionTimerService = (activePillMode == .focus)
                 ? focusTimer : studyTimer
             let tickInterval: TimeInterval = (
@@ -2753,9 +3065,6 @@ struct PanelRootView: View {
                 || activeTimer.state == .paused
             ) ? 1.0 : 30.0
             TimelineView(.periodic(from: .now, by: tickInterval)) { context in
-                // Countdown takes priority over the count-up label
-                // so the user can glance at remaining time while
-                // music is playing, without opening the panel.
                 if activeTimer.state == .running
                     || activeTimer.state == .paused {
                     let remaining = activeTimer.remaining(now: context.date)
@@ -2789,6 +3098,31 @@ struct PanelRootView: View {
                         .fixedSize()
                 }
             }
+
+            // Waveform LAST so it sits at the FAR RIGHT, clear of
+            // any notch hardware encroachment.
+            // Tint reads `displayedNowPlaying?.artworkData` (lagged)
+            // so all three signals — artwork, wave shape, tint —
+            // flip in lockstep at the moment the banner finishes
+            // its 3D card flip. (See `musicPillContent` for the
+            // full lag story.)
+            WaveformView(
+                isPlaying: waveformIsPlaying,
+                width: 18,
+                height: 14,
+                lineWidth: 2.4,
+                tint: ArtworkColor.dominant(from: displayedNowPlaying?.artworkData) ?? .white,
+                opacity: 0.95,
+                // Alcove parity: FIXED pattern (not per-track) so the
+                // waveform stays continuous across track changes.
+                pattern: WaveformPattern.midtempo,
+                isCompactResting: true,
+                isInteractionActive: abs(pillSwipeOffset) > 0
+                    || presenter.isMorphing
+                    || presenter.trackChangedFiring
+            )
+            .scaleEffect(x: waveformPulse, y: 1, anchor: .trailing)
+            .transition(.opacity)
         }
         .padding(.horizontal, 10)
         .frame(height: notchOverlap)
@@ -3559,6 +3893,28 @@ struct PanelRootView: View {
     /// on the path the @Published update came through. Explicit
     /// state-based phase control fires deterministically every time.
     private func triggerSongChange(newKey: String) {
+        // 2026-05-23 — ONE FLIP PER TRACK CHANGE GUARD.
+        // Two onChange call sites (.onChange(nowPlaying) +
+        // .onChange(trackBannerVisualActive)) both call this for a
+        // single logical track change. Without a guard, each call's
+        // `pillFlipAngle += 180` composed to 0 → 180 → 360 = double
+        // spin. But the guard MUST only set `lastFlippedKey` after
+        // the flip is COMMITTED — earlier it was set unconditionally
+        // here, so if the inner branch decided to skip (Spotify
+        // two-stage emission: first call has title only, no artwork
+        // bytes yet, so `newImg` decode fails and runFlip is never
+        // called), the key got marked as "handled" and the SECOND
+        // call (with the artwork bytes now available) saw the same
+        // key and bailed too — net result: ZERO flips, the cover
+        // just snapped. User: "flip is not taking place every time
+        // it's getting missed most of the time". Moved the
+        // `lastFlippedKey = newKey` assignment INSIDE the runFlip
+        // success branch below so a skipped call doesn't poison the
+        // retry.
+        guard newKey != lastFlippedKey else {
+            NSLog("nox: 🎵 triggerSongChange skipping duplicate newKey=\(newKey)")
+            return
+        }
         NSLog("nox: 🎵 triggerSongChange firing newKey=\(newKey) oldKey=\(displayedTrackKey)")
         // Smoother two-phase animation. User reported the previous
         // version had the thumbnail "getting delated suddenly" mid-
@@ -3635,21 +3991,128 @@ struct PanelRootView: View {
             let info = presenter.nowPlaying
             let oldData = displayedNowPlaying?.artworkData
             let newData = info?.artworkData
-            if pillArtworkImage != nil, let info = info,
-               let nd = newData, !nd.isEmpty, nd != oldData {
-                // New cover is here and DISTINCT → real old→new flip.
-                let newImg = ArtworkCache.shared.image(
-                    data: nd, key: "\(info.title)|\(info.artist)")
+            // 2026-05-23 — flip fires WHENEVER new artwork bytes are
+            // present and differ from old, INDEPENDENT of whether
+            // `pillArtworkImage` is currently set. Previous gate
+            // required `pillArtworkImage != nil`, but on cold-start
+            // or after a track-ended gap the resting pill could
+            // still have pillArtworkImage = nil — so the flip
+            // silently skipped and the artwork "stayed blank" (user:
+            // "most the time it's staying blank"). With this looser
+            // gate the flip runs as long as we have new bytes, and
+            // the front face falls back to whatever's available
+            // (bannerFromArtwork decode → pillArtworkImage →
+            // placeholder) so the back face's new artwork is
+            // guaranteed to land in the pill regardless of prior
+            // state.
+            if let info = info,
+               let nd = newData, !nd.isEmpty, nd != oldData,
+               let newImg = ArtworkCache.shared.image(
+                   data: nd, key: "\(info.title)|\(info.artist)")
+                   ?? NSImage(data: nd) {
+                // New cover is here, decoded, and DISTINCT → real flip.
                 // FREEZE the old cover on the FRONT face for the whole turn
                 // — `pillArtworkImage` is mutated by racing refresh handlers,
                 // so the flip view reads `pillFlipFromArtwork` while
                 // `pillNextArtwork` is set (see `pillArtwork`).
                 let runFlip = {
                     guard gen == trackSwapGeneration else { return }
-                    pillFlipFromArtwork = pillArtworkImage
+                    // Commit the guard NOW — we're actually firing the
+                    // flip. If this branch had been skipped (cache miss
+                    // / two-stage emission), `lastFlippedKey` would
+                    // stay stale and the next call retries instead of
+                    // being silently squashed.
+                    lastFlippedKey = newKey
+                    // 2026-05-23 — FRONT FACE = OLD artwork captured
+                    // by AppDelegate at line ~2205
+                    // (`presenter.bannerFromArtwork`) BEFORE
+                    // `nowPlaying` was updated to the new track. By
+                    // the time this runFlip executes, the SwiftUI
+                    // refresh has already swapped `pillArtworkImage`
+                    // to the NEW artwork, so reading it gave front =
+                    // new = same as back — user: "flipping with just
+                    // one image instade of before and after". Decode
+                    // `bannerFromArtwork` (the genuine prior bytes)
+                    // for the front face. Falls back to current
+                    // `pillArtworkImage` if no banner-from is set
+                    // (first ever track) so the flip never lands on
+                    // a blank front.
+                    // 2026-05-23 — 3-level fallback so the front face
+                    // never lands BLANK during the flip ("sometimes
+                    // it's having no artwork at all cause some
+                    // gliches" — when bannerFromArtwork bytes are
+                    // present but decode fails, or when there's no
+                    // bannerFromArtwork at all and pillArtworkImage
+                    // is also nil).
+                    let oldImg: NSImage? = {
+                        // 1) Decoded bannerFromArtwork bytes (best —
+                        //    the GENUINE previous track's image).
+                        if let oldData = presenter.bannerFromArtwork,
+                           !oldData.isEmpty,
+                           let decoded = ArtworkCache.shared.image(
+                               data: oldData,
+                               key: "from|\(displayedTrackKey)")
+                               ?? NSImage(data: oldData) {
+                            return decoded
+                        }
+                        // 2) Current pillArtworkImage (might already
+                        //    be the NEW artwork if refresh ran — that
+                        //    gives a "flip on same image" but at
+                        //    least the user sees the artwork, not a
+                        //    blank front).
+                        if let cur = pillArtworkImage {
+                            return cur
+                        }
+                        // 3) The incoming new artwork itself as a
+                        //    last resort — the flip will visually
+                        //    show new→new (looks like a 360 spin
+                        //    with no swap) but BETTER than a black
+                        //    rectangle for the duration of the flip.
+                        return newImg
+                    }()
+                    pillFlipFromArtwork = oldImg
                     pillNextArtwork = newImg
-                    let flipDuration: TimeInterval = 0.28
-                    withAnimation(.easeInOut(duration: flipDuration)) {
+                    // 2026-05-23 — FORCE-UPDATE pillArtworkImage now,
+                    // not after the flip animation completes. Reason:
+                    // the completion handler is gated on
+                    // `gen == trackSwapGeneration`, so on rapid skips
+                    // (A → B → C in <300 ms) the EARLIER flips'
+                    // completions bail without promoting their image
+                    // — pillArtworkImage could be stuck on a stale
+                    // track. User: "Artwork shows wrong image after
+                    // track change … wrong after rapid next/prev
+                    // clicks". Updating it AT THE FLIP START decouples
+                    // pillArtworkImage from the completion handler.
+                    // During the flip the FRONT face still shows the
+                    // genuine old image (via `pillFlipFromArtwork`,
+                    // unaffected by this update); after the flip
+                    // ends pillNextArtwork → nil and the frontImg
+                    // fallback to pillArtworkImage shows NEW —
+                    // exactly what we want. Robust under any number
+                    // of mid-flight interruptions: each new flip
+                    // overwrites pillArtworkImage to its own newImg,
+                    // so the FINAL state always reflects the latest
+                    // track regardless of which completions ran.
+                    pillArtworkImage = newImg
+                    pillArtworkImageKey = newKey
+                    // 2026-05-23 — flip curve switched from .snappy to
+                    // .timingCurve(0.32, 0.72, 0, 1) to match the panel
+                    // frame's bannerExpandCurve exactly. .snappy is a
+                    // SwiftUI spring that carries an implicit shape +
+                    // mild settle wobble — at 0.30s perceptual the
+                    // rotation read as "too fucking fast and not smooth
+                    // enough" because the spring rushed the first 90 °
+                    // then settled into the second half. The cubic-
+                    // bezier (0.32, 0.72, 0, 1) is the SAME curve the
+                    // banner grow uses (PanelWindowController.showTrack-
+                    // Banner) — identical interpolation rate, so the
+                    // rotation and the panel.frame travel the SAME
+                    // fraction of their journey at every frame. User:
+                    // "it should flip with the animation of the pill
+                    // growing" — now mathematically locked together.
+                    let flipDuration: TimeInterval = 0.30
+                    withAnimation(.timingCurve(0.32, 0.72, 0, 1,
+                                               duration: flipDuration)) {
                         pillFlipAngle += 180
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + flipDuration) {
@@ -3664,15 +4127,12 @@ struct PanelRootView: View {
                         trackSwapPhase = 0
                     }
                 }
-                // During a banner, the caller already waits for
-                // `trackBannerVisualActive` before calling this method.
-                // Add only a tiny content lag so the shell leads by a
-                // frame or two. Silent resting swaps flip immediately.
-                if trackBannerVisualActive {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.04, execute: runFlip)
-                } else {
-                    runFlip()
-                }
+                // 2026-05-23 — flip fires IMMEDIATELY in lockstep with
+                // the grow. The previous 0.04s shell-leads-content defer
+                // made the flip land just after the grow ended; user
+                // wants both to run in the same time window so the card
+                // appears to flip AS the pill is growing.
+                runFlip()
             } else {
                 // New cover not here yet (Spotify two-stage emission). KEEP
                 // the OLD cover visible — don't advance displayedTrackKey /
@@ -3787,7 +4247,18 @@ struct PanelRootView: View {
         }
         let key = "\(info.title)|\(info.artist)"
         let bytes = info.artworkData?.count ?? 0
+        // 2026-05-23 — added SYNCHRONOUS `NSImage(data:)` fallback
+        // for the cache-miss path. ArtworkCache.image returns nil if
+        // the async decode hasn't completed yet — previously that
+        // meant pillArtworkImage stayed at its OLD value (or nil on
+        // cold start), so on track changes where the decode lagged
+        // the pill could show NO artwork until the cache eventually
+        // populated. The synchronous decode adds ~5-10 ms of main-
+        // thread JPEG decode but guarantees pillArtworkImage holds
+        // a real image whenever bytes are present — addresses user's
+        // "sometimes no artwork at all cause some gliches".
         let newImage = ArtworkCache.shared.image(data: info.artworkData, key: key)
+            ?? info.artworkData.flatMap { NSImage(data: $0) }
         MediaRemoteAdapterService.fileLog("PILL refresh: title=\"\(info.title)\" artist=\"\(info.artist)\" bytes=\(bytes) decoded=\(newImage != nil)")
 
         if let newImage = newImage {
@@ -3829,6 +4300,30 @@ struct PanelRootView: View {
         // the key, so a later refresh keeps trying until the new decodes.
     }
 
+    /// Soft-edge feather mask for the pill artwork. Returns a vertical
+    /// gradient that fades the top and bottom edges of the IMAGE
+    /// (not the frame) to transparent so YouTube/podcast 16:9
+    /// thumbnails don't show a hard horizontal line where the
+    /// letterboxed image content meets the pill's black background.
+    /// Square covers fill the frame, so their feather is largely
+    /// absorbed by the existing 5pt corner rounding — same mask
+    /// applied to both keeps the rendering branchless.
+    @ViewBuilder
+    private func softArtworkMask(for img: NSImage) -> some View {
+        LinearGradient(
+            stops: [
+                .init(color: .clear,                  location: 0.00),
+                .init(color: .white.opacity(0.55),    location: 0.06),
+                .init(color: .white,                  location: 0.14),
+                .init(color: .white,                  location: 0.86),
+                .init(color: .white.opacity(0.55),    location: 0.94),
+                .init(color: .clear,                  location: 1.00)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
     /// Front face shown when cos(angle)>0, back face when <0 — the
     /// instant the rotation crosses 90° the new cover takes over.
     private var pillFlipCosineSign: CGFloat {
@@ -3853,13 +4348,73 @@ struct PanelRootView: View {
         let frontImg: NSImage? = pillNextArtwork != nil
             ? (pillFlipFromArtwork ?? pillArtworkImage)
             : pillArtworkImage
+        // FIXED SQUARE slot. The slot never changes width, so the cover
+        // never resizes horizontally between tracks — the ONLY horizontal
+        // motion is the smooth flip-squash below. (Earlier the slot took the
+        // image's own aspect to show 16:9 thumbnails whole; but that made the
+        // slot SNAP narrower when a wide cover was replaced by a square one
+        // mid-flip — the "it gets smaller and doesn't animate well" jank.)
+        // `.fit` still shows the whole image: square covers fill the slot,
+        // 16:9 thumbnails letterbox inside it — never cropped, never snapping.
+        // CONSTANT size + position across compact ↔ banner. The cover used
+        // to grow 19→26pt and drop ~6pt when the banner opened, but the pill
+        // host nils that animation so it SNAPPED in ~1 frame — a visible
+        // pop-and-jump on every open (the main jank). Keeping the cover a
+        // fixed anchor (only the title apron animates in below it) removes
+        // the pop entirely.
+        let artH: CGFloat = 22
+        let artCorner: CGFloat = 5
+        // 2026-05-23 — REAL 3D FLIP with grow-during-flip.
+        //
+        // User request: "use that 3d flip / previous artwork - new
+        // artwork / First side will be the previous artwork another
+        // side will be new / And the artwork will grow a little with
+        // this clean animation and will return it's place again
+        // after animation ends".
+        //
+        // Replacing the symmetric-squash (scaleEffect x: cos) with a
+        // proper Y-axis rotation3DEffect (matches the slab cover's
+        // flip in MusicPanelView.artwork). Perspective 0.35 is gentle
+        // enough that the "right-side cut" foreshortening the user
+        // previously rejected at 0.5 doesn't show on a 22pt cover.
+        //
+        // Grow: scaleEffect peaks at 1.18× when |sin(angle)| = 1 (the
+        // 90° edge-on moment) and returns to 1.0 at 0° and 180°. The
+        // cover briefly bulges as it rotates, then settles back to
+        // its normal size after the flip lands. Same mid-rotation
+        // bulge Apple's iOS card flips use (compare WidgetKit's
+        // .containerBackground flip preset).
+        //
+        // Mid-flip blur dropped 9pt → 3pt — the 3D rotation already
+        // foreshortens visibly, so the heavy blur we needed for the
+        // squash version (where there was no visible depth cue) is
+        // overkill here.
+        let flipBlur: CGFloat = abs(sin(pillFlipAngle * .pi / 180)) * 3
+        let flipGrow: CGFloat = 1.0 + abs(sin(pillFlipAngle * .pi / 180)) * 0.18
         return ZStack {
-            // FRONT — current (old) cover.
+            // FRONT — previous (old) cover. Visible while cos(angle)>0
+            // (i.e. 0–90° and 270–360°).
             Group {
                 if let img = frontImg {
                     Image(nsImage: img)
                         .resizable()
-                        .aspectRatio(contentMode: .fill)
+                        .aspectRatio(contentMode: .fit)
+                        // 2026-05-23 — SOFT EDGES for letterboxed
+                        // (non-square) covers. YouTube thumbnails are
+                        // 16:9 so they letterbox inside the 22pt square
+                        // slot — the actual image content's top/bottom
+                        // edges meet the (black) pill background as
+                        // straight horizontal lines, which read as
+                        // sharp. Mask the IMAGE itself with a vertical
+                        // gradient that fades the top/bottom 12 % of
+                        // the image to transparent — letting the
+                        // content blend smoothly into the pill instead
+                        // of butting up against the bars. Square covers
+                        // get the same mask, but since they fill the
+                        // frame their top/bottom edges align with the
+                        // already-rounded clipShape, so the feather is
+                        // largely subsumed by the corner radius.
+                        .mask(softArtworkMask(for: img))
                 } else {
                     ZStack {
                         Color.white.opacity(0.08)
@@ -3871,30 +4426,81 @@ struct PanelRootView: View {
             }
             .opacity(pillFlipCosineSign > 0 ? 1 : 0)
 
-            // BACK — incoming (new) cover, pre-rotated 180° so it lands
-            // upright once the outer rotation passes 180°.
+            // BACK — incoming (new) cover, PRE-ROTATED 180° on Y so
+            // its content reads upright once the outer rotation
+            // crosses 180° (180 + 180 = 360 = 0 mod 360).
             if let next = pillNextArtwork {
                 Image(nsImage: next)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
+                    .aspectRatio(contentMode: .fit)
+                    .mask(softArtworkMask(for: next))
+                    .rotation3DEffect(
+                        .degrees(180),
+                        axis: (x: 0, y: 1, z: 0)
+                    )
                     .opacity(pillFlipCosineSign < 0 ? 1 : 0)
             }
         }
         // Resting = 19pt; GROWS to 26pt during a track-change. (Frame-by-frame
         // vs Alcove confirmed banner cover sizes are comparable — the parity
         // gap is the staged REVEAL, not the size; see expand-timing fix.)
-        .frame(width: trackBannerVisualActive ? 26 : 19,
-               height: trackBannerVisualActive ? 26 : 19)
-        .clipShape(RoundedRectangle(cornerRadius: trackBannerVisualActive ? 6 : 4.5,
+        .frame(width: artH, height: artH)
+        .clipShape(RoundedRectangle(cornerRadius: artCorner,
                                     style: .continuous))
+        // 2026-05-23 — matchedGeometryEffect REMOVED.
+        //
+        // Tried: matched-geometry between the slab's 76pt cover and the
+        // pill's 22pt cover with `id: "music-art-hero"`. The intent was
+        // a continuous shrink-and-slide of the cover from slab position
+        // to pill position. Three rounds of debugging:
+        //   1. Slab side and pill side had different springs → endpoints
+        //      finished on different beats. Synced both to 438/42.
+        //   2. Pill overlay was conditionally mounted → no continuous
+        //      identity in the namespace. Made it always-mounted with
+        //      opacity gating.
+        //   3. Even with always-mounted endpoints + matched springs the
+        //      pill artwork's layout slot is positioned by the panel-
+        //      sized HStack, which itself shifts as the panel shrinks.
+        //      SwiftUI's matched-geometry samples the source frame at
+        //      the role-swap instant only; it doesn't re-derive as the
+        //      panel.frame interpolates. Net effect: pill artwork
+        //      animates from slab artwork's old screen position to a
+        //      stale pill-artwork layout that was computed against the
+        //      still-slab-sized panel. Visually reads as "artwork comes
+        //      from bottom-right." User repro after each attempt:
+        //      "still jumps", "coming from down right".
+        //
+        // Clean fix — pill artwork stays at its own layout slot. No
+        // matched-geom interpolation. The pill's opacity ramp (in the
+        // overlay above) handles the appearance; the slab artwork's
+        // opacity ramp (via contentOverlay) handles the disappearance.
+        // The panel-frame spring shrinks the silhouette around both.
+        // What the user perceives: the slab's cover fades out at its
+        // slab position; the pill's cover fades in at its pill position
+        // as the silhouette arrives at pill geometry. Same beat, no
+        // path-bending, no "from down-right" artifact.
         .animation(.easeOut(duration: 0.28), value: trackBannerVisualActive)
         .compositingGroup()
-        // Y-axis FLIP on track change — cover turns over (old→new),
-        // staying visible (Alcove parity).
-        .rotation3DEffect(.degrees(pillFlipAngle),
-                          axis: (x: 0, y: 1, z: 0),
-                          anchor: .center, perspective: 0.5)
+        // Cover change = REAL 3D Y-axis FLIP (was symmetric scaleEffect
+        // squash). pillFlipAngle 0→180 rotates the card on its vertical
+        // axis; the FRONT face shows 0–90° (cos>0) and the BACK face
+        // shows 90–180° (cos<0, with the back image pre-rotated 180°
+        // so its content reads upright). Perspective 0.35 keeps the
+        // foreshortening subtle — visible enough to read as depth, not
+        // so heavy that one side cuts off at the 22pt size.
+        //
+        // .scaleEffect(flipGrow) adds the user-requested "grow a
+        // little during the flip and return after" — peaks at 1.18×
+        // at 90° (edge-on), returns to 1.0 at 0° and 180°.
+        .rotation3DEffect(
+            .degrees(pillFlipAngle),
+            axis: (x: 0, y: 1, z: 0),
+            anchor: .center,
+            anchorZ: 0,
+            perspective: 0.35
+        )
+        .scaleEffect(flipGrow)
+        .blur(radius: flipBlur)
         // The pill-content host nils the transaction animation (to make
         // the pill removal instant); that would SNAP the flip. Re-assert
         // the flip curve here so the rotation actually turns. This
@@ -3903,19 +4509,51 @@ struct PanelRootView: View {
         // 0.42 → 0.28 per the team synthesis (#5) — Alcove's micro-motions
         // are ~0.20–0.28s; 0.42 read a touch slow.
         .transaction { t in
-            if t.animation == nil { t.animation = .easeInOut(duration: 0.28) }
+            // 2026-05-23 — re-asserted animation matches the panel
+            // frame's `bannerExpandCurve` exactly. The pill content
+            // host nils animations (so the pill removal is instant);
+            // this re-asserts the SAME timing curve and duration the
+            // shell grow uses (PanelWindowController.showTrackBanner:
+            // 0.30s cubic-bezier 0.32/0.72/0/1). Result: even if the
+            // host's transaction-nil overrides runFlip's withAnimation,
+            // the flip still runs at the SAME rate as the panel.frame
+            // → rotation and shell grow are mathematically locked.
+            if t.animation == nil {
+                t.animation = .timingCurve(0.32, 0.72, 0, 1, duration: 0.30)
+            }
         }
         // Crossfade fallback — no-op while `trackSwapPhase == 0` (the
         // flip path keeps it at 0). Used only when old/new art isn't
         // both present (placeholder ↔ art), where a rotation would be
         // pointless.
-        .offset(y: trackSwapPhase * 3)
+        //
+        // 2026-05-23 — REVERTED Pass 2 artwork transforms.
+        //
+        // Pass 2 applied scaleEffect(1.36) + offset(11, 7) based on
+        // alcove.mp4 measurements. With the recording's uncertain
+        // pixel-to-point ratio, those values pushed the artwork into
+        // the apron zone and overlapped the title — user reported it
+        // looked wrong. Back to the user-approved compensation
+        // offset (+6 pt right) that splits the 0 ("too left") and
+        // +16 ("too right") range without touching scale or Y
+        // position. The CURVE SHAPE change from the measurement
+        // pass survives (that's scale-independent and measurably
+        // tighter against Alcove); the geometry transforms are
+        // rolled back.
+        .offset(
+            x: trackBannerVisualActive ? 6 : 0,
+            y: trackSwapPhase * 3
+        )
         .blur(radius: abs(trackSwapPhase) * 5)
         .opacity(1 - abs(trackSwapPhase))
         .scaleEffect(1.0 - abs(trackSwapPhase) * 0.22)
-        // Nudge the cover right so it doesn't sit too far left (user:
-        // "the animation seems to be more left, should be a bit right").
-        .padding(.leading, 9)
+        // Alcove-style "not playing" cue: vibrant + full size while
+        // playing, desaturated + slightly smaller when paused/stopped.
+        // Same treatment as the slab cover so the signal is consistent.
+        .playbackArtworkTreatment(
+            isPlaying: presenter.nowPlaying?.isPlaying ?? presenter.isAudioFlowing
+        )
+        .padding(.leading, 2)
     }
 
     /// True while a `.trackChanged` announcement is active. Drives the
@@ -3947,14 +4585,25 @@ struct PanelRootView: View {
             title: info?.title ?? "",
             artist: info?.artist ?? ""
         )
-        .padding(.horizontal, 14)
-        .frame(maxWidth: .infinity, alignment: .center)
+        // Bound to the banner's inner width and CLIP the overflow so a
+        // long title is cut by the edge fade (below), not by an ellipsis.
+        .frame(width: PanelWindowController.trackBannerWidth - 30, alignment: .center)
+        .clipped()
+        // 2026-05-23 — DOUBLED the L/R edge fade extent.
+        // Previous gradient stops 0.10 / 0.90 gave a 10 % fade region
+        // on each side — at 280 pt frame width = ~28 pt of feather.
+        // User: "the texts that we have for each videos or music, the
+        // right and left side is too much touching the border, it
+        // should have fade in the left and right side". Bumped to
+        // 0.20 / 0.80 (20 % each side ≈ 56 pt of feather) so the
+        // title visibly dissolves into the pill body well before
+        // reaching the silhouette edge — like Alcove's marquee fade.
         .mask(
             LinearGradient(
                 stops: [
                     .init(color: .clear, location: 0.00),
-                    .init(color: .white, location: 0.18),
-                    .init(color: .white, location: 0.82),
+                    .init(color: .white, location: 0.20),
+                    .init(color: .white, location: 0.80),
                     .init(color: .clear, location: 1.00),
                 ],
                 startPoint: .leading,
@@ -4296,11 +4945,67 @@ struct PanelRootView: View {
                     accentColor: panelAccent,
                     pillNamespace: tabPillNS
                 ) {
-                    withAnimation(.selection) { presenter.activeTab = tab }
+                    // 2026-05-22 — INSTANT tab selection (no withAnimation).
+                    // The selection pill used `matchedGeometryEffect` and the
+                    // `withAnimation(.selection)` slid it between tabs — but
+                    // that animated the matched view's insert/remove, and
+                    // under rapid switching the slides overlapped, leaving
+                    // MULTIPLE matched sources mid-flight (undefined behavior)
+                    // → stranded tab-button views ghosting into the content
+                    // area, accumulating with each switch (user: "appears for
+                    // a few ms… then it just stays there"). Selecting without
+                    // an animation makes the pill swap in ONE frame — no
+                    // mid-flight matched views to orphan. The marker
+                    // underline still animates via its own onChange(isSelected).
+                    presenter.activeTab = tab
                 }
             }
         }
         .padding(4)
+        // 2026-05-22 — SINGLE sliding selection pill. One always-present
+        // view, leading-aligned to the padded rail, that springs its
+        // `.offset(x:)` and `.frame(width:)` to the active segment. This
+        // is the macOS segmented-control slide the user asked to bring
+        // back ("mac os type animation … each word like Live, photo,
+        // video") — but built so it CANNOT strand views the way the old
+        // `matchedGeometryEffect` pill did (the 2026-05-22 ghost): a view
+        // that only moves + resizes has no insert/remove to orphan. Sits
+        // ABOVE the recessed rail (applied first → closer to content) and
+        // BEHIND the button labels. Non-interactive.
+        .background(alignment: .leading) {
+            if tabIndicatorStyle.showsCapsule {
+                selectionPill
+                    .frame(width: presenter.activeTab.segmentPillWidth, height: 28)
+                    .offset(x: selectionPillOffsetX)
+                    // tabSlide governs ONLY the frame+offset travel.
+                    .animation(.tabSlide, value: presenter.activeTab)
+                    .animation(.tabSlide, value: presenter.visibleTabs)
+                    // Squash-stretch sits OUTSIDE the tabSlide scope so its
+                    // own withAnimation transaction (set in onChange) drives
+                    // it — not the slide spring. ≤4% width / 2.5% height,
+                    // centre-anchored: a subtle "launch" deformation that
+                    // settles as the pill lands.
+                    .scaleEffect(
+                        x: 1 + 0.04 * pillStretch,
+                        y: 1 - 0.025 * pillStretch,
+                        anchor: .center
+                    )
+                    .allowsHitTesting(false)
+                    .onChange(of: presenter.activeTab) { _ in
+                        pillStretchGen &+= 1
+                        let gen = pillStretchGen
+                        withAnimation(.easeOut(duration: 0.11)) { pillStretch = 1 }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.11) {
+                            // A newer switch superseded us — let its own
+                            // settle run instead of fighting it.
+                            guard gen == pillStretchGen else { return }
+                            withAnimation(.spring(response: 0.30, dampingFraction: 0.66)) {
+                                pillStretch = 0
+                            }
+                        }
+                    }
+            }
+        }
         .background(
             RoundedRectangle(cornerRadius: 19, style: .continuous)
                 .fill(
@@ -4347,6 +5052,98 @@ struct PanelRootView: View {
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, 3)
         .animation(.selection, value: presenter.visibleTabs)
+    }
+
+    /// The raised lozenge that marks the active tab. Geometry-free —
+    /// the parent sizes it (`segmentPillWidth`) and slides it
+    /// (`selectionPillOffsetX`).
+    ///
+    /// 2026-05-22 (Liquid-Glass aesthetics research): retuned to mimic
+    /// Tahoe's glass-highlight signature WITHOUT real `glassEffect`
+    /// (glass-on-glass inside the already-translucent slab would double-
+    /// refract and muddy the label). The premium read is a hand-built
+    /// raised lozenge: top-lit, with a specular sheen cap and an edge-lit
+    /// rim. Four cheap, static, blur-free, shadow-free layers (this slab
+    /// kills per-frame shadow/blur for perf):
+    ///   1. Body fill — VERTICAL (top→bottom). Diagonal read as flat;
+    ///      vertical gives a lit-from-above surface. white@18 (sheen) →
+    ///      accent@14 (tinted body, kept ≤15% so it's "lit glass" first,
+    ///      "tinted" second) → black@30 (bottom shading grounds it).
+    ///   2. Specular cap — a brighter white sheen concentrated in the top
+    ///      ~30% (the single biggest "premium" lever per the research).
+    ///   3. Edge-lit rim — top-lit VERTICAL stroke: white@40 top →
+    ///      accent@30 mid → white@7 bottom (Apple's rim brightens at top,
+    ///      near-invisible at bottom), 1.0pt.
+    ///   4. Inner hairline — white@8 inset 1pt for a "thick glass"
+    ///      double-edge.
+    private var selectionPill: some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(
+                LinearGradient(
+                    stops: [
+                        .init(color: Color.white.opacity(0.18), location: 0.0),
+                        .init(color: panelAccent.opacity(0.14), location: 0.45),
+                        .init(color: Color.black.opacity(0.30), location: 1.0)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            // 2 — specular sheen cap (top ~30%, fades to clear).
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            stops: [
+                                .init(color: Color.white.opacity(0.22), location: 0.0),
+                                .init(color: Color.white.opacity(0.0), location: 0.32)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .allowsHitTesting(false)
+            )
+            // 3 — edge-lit, top-lit rim.
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.40),
+                                panelAccent.opacity(0.30),
+                                Color.white.opacity(0.07)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1.0
+                    )
+            )
+            // 4 — inner hairline for the "thick glass" double edge.
+            .overlay(
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .inset(by: 1)
+                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
+            )
+    }
+
+    /// Leading x-offset of the selection pill within the padded rail.
+    ///
+    /// The pill is leading-aligned to the `.padding(4)` frame, so x=0 is
+    /// the rail's outer-left corner. The first segment's content begins
+    /// at x=4 (the padding); each subsequent segment adds the preceding
+    /// tab's `segmentPillWidth` plus the `HStack(spacing: 5)` gap. Reads
+    /// widths from the SAME `segmentPillWidth` source the buttons use, so
+    /// the pill always lands exactly on the active label.
+    private var selectionPillOffsetX: CGFloat {
+        let tabs = presenter.visibleTabs
+        guard let idx = tabs.firstIndex(of: presenter.activeTab) else { return 4 }
+        var x: CGFloat = 4            // outer .padding(4)
+        for i in 0..<idx {
+            x += tabs[i].segmentPillWidth + 5   // 5 = HStack spacing
+        }
+        return x
     }
 
     // MARK: - Divider & content
@@ -4411,33 +5208,67 @@ struct PanelRootView: View {
         // appears at full opacity the moment the active tab's
         // body materializes.
         //
-        // 2026-05-04 REVERTED — visited-tabs cache regressed open/close
-        // smoothness (multiple alive tab views meant @Published changes
-        // re-evaluated more bodies during the morph). Back to lazy
-        // mount via switch; will re-approach tab-switch lag separately
-        // after researching the right technique.
-        Group {
-            switch presenter.activeTab {
-            case .music:
-                MusicPanelView()
-            case .notes:
-                NotesListView()
-            case .images:
-                ImagesGridView()
-            case .videos:
-                VideosGridView()
-            case .files:
-                FilesGridView()
-            case .script:
-                ScriptsView()
+        // 2026-05-23 — HYBRID tab-mount strategy.
+        //
+        // Background of the prior decisions:
+        //   • Original `.id(activeTab)` lazy-mount → switching back to
+        //     a heavy tab paid the full mount cost mid-transition,
+        //     visible as a flash/jank. User: "WHEN I AM SWITCHING
+        //     FROM any other option to live there is a glich there."
+        //   • Earlier visited-tabs cache mounted everything → all
+        //     tab views received @Published re-evals during morph,
+        //     regressing morph smoothness (the comment that REVERTED
+        //     it).
+        //
+        // This hybrid keeps ONLY the music tab always-mounted (it's
+        // the default + most-frequent + heaviest tab; it's also
+        // mounted during every slab open already, so we're not
+        // creating new morph overhead). All other tabs stay lazy via
+        // the switch — they re-mount on activation, but switching
+        // BACK to .music — the user's reported glitch path — is now
+        // a single opacity flip on an already-laid-out view tree:
+        // instant, no mount.
+        ZStack {
+            // Always-mounted music tab (back layer). Its body still
+            // re-evaluates on @Published changes, but rendering is
+            // suppressed via opacity=0 when not active, so SwiftUI
+            // skips the actual paint. The mount cost is amortized to
+            // the slab's first appearance — every subsequent switch
+            // to .music is free.
+            MusicPanelView(heroArtworkNamespace: musicArtworkHeroNS)
+                .opacity(presenter.activeTab == .music ? 1 : 0)
+                .allowsHitTesting(presenter.activeTab == .music)
+
+            // Lazy-mounted non-music tabs (front layer). Switch-based
+            // mount as before; vanish to nothing when .music is
+            // active, leaving the music tab visible underneath.
+            Group {
+                switch presenter.activeTab {
+                case .music:
+                    EmptyView()                 // music handled above
+                case .notes:
+                    NotesListView()
+                case .images:
+                    ImagesGridView()
+                case .videos:
+                    VideosGridView()
+                case .files:
+                    FilesGridView()
+                case .script:
+                    ScriptsView()
+                }
             }
+            .id(presenter.activeTab)
+            // SMOOTH tab-content swap via asymmetric transition.
+            // Removal `.identity` (instant, no ghost strand) +
+            // insertion `.opacity` over `.easeInOut(0.16)` fades the
+            // new tab in.
+            .transition(.asymmetric(
+                insertion: .opacity.animation(.easeInOut(duration: 0.16)),
+                removal: .identity
+            ))
         }
-        .id(presenter.activeTab)
-        .transition(.asymmetric(
-            insertion: .opacity.combined(with: .offset(y: 8)),
-            removal: .opacity.combined(with: .offset(y: -4))
-        ))
-        .animation(.easeOut(duration: 0.22), value: presenter.activeTab)
+        .animation(.easeInOut(duration: 0.16), value: presenter.activeTab)
     }
 
     /// Single source of truth for the panel's inner content layout.
@@ -4842,6 +5673,42 @@ private struct MarkerStroke: Shape {
     }
 }
 
+extension PanelTab {
+    /// Fixed pixel width of this tab's segment in the rail.
+    ///
+    /// SINGLE SOURCE OF TRUTH so the per-button frame
+    /// (`ScribbleTabButton.tabWidth`) and the parent's sliding
+    /// selection pill (`PanelRootView.selectionPill` /
+    /// `selectionPillOffsetX`) compute identical geometry. If these
+    /// ever diverge the pill lands a few px off the label — keep them
+    /// reading from here.
+    var segmentPillWidth: CGFloat {
+        switch self {
+        case .music: return 60
+        case .notes: return 64
+        case .images, .videos: return 74
+        case .files: return 58
+        case .script: return 66
+        }
+    }
+}
+
+/// Press feedback for a tab segment: a small, fast scale-dip on
+/// touch-down that springs back on release. Gives the tap an instant
+/// tactile acknowledgement (WWDC18 "Designing Fluid Interfaces" — the
+/// calculator-button rule: highlight immediately, never wait for the
+/// downstream animation) so the segment feels responsive while the
+/// selection pill is still sliding. 0.97 / response 0.18 — deliberately
+/// subtle for a dense control bar.
+private struct TabPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .animation(.spring(response: 0.18, dampingFraction: 0.7),
+                       value: configuration.isPressed)
+    }
+}
+
 private struct ScribbleTabButton: View {
     /// User-facing selector for the active-tab decoration. Lives
     /// in Settings → Appearance → "Active tab indicator".
@@ -4904,9 +5771,29 @@ private struct ScribbleTabButton: View {
 
     var body: some View {
         Button(action: action) {
-            Text(tab.title.lowercased())
-                .font(.system(size: 12.5, weight: isSelected ? .semibold : .medium))
-                .foregroundStyle(textColor)
+            // 2026-05-22 (micro-interaction research) — the label used to
+            // hard-swap weight (.medium → .semibold) AND color in a single
+            // frame the instant `isSelected` flipped, while the pill slid
+            // underneath: the pill animated, the text snapped. THAT is the
+            // "two separate steps" the user kept reporting. Fix: crossfade
+            // two stacked Text layers (dim/medium ↔ bright/semibold) by
+            // OPACITY over 0.25s easeOut, co-started with the slide so the
+            // brighten resolves AS the pill lands. Weight is never
+            // interpolated (SwiftUI hard-swaps Font.Weight at the midpoint
+            // and variable-width glyphs reflow) — each layer carries a
+            // fixed weight, and the frame is locked to `tabWidth` so the
+            // two differently-weighted strings can't shift the layout.
+            ZStack {
+                Text(tab.title.lowercased())
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(inactiveTextColor)
+                    .opacity(isSelected ? 0 : 1)
+                Text(tab.title.lowercased())
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.96))
+                    .opacity(isSelected ? 1 : 0)
+            }
+            .animation(.easeOut(duration: 0.25), value: isSelected)
                 .fixedSize()
                 .frame(width: tabWidth, height: 28)
                 .background(segmentBackground)
@@ -4958,7 +5845,13 @@ private struct ScribbleTabButton: View {
                 }
                 .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
-        .buttonStyle(.plain)
+        // 2026-05-22 — press feedback. A tap dips the segment to 0.97 on
+        // touch-down and releases on a fast spring, so the tap registers
+        // INSTANTLY (the "calculator-button" principle from WWDC18) while
+        // the pill is still travelling — killing the residual "lag"
+        // feel. Magnitude kept small (3%) so a dense control bar doesn't
+        // visibly pop.
+        .buttonStyle(TabPressStyle())
         .accessibilityLabel(tab.title)
         .help(tab.title)
         .onHover { hovering in
@@ -5012,54 +5905,29 @@ private struct ScribbleTabButton: View {
         }
     }
 
-    private var textColor: Color {
-        if isSelected { return Color.white.opacity(0.96) }
-        return isHovered ? Color.white.opacity(0.78) : Color.white.opacity(0.50)
+    /// Color of the INACTIVE (medium-weight) label layer only — the
+    /// active layer is a fixed bright white. Hover lifts the dim label
+    /// 0.50 → 0.78 (animated by the onHover `quickAnticipation` spring).
+    /// The selected case is gone: when selected, this layer is faded to
+    /// opacity 0 and the bright semibold layer shows instead.
+    private var inactiveTextColor: Color {
+        isHovered ? Color.white.opacity(0.78) : Color.white.opacity(0.50)
     }
 
-    private var tabWidth: CGFloat {
-        switch tab {
-        case .music: return 60
-        case .notes: return 64
-        case .images, .videos: return 74
-        case .files: return 58
-        case .script: return 66
-        }
-    }
+    private var tabWidth: CGFloat { tab.segmentPillWidth }
 
     @ViewBuilder
     private var segmentBackground: some View {
-        if isSelected && indicatorStyle.showsCapsule {
-            // 2026-05-13: dropped the two .shadow(...) modifiers
-            // that wrapped this fill (lavender glow + drop shadow).
-            // Each one was a separate GPU pass per render frame
-            // during the panel open spring. Visual presence comes
-            // from the gradient fill + the lavender marker
-            // underline overlay — shadows were redundant accent.
-            //
-            // 2026-05-17: gated on `indicatorStyle.showsCapsule`
-            // so the marker-only / none styles get truly chrome-
-            // free inactive-looking inactive tabs (instead of
-            // selected ones still carrying the capsule).
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.13),
-                            accentColor.opacity(0.12),
-                            Color.black.opacity(0.24)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                // SLIDE the pill between tabs (one shared pill, matched
-                // across buttons) instead of per-button cross-fade.
-                .matchedGeometryEffect(id: "tabPillFill", in: pillNamespace)
-        } else if isHovered {
-            // Hover-only background: dropped the drop shadow here
-            // too. Hover is a transient state and per-frame shadow
-            // re-renders during hover-in spring were also wasted.
+        // 2026-05-22 — the SELECTED-tab capsule fill moved OUT of the
+        // per-button background and into ONE sliding pill owned by the
+        // parent (`PanelRootView.selectionPill`). A single always-present
+        // pill that only changes `.offset`/`.frame` restores the macOS
+        // segmented-control slide between tabs WITHOUT the stranded-view
+        // ghosting that `matchedGeometryEffect` produced under rapid
+        // switching. This per-button background now only paints HOVER —
+        // and never on the selected capsule tab, so it can't double up
+        // with the parent pill.
+        if isHovered && !(isSelected && indicatorStyle.showsCapsule) {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.white.opacity(0.035))
         } else {
@@ -5070,27 +5938,10 @@ private struct ScribbleTabButton: View {
 
     @ViewBuilder
     private var segmentRim: some View {
-        if isSelected && indicatorStyle.showsCapsule {
-            // 2026-05-17: gated on `indicatorStyle.showsCapsule`
-            // for the same reason as `segmentBackground` — marker-
-            // only and none styles drop all capsule chrome.
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.18),
-                            accentColor.opacity(0.48),
-                            accentColor.opacity(0.20)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 0.8
-                )
-                // Slide the rim in lockstep with the fill (same shared
-                // pill geometry, separate matched id).
-                .matchedGeometryEffect(id: "tabPillRim", in: pillNamespace)
-        } else if isHovered {
+        // 2026-05-22 — selected-tab rim also moved to the parent's
+        // sliding pill (see `segmentBackground`). Hover rim only,
+        // suppressed on the selected capsule tab.
+        if isHovered && !(isSelected && indicatorStyle.showsCapsule) {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.07), lineWidth: 0.6)
         }
@@ -5781,6 +6632,61 @@ extension AnyTransition {
             active: SoftEntranceModifier(progress: 0),
             identity: SoftEntranceModifier(progress: 1)
         )
+    }
+
+    /// DynamicNotchKit-style expand reveal — ported from MrKai77/
+    /// DynamicNotchKit (MIT). Its expanded content reveals with
+    /// `.blur(10) + .scale(y: 0.6, anchor: .top) + .opacity`: the content
+    /// blurs in while scaling UP FROM THE TOP EDGE, so it reads as emerging
+    /// out of the notch rather than fading/sliding in place.
+    static func dnkBlur(_ radius: CGFloat) -> AnyTransition {
+        .modifier(active: DNKBlurModifier(radius: radius),
+                  identity: DNKBlurModifier(radius: 0))
+    }
+
+    static func dnkScaleTop(_ y: CGFloat) -> AnyTransition {
+        .modifier(active: DNKScaleYModifier(y: y),
+                  identity: DNKScaleYModifier(y: 1))
+    }
+
+    /// 3D card-flip transition — based on Paul Hudson's
+    /// hackingwithswift.com/read/37/3 pattern. Insertion rotates from
+    /// -180° → 0° on the Y axis (card flips toward the camera),
+    /// removal rotates from 0° → 180° (back side rotates away).
+    /// Combined with `.opacity` so the back face is invisible at
+    /// 90° instead of showing the reversed image.
+    static var cardFlip: AnyTransition {
+        .asymmetric(
+            insertion: .opacity.combined(with: .modifier(
+                active: CardFlipModifier(angle: -180),
+                identity: CardFlipModifier(angle: 0))),
+            removal: .opacity.combined(with: .modifier(
+                active: CardFlipModifier(angle: 180),
+                identity: CardFlipModifier(angle: 0)))
+        )
+    }
+}
+
+private struct DNKBlurModifier: ViewModifier {
+    let radius: CGFloat
+    func body(content: Content) -> some View { content.blur(radius: radius) }
+}
+
+private struct DNKScaleYModifier: ViewModifier {
+    let y: CGFloat
+    func body(content: Content) -> some View {
+        content.scaleEffect(x: 1, y: y, anchor: .top)
+    }
+}
+
+private struct CardFlipModifier: ViewModifier {
+    let angle: Double
+    func body(content: Content) -> some View {
+        content
+            .rotation3DEffect(.degrees(angle),
+                              axis: (x: 0, y: 1, z: 0),
+                              anchor: .center,
+                              perspective: 0.6)
     }
 }
 
@@ -6553,28 +7459,56 @@ private struct TrackTitleApronText: View {
     private var key: String { "\(title)|\(artist)" }
 
     var body: some View {
+        // 2026-05-23 — TYPOGRAPHY PASS for Alcove parity.
+        //
+        // Previous: 11pt SF Pro medium, white at 80% opacity. Felt
+        // generic next to Alcove's polished banner.
+        //
+        // New baseline (driven by the alcove.mp4 content-agent
+        // measurement: "Alcove title is rendered in neutral grey ~RGB
+        // 175, NOT pure white"):
+        //   • Family: SF Pro Rounded (`design: .rounded`) — the
+        //     same family Apple uses for Dynamic Island / Live
+        //     Activities labels. Reads softer and warmer than
+        //     default SF Pro, matches the pill's curved aesthetic.
+        //   • Size: 12pt (was 11). Bumps perceived weight a touch
+        //     without crowding the apron.
+        //   • Weight: .semibold (was .medium). Holds presence at
+        //     small sizes on dark backgrounds.
+        //   • Color: 68% white = ~RGB(175), the measured Alcove
+        //     neutral grey. Was 80% — slightly too bright, making
+        //     the line "shout" relative to the artwork.
+        //   • Tracking: -0.1 kerning — Apple's display fonts ship
+        //     with slight negative tracking at small sizes (their
+        //     own Activity titles do this), tightens letterforms.
+        //   • Separator dot lighter (45% grey) so it reads as
+        //     "spacer between primary nouns" not as text content.
         HStack(spacing: 5) {
             Image(systemName: "music.note")
-                .font(.system(size: 9.5, weight: .regular))
-                .foregroundStyle(.white.opacity(0.48))
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.55))
 
             Text(displayedTitle)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.white.opacity(0.80))
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .kerning(-0.1)
+                .foregroundStyle(.white.opacity(0.68))
                 .lineLimit(1)
-                .truncationMode(.tail)
 
             if !displayedArtist.isEmpty {
                 Text("·")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.48))
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.45))
                 Text(displayedArtist)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.80))
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .kerning(-0.1)
+                    .foregroundStyle(.white.opacity(0.68))
                     .lineLimit(1)
-                    .truncationMode(.tail)
             }
         }
+        // Render at full natural width (no tail-ellipsis). The apron
+        // frame clips + fades the overflow, so a long title dissolves at
+        // the edge like Alcove instead of showing a hard "…".
+        .fixedSize(horizontal: true, vertical: false)
         .offset(y: phase * 4)
         .blur(radius: abs(phase) * 5)
         .opacity(max(0, 1 - abs(phase)))

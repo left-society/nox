@@ -167,24 +167,82 @@ final class NotchOrchestrator {
     }
 
     func sendMediaCommand(_ command: MediaRemoteService.Command) {
+        let bundleID = lastForwardedBundleID ?? "nil"
+        MediaRemoteAdapterService.fileLog("SENDCMD command=\(command) lastFwdBundle=\(bundleID)")
+
         // Spotify / Apple Music keep their existing AppleScript path
         // because that's what's wired today and it works without
         // foregrounding. mediaService.send() handles them at line
         // ~756 of MediaRemoteService.swift via runAppleScript.
-        if let bundleID = lastForwardedBundleID,
-           bundleID == "com.spotify.client" || bundleID == "com.apple.Music" {
+        if bundleID == "com.spotify.client" || bundleID == "com.apple.Music" {
+            MediaRemoteAdapterService.fileLog("SENDCMD route=spotify/music via mediaService.send")
             mediaService.send(command)
             return
         }
-        // Everything else — adapter route. Works for browsers,
-        // podcast apps, web Apple Music, SoundCloud, anything that
-        // publishes Media Session. Falls back to the legacy
-        // mediaService.send if the adapter isn't running (e.g. its
-        // bundled resources didn't ship for some reason).
+        // 2026-05-23 — BROWSER-DIRECT route. For Chrome / Safari / Arc /
+        // Brave / Edge / Vivaldi / Opera, drive the page's HTML5 player
+        // directly via AppleScript JS injection. MediaRemote's command
+        // routing to browsers (especially togglePlayPause) is inconsistent
+        // — the log shows next/previous landing on Chrome but
+        // togglePlayPause silently swallowed. BrowserMediaScripter bypasses
+        // MR and talks to `document.querySelector('video,audio')`. SYNC
+        // call so we can detect AppleScript failure (e.g. "Allow JavaScript
+        // from Apple Events" disabled, automation permission denied, no
+        // front window) and fall through to the adapter instead of
+        // silently no-op'ing as the caller assumed success.
+        if BrowserMediaScripter.canDrive(bundleID) {
+            MediaRemoteAdapterService.fileLog("SENDCMD route=BrowserMediaScripter bundle=\(bundleID)")
+            if BrowserMediaScripter.sendCommandSync(command, bundleID: bundleID) {
+                MediaRemoteAdapterService.fileLog("SENDCMD BrowserMediaScripter OK")
+                return
+            }
+            MediaRemoteAdapterService.fileLog("SENDCMD BrowserMediaScripter FAILED — falling through to adapter")
+        }
+        // Everything else — adapter route. Works for podcast apps, web
+        // Apple Music, SoundCloud, anything that publishes Media Session.
+        // Falls back to the legacy mediaService.send if the adapter isn't
+        // running (e.g. its bundled resources didn't ship for some reason).
         if mediaRemoteAdapter.isRunning, mediaRemoteAdapter.send(command) {
+            MediaRemoteAdapterService.fileLog("SENDCMD route=adapter ok")
             return
         }
+        MediaRemoteAdapterService.fileLog("SENDCMD route=mediaService fallback")
         mediaService.send(command)
+    }
+
+    /// 2026-05-23 — seek dispatch by source. Wired in via
+    /// `presenter.onSeek` so MusicPanelView's progress-bar drag can route
+    /// through a single place instead of inlining AppleScript itself.
+    ///   • Spotify / Apple Music → `set player position to <seconds>` AS.
+    ///   • Browser family → BrowserMediaScripter (sets `video.currentTime`).
+    ///   • Else → mediaRemoteAdapter.sendSeek (kMRMediaRemoteSetElapsedTime).
+    /// Previously the entire non-Spotify/Music branch silently no-op'd in
+    /// MusicPanelView.seek(...), which is what made the timeline drag look
+    /// glitchy on YouTube — the bar snapped back because the seek never
+    /// actually landed AND the optimistic local update never fired.
+    func handleSeek(toSeconds seconds: Double) {
+        guard let bundleID = lastForwardedBundleID else { return }
+        guard seconds.isFinite, seconds >= 0 else { return }
+
+        if bundleID == "com.spotify.client" || bundleID == "com.apple.Music" {
+            let appName = bundleID == "com.spotify.client" ? "Spotify" : "Music"
+            let script = "tell application \"\(appName)\" to set player position to \(seconds)"
+            DispatchQueue.global(qos: .userInitiated).async {
+                var error: NSDictionary?
+                if let scriptObj = NSAppleScript(source: script) {
+                    _ = scriptObj.executeAndReturnError(&error)
+                    if let error = error {
+                        NSLog("nox: seek to \(seconds)s in \(appName) failed: \(error)")
+                    }
+                }
+            }
+            return
+        }
+        if BrowserMediaScripter.canDrive(bundleID),
+           BrowserMediaScripter.sendSeek(toSeconds: seconds, bundleID: bundleID) {
+            return
+        }
+        _ = mediaRemoteAdapter.sendSeek(position: seconds)
     }
 
     /// Bring the source app for the currently-displayed track to the

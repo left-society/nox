@@ -335,6 +335,44 @@ final class MediaRemoteAdapterService {
         }
     }
 
+    /// Seek the active media source to `position` seconds. Routes through
+    /// the perl adapter's `seek` mode (line 238 of `mediaremote-adapter.pl`)
+    /// → `kMRMediaRemoteSetElapsedTime`. Same plumbing as `send()`, just a
+    /// different verb. Returns true if the subprocess spawned; whether the
+    /// source actually honored the seek is opaque (it's fire-and-forget).
+    /// 2026-05-23 — wired to fix the timeline glitch on browser sources;
+    /// before this, `MusicPanelView.seek(toFraction:)` silently no-op'd
+    /// for anything other than Spotify/Music.
+    func sendSeek(position: Double) -> Bool {
+        guard let scriptURL = resolvedScriptURL ?? bundleResolvedScriptURL(),
+              let frameworkURL = resolvedFrameworkURL ?? bundleResolvedFrameworkURL() else {
+            NSLog("nox: MRA sendSeek(\(position)) — adapter resources not found")
+            return false
+        }
+        resolvedScriptURL = scriptURL
+        resolvedFrameworkURL = frameworkURL
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
+        process.arguments = [
+            scriptURL.path,
+            frameworkURL.path,
+            "seek",
+            String(position)
+        ]
+        process.standardOutput = FileHandle(forWritingAtPath: "/dev/null") ?? Pipe()
+        process.standardError = FileHandle(forWritingAtPath: "/dev/null") ?? Pipe()
+
+        do {
+            try process.run()
+            Self.fileLog("MRA sendSeek position=\(position)s")
+            return true
+        } catch {
+            NSLog("nox: MRA sendSeek(\(position)) — failed to spawn perl: \(error)")
+            return false
+        }
+    }
+
     /// Re-run the same Bundle path resolution `start()` does.
     /// Pulled out so `send()` works even if called before `start()`
     /// (defensive — orchestrator should always start the streamer
@@ -534,7 +572,12 @@ final class MediaRemoteAdapterService {
     /// to 30-40ms under disk pressure. With the writer pattern,
     /// the cost is amortized to one open() at startup and one
     /// write() per log line.
-    static func fileLog(_ message: String) {
+    /// Thread-safe: `MRALogWriter.shared.write` formats on the caller's
+    /// thread and routes to its own serial queue, so callers don't need
+    /// to be on @MainActor. Marking nonisolated so BrowserMediaScripter
+    /// (which can run from any thread) can log without violating actor
+    /// isolation. 2026-05-23.
+    nonisolated static func fileLog(_ message: String) {
         MRALogWriter.shared.write(message)
     }
 
@@ -585,9 +628,14 @@ final class MediaRemoteAdapterService {
                 title = name
             }
         }
-        if artist.isEmpty, let bundle = source, let name = appName(forBundleID: bundle) {
-            artist = name
-        }
+        // Alcove parity: do NOT backfill an empty artist with the
+        // source-app name. YouTube / browser audio reports a real title
+        // but no artist; filling it with "Chrome" rendered the banner as
+        // "Title · Chrome" — which truncated the real title early and
+        // showed a source label Alcove never displays. Leaving artist
+        // empty makes TrackTitleApronText (and the slab) show the clean,
+        // full title on its own, matching Alcove. The title fallback
+        // above still covers the titleless-podcast case.
 
         // Parse ISO 8601 timestamp into Date for elapsed-time math.
         let timestamp: Date?

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ImageIO
 import UniformTypeIdentifiers
 
 struct ImagesGridView: View {
@@ -70,6 +71,12 @@ struct ImagesGridView: View {
                                         toggleSelection(
                                             record.id,
                                             command: NSEvent.modifierFlags.contains(.command)
+                                        )
+                                    },
+                                    onOpen: {
+                                        ImageViewerWindow.shared.present(
+                                            imageStore: imageStore,
+                                            startAt: record.id
                                         )
                                     }
                                 )
@@ -573,6 +580,10 @@ struct ImageCell: View {
     let record: ImageRecord
     let isSelected: Bool
     let onTap: () -> Void
+    /// Double-click handler — opens the full-resolution viewer window.
+    /// Single click still toggles selection (`onTap`); SwiftUI's
+    /// tap-count gestures below disambiguate the two.
+    let onOpen: () -> Void
     @EnvironmentObject var imageStore: ImageStore
     @Environment(\.panelAccent) private var panelAccent: Color
     @State private var isHovered = false
@@ -603,7 +614,10 @@ struct ImageCell: View {
 
         return LocalThumbnailView(
             id: record.id,
-            url: imageStore.thumbURL(for: record)
+            url: imageStore.thumbURL(for: record),
+            // Fall back to the full image if the thumbnail is missing or
+            // failed to generate, so the cell never renders empty.
+            fallbackURL: imageStore.fullURL(for: record)
         )
         .frame(height: Self.cellHeight)
         .frame(maxWidth: .infinity)
@@ -686,7 +700,15 @@ struct ImageCell: View {
             y: 1
         )
         .contentShape(shape)
-        .onTapGesture { onTap() }
+        // 2026-05-23: double-click opens the full-resolution viewer;
+        // single click keeps toggling selection. Before this, the grid
+        // only ever showed a cropped 96pt thumbnail (.fill), so there
+        // was no way to actually SEE a whole photo inside nox — the user
+        // had to paste it into another app to view it. The count:2
+        // gesture is declared first so SwiftUI prioritizes it and waits
+        // out the double-click window before committing a single tap.
+        .onTapGesture(count: 2) { onOpen() }
+        .onTapGesture(count: 1) { onTap() }
         .contextMenu {
             // Vision-based OCR — fast, offline, every line as-is.
             // Right tool for "give me the words on this poster".
@@ -1028,6 +1050,355 @@ struct InflightImageCell: View {
             // what makes the paste feel instant the moment the off-main
             // decode lands.
             Color.clear
+        }
+    }
+}
+
+// MARK: - Full-resolution image viewer
+//
+// 2026-05-23 — added because nox previously had NO way to view a photo
+// at full size. The grid only ever rendered a center-cropped 96pt
+// thumbnail (`.aspectRatio(.fill)`), so to actually SEE a whole image
+// the user had to drag/paste it into another app (user report: "it
+// reframes... until I paste it somewhere I can't view them"). This is
+// a real, resizable window (not an in-panel overlay) so the viewing
+// canvas isn't capped by the notch HUD's small panel. Double-clicking
+// a grid cell opens it; single-click still toggles selection.
+//
+// Window plumbing mirrors `PopoutNote` (the established pattern for
+// opening a standalone window from this LSUIElement app) — the one
+// difference is this window SHOULD become key AND main, because it's
+// the surface the user is actively looking at and it needs key status
+// to receive the arrow-key / ESC shortcuts. PopoutNote deliberately
+// stays non-activating because it floats over a video the user keeps
+// focus in; the viewer is the opposite.
+
+/// Singleton controller that owns the viewer window and swaps its
+/// SwiftUI content in on each `present` call.
+@MainActor
+final class ImageViewerWindow {
+    static let shared = ImageViewerWindow()
+    private init() {}
+
+    private var window: ImageViewerHostWindow?
+    private var hostingView: NSHostingView<ImageViewerRoot>?
+
+    /// Open (or re-focus) the viewer, jumping to `id`. Reuses the same
+    /// window across calls so reopening doesn't flash a fresh frame.
+    func present(imageStore: ImageStore, startAt id: String) {
+        ensureWindow(imageStore: imageStore)
+        hostingView?.rootView = ImageViewerRoot(
+            imageStore: imageStore,
+            startId: id,
+            onClose: { [weak self] in self?.close() }
+        )
+        // LSUIElement app: activate so the window can take keystrokes
+        // (arrow-key navigation, ESC to close).
+        NSApp.activate(ignoringOtherApps: true)
+        window?.makeKeyAndOrderFront(nil)
+    }
+
+    func close() {
+        window?.orderOut(nil)
+    }
+
+    private func ensureWindow(imageStore: ImageStore) {
+        guard window == nil else { return }
+
+        let screen = NSScreen.main ?? NSScreen.screens.first
+        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        // ~72% of the visible frame, centered — big enough to genuinely
+        // view a photo, small enough to still read as a window the user
+        // can move and resize.
+        let w = max(560, visible.width * 0.72)
+        let h = max(420, visible.height * 0.72)
+        let frame = NSRect(
+            x: visible.midX - w / 2,
+            y: visible.midY - h / 2,
+            width: w,
+            height: h
+        )
+
+        let win = ImageViewerHostWindow(
+            contentRect: frame,
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        win.title = "Image"
+        win.titlebarAppearsTransparent = true
+        win.titleVisibility = .hidden
+        win.isMovableByWindowBackground = false
+        win.backgroundColor = .black
+        win.isOpaque = true
+        win.hasShadow = true
+        // Keep our reference valid through close so the controller can
+        // decide when to drop it (we clear it in `onClose`).
+        win.isReleasedWhenClosed = false
+        win.collectionBehavior = [.fullScreenPrimary, .managed]
+        win.onClose = { [weak self] in
+            self?.window = nil
+            self?.hostingView = nil
+        }
+
+        let placeholder = ImageViewerRoot(
+            imageStore: imageStore,
+            startId: "",
+            onClose: { [weak self] in self?.close() }
+        )
+        let host = NSHostingView(rootView: placeholder)
+        host.frame = frame
+        host.autoresizingMask = [.width, .height]
+        host.translatesAutoresizingMaskIntoConstraints = true
+        win.contentView = host
+
+        self.window = win
+        self.hostingView = host
+    }
+}
+
+/// NSWindow subclass that can become key + main (so it owns the
+/// keyboard while open) and reports its teardown so the controller
+/// can release its reference. `.titled` windows are key-capable by
+/// default, but the explicit overrides keep the contract obvious and
+/// survive a future switch to a borderless style.
+private final class ImageViewerHostWindow: NSWindow {
+    var onClose: (() -> Void)?
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+    override func close() {
+        super.close()
+        onClose?()
+    }
+}
+
+/// Root SwiftUI content of the viewer. Observes the `ImageStore` so the
+/// "N of M" counter and navigation stay correct if the library changes
+/// while the window is open, and clamps / closes if the current image
+/// is trashed out from under it.
+private struct ImageViewerRoot: View {
+    @ObservedObject var imageStore: ImageStore
+    let startId: String
+    let onClose: () -> Void
+
+    @State private var index: Int = 0
+    @State private var didInit = false
+
+    private var records: [ImageRecord] { imageStore.images }
+
+    private var currentRecord: ImageRecord? {
+        guard index >= 0, index < records.count else { return nil }
+        return records[index]
+    }
+    private var canNext: Bool { ImageViewerIndexPolicy.canGoNext(from: index, count: records.count) }
+    private var canPrev: Bool { ImageViewerIndexPolicy.canGoPrevious(from: index, count: records.count) }
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            if let record = currentRecord {
+                // `.id` forces a clean reload + zoom reset when the user
+                // navigates to a different image.
+                ZoomableImageView(url: imageStore.fullURL(for: record))
+                    .id(record.id)
+            } else {
+                VStack(spacing: 10) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 42, weight: .thin))
+                        .foregroundStyle(.white.opacity(0.4))
+                    Text("No image")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+            }
+
+            VStack {
+                topBar
+                Spacer()
+            }
+
+            HStack {
+                navButton(system: "chevron.left", enabled: canPrev, action: goPrev)
+                Spacer()
+                navButton(system: "chevron.right", enabled: canNext, action: goNext)
+            }
+            .padding(.horizontal, 16)
+
+            // Hidden arrow-key shortcuts — mirrors ImagesGridView's
+            // `shortcuts` ZStack pattern (hit-testing off, zero size).
+            keyboardShortcuts
+        }
+        .frame(minWidth: 480, minHeight: 360)
+        .onAppear {
+            guard !didInit else { return }
+            index = ImageViewerIndexPolicy.startIndex(for: startId, in: records.map(\.id))
+            didInit = true
+        }
+        // Single-param onChange: deployment target is macOS 13, where the
+        // two-param form isn't available yet (matches the rest of the
+        // codebase, e.g. PopoutNote / SettingsWindow).
+        .onChange(of: startId) { newId in
+            index = ImageViewerIndexPolicy.startIndex(for: newId, in: records.map(\.id))
+        }
+        .onChange(of: records.count) { newCount in
+            // Library changed while open (e.g. user trashed an image).
+            if newCount == 0 {
+                onClose()
+            } else if index >= newCount {
+                index = newCount - 1
+            }
+        }
+    }
+
+    private func goNext() {
+        index = ImageViewerIndexPolicy.nextIndex(after: index, count: records.count)
+    }
+    private func goPrev() {
+        index = ImageViewerIndexPolicy.previousIndex(before: index, count: records.count)
+    }
+
+    private var topBar: some View {
+        HStack {
+            if !records.isEmpty {
+                Text("\(min(index + 1, records.count)) of \(records.count)")
+                    .font(.system(size: 12, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(0.75))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(.black.opacity(0.45)))
+            }
+            Spacer()
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 26, height: 26)
+                    .background(Circle().fill(.black.opacity(0.45)))
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction) // ESC / ⌘.
+            .help("Close")
+        }
+        .padding(12)
+    }
+
+    private func navButton(system: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: system)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white.opacity(enabled ? 0.9 : 0.25))
+                .frame(width: 42, height: 42)
+                .background(Circle().fill(.black.opacity(0.4)))
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.35)
+    }
+
+    private var keyboardShortcuts: some View {
+        ZStack {
+            Button(action: goPrev) { EmptyView() }
+                .keyboardShortcut(.leftArrow, modifiers: [])
+            Button(action: goNext) { EmptyView() }
+                .keyboardShortcut(.rightArrow, modifiers: [])
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .allowsHitTesting(false)
+    }
+}
+
+/// The actual image surface: shows the WHOLE image with
+/// `.aspectRatio(.fit)` (no cropping — the entire point of the
+/// viewer), with pinch / scroll-to-zoom, drag-to-pan when zoomed, and
+/// double-click to toggle between fit and 2.5×.
+///
+/// Decodes to a `CGImage` off the main actor and wraps it in NSImage on
+/// the main actor — same Sendable-safe pattern as `LocalThumbnailView`
+/// (CGImage is Sendable on every macOS version; NSImage only from 14).
+private struct ZoomableImageView: View {
+    let url: URL
+
+    @State private var nsImage: NSImage?
+    @State private var scale: CGFloat = 1
+    @GestureState private var pinch: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @GestureState private var dragOffset: CGSize = .zero
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                if let nsImage {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .scaleEffect(scale * pinch)
+                        .offset(
+                            x: offset.width + dragOffset.width,
+                            y: offset.height + dragOffset.height
+                        )
+                        .gesture(magnifyGesture)
+                        .simultaneousGesture(panGesture)
+                        .onTapGesture(count: 2) { toggleZoom() }
+                } else {
+                    ProgressView()
+                        .controlSize(.large)
+                        .tint(.white)
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+        .clipped()
+        .task(id: url) {
+            scale = 1
+            offset = .zero
+            nsImage = nil
+            let captured = url
+            let cg: CGImage? = await Task.detached(priority: .userInitiated) {
+                guard let src = CGImageSourceCreateWithURL(captured as CFURL, nil) else {
+                    return nil
+                }
+                return CGImageSourceCreateImageAtIndex(src, 0, nil)
+            }.value
+            guard !Task.isCancelled, let cg else { return }
+            nsImage = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+        }
+    }
+
+    private var magnifyGesture: some Gesture {
+        // MagnificationGesture (not the macOS-14 MagnifyGesture) — the
+        // deployment target is macOS 13. Its value is the relative
+        // magnification factor (1.0 at rest) directly.
+        MagnificationGesture()
+            .updating($pinch) { value, state, _ in state = value }
+            .onEnded { value in
+                scale = max(1, min(scale * value, 6))
+                if scale == 1 { offset = .zero }
+            }
+    }
+
+    private var panGesture: some Gesture {
+        DragGesture()
+            .updating($dragOffset) { value, state, _ in
+                if scale > 1 { state = value.translation }
+            }
+            .onEnded { value in
+                guard scale > 1 else { return }
+                offset.width += value.translation.width
+                offset.height += value.translation.height
+            }
+    }
+
+    private func toggleZoom() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            if scale > 1 {
+                scale = 1
+                offset = .zero
+            } else {
+                scale = 2.5
+            }
         }
     }
 }

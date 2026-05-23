@@ -163,12 +163,15 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             menu.addItem(cancel)
         }
 
-        // Debug pill testing. Lets the user fire any of the new pills
-        // synthetically — no need to actually trigger the underlying
-        // event (plug a charger, AirDrop a file, finish a timer, etc.)
-        // to see the animation. The submenu is always present so this
-        // also works as a quick way to verify the animations after a
-        // build without setting up real triggers.
+        // 2026-05-23 — DEBUG-only pill testing. Lets a developer fire
+        // any of the system pills synthetically without setting up
+        // real triggers (plug a charger, AirDrop a file, finish a
+        // timer). Hidden from Release builds — production users
+        // shouldn't see "Test pill" / "Charging" / "Bluetooth
+        // connected" debug actions in the menu bar dropdown. Keeps
+        // the production menu tight: Open / Timer / Updates /
+        // Settings / Quit.
+        #if DEBUG
         menu.addItem(.separator())
         let testHeader = NSMenuItem(title: "Test pill", action: nil, keyEquivalent: "")
         testHeader.isEnabled = false
@@ -188,6 +191,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             item.representedObject = kind
             menu.addItem(item)
         }
+        #endif
 
         // Settings + Quit. Per user feedback: "there is no quite
         // button in the note taker." Notetaker is a menu-bar /

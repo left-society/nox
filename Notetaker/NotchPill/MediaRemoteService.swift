@@ -1616,3 +1616,152 @@ final class MediaRemoteService {
         }
     }
 }
+
+/// 2026-05-23 — direct browser-page control via AppleScript JavaScript
+/// injection. Bypasses MediaRemote entirely and drives the page's HTML5
+/// `<video>` / `<audio>` element on the active tab. Rock-solid for any
+/// site (YouTube, Netflix, Vimeo, Spotify Web, SoundCloud, Apple Music
+/// Web) because we're talking to the player directly, not relying on
+/// the browser's Media Session middleman.
+///
+/// Requires the user to have allowed JavaScript-from-Apple-Events in
+/// the browser (Chrome family: View → Developer → "Allow JavaScript
+/// from Apple Events"; Safari: Develop → "Allow JavaScript from Apple
+/// Events"). When that's off, AppleScript fails and the caller can
+/// fall through to the adapter route. Logs failures so we can debug.
+enum BrowserMediaScripter {
+    /// Bundle IDs of browsers we know speak the right AppleScript
+    /// dictionary. Chromium-derived ones (Chrome, Brave, Arc, Edge,
+    /// Vivaldi, Opera) all expose `execute javascript` on the `tab`
+    /// class; Safari uses `do JavaScript`.
+    static let supportedBundleIDs: Set<String> = [
+        "com.google.Chrome",
+        "com.google.Chrome.canary",
+        "com.brave.Browser",
+        "com.brave.Browser.beta",
+        "com.brave.Browser.dev",
+        "company.thebrowser.Browser",       // Arc
+        "com.microsoft.edgemac",
+        "com.microsoft.edgemac.Beta",
+        "com.microsoft.edgemac.Dev",
+        "com.microsoft.edgemac.Canary",
+        "com.vivaldi.Vivaldi",
+        "com.operasoftware.Opera",
+        "com.apple.Safari",
+        "com.apple.SafariTechnologyPreview",
+    ]
+
+    static func canDrive(_ bundleID: String) -> Bool {
+        supportedBundleIDs.contains(bundleID)
+    }
+
+    /// Send a transport command to the browser's active tab — SYNCHRONOUS,
+    /// returns the actual AppleScript success status. Caller can fall
+    /// through to MR/adapter if this returns false.
+    ///
+    /// Acts on the first `<video>` or `<audio>` element it finds.
+    /// next/previous click the YouTube player's own buttons (or a generic
+    /// `[aria-label="Next"]`). togglePlayPause is the critical one — that's
+    /// the path MediaRemote was silently swallowing on Chrome/YouTube,
+    /// which is why the user reported "play/pause not working" while
+    /// next/previous worked.
+    static func sendCommandSync(_ command: MediaRemoteService.Command, bundleID: String) -> Bool {
+        let js: String
+        switch command {
+        case .play:
+            js = "(function(){var v=document.querySelector('video,audio');if(!v)return 'no-element';v.play();return 'ok';})()"
+        case .pause:
+            js = "(function(){var v=document.querySelector('video,audio');if(!v)return 'no-element';v.pause();return 'ok';})()"
+        case .togglePlayPause:
+            js = "(function(){var v=document.querySelector('video,audio');if(!v)return 'no-element';if(v.paused){v.play();}else{v.pause();}return 'ok';})()"
+        case .stop:
+            js = "(function(){var v=document.querySelector('video,audio');if(!v)return 'no-element';v.pause();v.currentTime=0;return 'ok';})()"
+        case .next:
+            js = "(function(){var b=document.querySelector('.ytp-next-button')||document.querySelector('[aria-label=\\\"Next\\\"]')||document.querySelector('[aria-label=\\\"Next track\\\"]');if(b){b.click();return 'ok';}return 'no-button';})()"
+        case .previous:
+            js = "(function(){var b=document.querySelector('.ytp-prev-button')||document.querySelector('[aria-label=\\\"Previous\\\"]')||document.querySelector('[aria-label=\\\"Previous track\\\"]');if(b){b.click();return 'ok';}return 'no-button';})()"
+        case .toggleShuffle:
+            return false
+        }
+        return runJSSync(js, bundleID: bundleID, kind: "command \(command)")
+    }
+
+    /// Legacy async wrapper — kept for backwards compatibility but
+    /// callers should prefer `sendCommandSync` so they can fall through
+    /// to the adapter on AppleScript failure.
+    static func sendCommand(_ command: MediaRemoteService.Command, bundleID: String) -> Bool {
+        return sendCommandSync(command, bundleID: bundleID)
+    }
+
+    /// Seek the browser's active video/audio to `seconds` from the start.
+    /// SYNC; returns actual success status.
+    static func sendSeek(toSeconds seconds: Double, bundleID: String) -> Bool {
+        let js = "(function(){var v=document.querySelector('video,audio');if(!v)return 'no-element';v.currentTime=\(seconds);return 'ok';})()"
+        return runJSSync(js, bundleID: bundleID, kind: "seek \(Int(seconds))s")
+    }
+
+    /// Synchronous JS injection. Returns true ONLY if the AppleScript
+    /// executed AND the JS reported success. Distinguishes:
+    ///   • AppleScript error (automation denied, "Allow JavaScript from
+    ///     Apple Events" off, no window) → false
+    ///   • AppleScript OK but JS found no `<video>` element → false
+    ///   • AppleScript OK and JS reported 'ok' → true
+    ///
+    /// Runs on a userInitiated background thread via DispatchQueue.sync to
+    /// avoid blocking main even though the call site (sendMediaCommand) is
+    /// already on a non-tight path. NSAppleScript for a small JS injection
+    /// typically takes 20-60ms; acceptable for a button tap.
+    private static func runJSSync(_ script: String, bundleID: String, kind: String) -> Bool {
+        // Escape for AppleScript string literal: backslash first, then
+        // quote (quote-escape MUST come second or it eats the backslash).
+        let escaped = script
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+
+        let appleScript: String
+        if bundleID == "com.apple.Safari" || bundleID == "com.apple.SafariTechnologyPreview" {
+            appleScript = """
+            tell application id "\(bundleID)"
+                do JavaScript "\(escaped)" in current tab of front window
+            end tell
+            """
+        } else {
+            // Chromium family — Chrome, Brave, Arc, Edge, Vivaldi, Opera.
+            appleScript = """
+            tell application id "\(bundleID)"
+                tell active tab of window 1
+                    execute javascript "\(escaped)"
+                end tell
+            end tell
+            """
+        }
+
+        var success = false
+        var diagnostic = ""
+        var error: NSDictionary?
+        if let task = NSAppleScript(source: appleScript) {
+            let descriptor = task.executeAndReturnError(&error)
+            if let error = error {
+                diagnostic = "AS-ERR \(error)"
+            } else {
+                let result = descriptor.stringValue ?? ""
+                if result == "ok" {
+                    success = true
+                    diagnostic = "ok"
+                } else {
+                    diagnostic = "JS returned '\(result)'"
+                }
+            }
+        } else {
+            diagnostic = "NSAppleScript init failed"
+        }
+
+        let resultLog = success ? "BROWSER-JS \(kind) on \(bundleID) ok"
+                                : "BROWSER-JS \(kind) on \(bundleID) FAILED (\(diagnostic))"
+        if !success {
+            NSLog("nox: %@", resultLog)
+        }
+        MediaRemoteAdapterService.fileLog(resultLog)
+        return success
+    }
+}

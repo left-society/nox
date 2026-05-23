@@ -162,3 +162,67 @@ final class SwipeGesturePolicyTests: XCTestCase {
         XCTAssertEqual(SwipeGesturePolicy.defaultResetThreshold, 30)
     }
 }
+
+/// Apple's rubber-band physics (`RubberBand`) — the resistance curve and
+/// the WebKit spring-back decay used by the two-finger stretch.
+final class RubberBandTests: XCTestCase {
+
+    // MARK: - resist (during-drag resistance curve)
+
+    func testResistZeroPullIsZero() {
+        XCTAssertEqual(RubberBand.resist(0, dimension: 100), 0, accuracy: 0.0001)
+    }
+
+    func testResistSmallPullApproximatesConstantTimesPull() {
+        // For x << d, b ≈ c·x. With c = 0.55, a 1pt pull on a 100pt
+        // dimension should be ≈ 0.55pt.
+        XCTAssertEqual(RubberBand.resist(1, dimension: 100), 0.55, accuracy: 0.01)
+    }
+
+    func testResistMatchesSimplifiedFormula() {
+        // b = (x·d·c) / (d + c·x), c = 0.55, at x = d = 100.
+        let expected: CGFloat = (100 * 100 * 0.55) / (100 + 0.55 * 100)
+        XCTAssertEqual(RubberBand.resist(100, dimension: 100), expected, accuracy: 0.0001)
+    }
+
+    func testResistAsymptotesToDimensionButNeverReachesIt() {
+        let d: CGFloat = 70
+        let huge = RubberBand.resist(100_000, dimension: d)
+        XCTAssertLessThan(huge, d)              // never exceeds the dimension
+        XCTAssertGreaterThan(huge, 0.99 * d)    // but approaches it
+    }
+
+    func testResistIsMonotonicIncreasing() {
+        let d: CGFloat = 70
+        var prev = RubberBand.resist(0, dimension: d)
+        for x in stride(from: CGFloat(5), through: 300, by: 5) {
+            let cur = RubberBand.resist(x, dimension: d)
+            XCTAssertGreaterThan(cur, prev)     // strictly grows with pull
+            XCTAssertLessThan(cur, x)           // always less than the raw pull (resisted)
+            prev = cur
+        }
+    }
+
+    func testResistIsSignedForBothDirections() {
+        let d: CGFloat = 70
+        XCTAssertEqual(RubberBand.resist(-40, dimension: d),
+                       -RubberBand.resist(40, dimension: d),
+                       accuracy: 0.0001)
+    }
+
+    // MARK: - reboundOffset (WebKit spring-back decay)
+
+    func testReboundStartsAtReleasePositionWhenNoVelocity() {
+        // At t = 0 with no throw velocity, the offset equals the
+        // release position (e^0 = 1).
+        XCTAssertEqual(RubberBand.reboundOffset(position: 26, velocity: 0, elapsed: 0),
+                       26, accuracy: 0.0001)
+    }
+
+    func testReboundDecaysTowardZeroOverTime() {
+        let early = RubberBand.reboundOffset(position: 26, velocity: 0, elapsed: 0.05)
+        let late = RubberBand.reboundOffset(position: 26, velocity: 0, elapsed: 0.4)
+        XCTAssertLessThan(abs(late), abs(early))      // monotonic decay
+        XCTAssertLessThan(abs(late), 0.2)             // nearly settled by ~0.4s (τ ≈ 80ms)
+    }
+}

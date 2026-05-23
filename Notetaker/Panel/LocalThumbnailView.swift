@@ -29,6 +29,12 @@ struct LocalThumbnailView<Placeholder: View>: View {
     let id: String
     let url: URL
     var contentMode: ContentMode = .fill
+    /// Optional secondary URL decoded when the primary `url` (the
+    /// thumbnail) can't be read. ImageCell passes the full-image URL
+    /// here so a missing/corrupt thumb still shows the photo instead
+    /// of an empty cell. Defaults to nil so the Videos/Files/Notes
+    /// call sites are unaffected. (2026-05-23 — "photo become hidden".)
+    var fallbackURL: URL? = nil
     @ViewBuilder var placeholder: () -> Placeholder
 
     @State private var image: NSImage?
@@ -63,12 +69,26 @@ struct LocalThumbnailView<Placeholder: View>: View {
             // file read + image decode — happens on the detached
             // Task; the main-actor work is just a pointer wrap.
             let captureUrl = url
+            let captureFallback = fallbackURL
             let captureId = id
             let cgImage: CGImage? = await Task.detached(priority: .userInitiated) {
-                guard let src = CGImageSourceCreateWithURL(captureUrl as CFURL, nil) else {
-                    return nil
+                func decode(_ u: URL) -> CGImage? {
+                    guard let src = CGImageSourceCreateWithURL(u as CFURL, nil) else {
+                        return nil
+                    }
+                    return CGImageSourceCreateImageAtIndex(src, 0, nil)
                 }
-                return CGImageSourceCreateImageAtIndex(src, 0, nil)
+                if let primary = decode(captureUrl) { return primary }
+                // 2026-05-23: primary (thumbnail) decode failed — the
+                // thumb file is missing or corrupt. Fall back to the
+                // full image so the cell shows the photo rather than
+                // sitting on the placeholder forever (the "photo become
+                // hidden" report). Heavier decode, only on the miss
+                // path; pairs with ImageStore's now non-fatal thumbnail
+                // save which points thumbPath at the full image when
+                // generation fails.
+                if let fb = captureFallback { return decode(fb) }
+                return nil
             }.value
             // If the cell was recycled to a different id during
             // the await, `task(id:)` already cancelled us. Bail
@@ -86,10 +106,11 @@ struct LocalThumbnailView<Placeholder: View>: View {
 // the standard subtle-bg rectangle, so they shouldn't have to
 // write the closure.
 extension LocalThumbnailView where Placeholder == AnyView {
-    init(id: String, url: URL, contentMode: ContentMode = .fill) {
+    init(id: String, url: URL, contentMode: ContentMode = .fill, fallbackURL: URL? = nil) {
         self.id = id
         self.url = url
         self.contentMode = contentMode
+        self.fallbackURL = fallbackURL
         self.placeholder = { AnyView(Rectangle().fill(DS.Color.bgSubtle)) }
     }
 }

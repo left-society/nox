@@ -169,6 +169,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             && panel.presenter.isAudioFlowing {
             return true
         }
+        // Post-playback LINGER. The strict check above goes false the
+        // instant music pauses/stops; without this grace, the
+        // hide→notch-hidden path tucks the pill immediately on pause
+        // (the "closes the minute I close music" bug). Stay anchored for
+        // `pillLingerSeconds` after playback last stopped so the pill
+        // dwells on the last track, then closes. The retract timer in
+        // `updatePillVisibility` fires at this same deadline to do the
+        // actual close once the window lapses.
+        if Date().timeIntervalSince(lastEffectivelyPlayingAt) < Self.pillLingerSeconds {
+            return true
+        }
         if UserDefaults.standard.bool(forKey: SettingsKey.noxFocusMode) {
             return true
         }
@@ -323,6 +334,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// reaches the panel controller.
     private var nowPlayingNilDebounce: DispatchWorkItem?
 
+    /// 2026-05-23 — MORPH STABILITY GATE. While `presenter.isMorphing`
+    /// is true (~430ms during open/close), defer non-essential
+    /// `@Published` updates from background services so the morph's
+    /// SwiftUI body doesn't re-evaluate mid-animation. Re-evals
+    /// during a spring tick cause variable per-tick latency = the
+    /// "gittaryness" the user reports. Stability > smoothness:
+    /// even if a background flip would have rendered "correctly",
+    /// running it mid-morph adds non-determinism to each animation.
+    ///
+    /// `pendingAudioFlowing` stores the most recent audio-flowing
+    /// value observed during morph. When the morph ends we apply it
+    /// in one pass. If no change occurred we discard the buffer.
+    private var pendingAudioFlowing: Bool?
+
+    /// Subscription on `presenter.$isMorphing` so we can flush the
+    /// stability-gate buffers (pendingAudioFlowing, ...) when the
+    /// morph completes.
+    private var morphGateCancellable: AnyCancellable?
+
     /// Transient-media filter state. Track key + first-seen timestamp
     /// for the most recent short-duration track. Used by
     /// `isTransientMedia(_:)` to suppress pill bloom on browser ads,
@@ -359,6 +389,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// doesn't flicker out and back during brief gaps (YouTube
     /// scrub, Spotify track-change pause, ad-break).
     private var audioFlowingRetractWork: DispatchWorkItem?
+
+    /// How long the music pill lingers after playback last stopped
+    /// before it tucks into the notch. (User 2026-05-22: "when a music
+    /// or video ends the pill closes too fucking fast — should stay a
+    /// few seconds, around 5-10.")
+    static let pillLingerSeconds: TimeInterval = 7.0
+
+    /// Wall-clock instant the pill was last "effectively playing"
+    /// (see `updatePillVisibility` — actively playing OR paused-but-
+    /// audio-flowing). THE single anchor for the post-playback linger.
+    ///
+    /// Why this exists (2026-05-22 root-cause): pausing/stopping flips
+    /// `nowPlaying.isPlaying` false instantly, which made
+    /// `pillHasAnyAnchor()` false instantly — so the hide→notch-hidden
+    /// path (PanelWindowController ~3862) tucked the pill the moment the
+    /// user paused, ~2s BEFORE the audio-off retract timer could run.
+    /// Bumping that timer did nothing because the close came through the
+    /// un-graced `pillHasAnyAnchor()` path. Anchoring the linger to this
+    /// timestamp makes EVERY close path (hover-close, transient-clear,
+    /// retract) honor the same grace window uniformly.
+    private var lastEffectivelyPlayingAt: Date = .distantPast
 
     /// Wall-clock instant audio output last transitioned from
     /// flowing → not-flowing. Cleared when audio resumes. Used by
@@ -495,8 +546,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // 2026-05-24 — LAUNCH-TIMING INSTRUMENTATION.
+        // User reports first-launch lag persists; need hard data on
+        // which step is responsible. Each milestone logs elapsed
+        // wall time since this function started, so the eventual
+        // /tmp/nox-mra.log entries show a step-by-step timeline.
+        let launchT0 = CACurrentMediaTime()
+        func launchLog(_ label: String) {
+            let elapsed = (CACurrentMediaTime() - launchT0) * 1000
+            MediaRemoteAdapterService.fileLog(
+                "LAUNCH +\(String(format: "%.0f", elapsed))ms — \(label)"
+            )
+        }
+        launchLog("applicationDidFinishLaunching ENTRY")
+
         Self.shared = self
         NSApp.setActivationPolicy(.accessory)
+        launchLog("setActivationPolicy(.accessory) done")
 
         // RELOCATE-TO-/APPLICATIONS — runs first, BEFORE onboarding.
         //
@@ -539,6 +605,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // No-op if onboardingCompletedV2 is already set (existing
         // installs skip this and proceed straight to setup).
         onboardingManager.presentIfNeeded()
+        launchLog("onboardingManager.presentIfNeeded done")
 
         // 2026-05-04: disable App Nap for the lifetime of this
         // process. Notch HUD must respond instantly to user
@@ -557,6 +624,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // removed from the .plist on disk. See SecureKeyStore for
         // the full audit rationale.
         SecureKeyStore.shared.migrateFromUserDefaultsIfNeeded()
+        launchLog("SecureKeyStore migration done")
 
         // Touch the lazy Sparkle controller so it initializes during
         // launch — this kicks off Sparkle's internal startup
@@ -564,6 +632,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // so updates can be discovered without the user explicitly
         // invoking "Check for Updates."
         _ = sparkleUpdaterController
+        launchLog("Sparkle controller lazy init done")
 
         // First-run bootstrap of "Launch at login". The Settings UI
         // defaults this @AppStorage toggle to `true`, but it only
@@ -601,8 +670,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         do {
+            launchLog("AppEnvironment() START")
             let env = try AppEnvironment()
             self.environment = env
+            launchLog("AppEnvironment() done (DB + stores)")
             env.retentionService.start()
             env.bluetoothDeviceService.start()
             // Volume-HUD takeover (idea borrowed from SuperIsland).
@@ -658,7 +729,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 )
                 HapticFeedback.bluetoothChange()
             }
+            launchLog("PanelWindowController init START")
             panelController = PanelWindowController(environment: env)
+            launchLog("PanelWindowController init done (incl SwiftUI tree)")
             // Bring the panel up at notch-hidden (invisible behind
             // hardware notch) on launch so AppKit drag-and-drop has a
             // registered destination from the start. Without this,
@@ -669,6 +742,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // the hardware cutout = visually invisible, but the
             // window is alive and registered for dragged types.
             panelController?.parkAtNotchHidden()
+            launchLog("parkAtNotchHidden done (prewarm scheduled)")
             if let panelController {
                 PerformanceProbe.shared.setContextProvider { [weak panelController] in
                     panelController?.performanceContext ?? "panel=deallocated"
@@ -1330,8 +1404,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // to it as the authoritative "is something playing" check.
         orchestrator.onAudioFlowingChange = { [weak self] flowing in
             guard let self else { return }
-            self.panelController?.presenter.isAudioFlowing = flowing
+            // 2026-05-23 — MORPH STABILITY GATE. If a morph is in
+            // flight, buffer the value and skip the @Published write.
+            // The body re-eval triggered by `isAudioFlowing` changes
+            // adds variable per-tick latency to the spring's main-
+            // runloop ticks → user-reported "gittaryness." Audio
+            // status doesn't affect the morph's visual outcome, so
+            // it's safe to defer 200-400ms. The flush hook installed
+            // below applies the buffered value when isMorphing flips
+            // false. handleAudioFlowingChange still fires immediately
+            // because it carries domain side-effects (pill visibility
+            // recompute) that need to land even mid-morph; those side
+            // effects already gate themselves on isMorphing where
+            // necessary.
+            if let panel = self.panelController, panel.presenter.isMorphing {
+                self.pendingAudioFlowing = flowing
+            } else {
+                self.panelController?.presenter.isAudioFlowing = flowing
+            }
             self.handleAudioFlowingChange(flowing)
+        }
+
+        // 2026-05-23 — wire the morph-end flush. When `isMorphing`
+        // transitions true → false, apply any buffered background
+        // updates. `removeDuplicates` so we don't re-flush on every
+        // no-op publish. Stored cancellable lives for the lifetime of
+        // the app delegate; on macOS we don't tear down here.
+        if let panel = self.panelController {
+            morphGateCancellable = panel.presenter.$isMorphing
+                .removeDuplicates()
+                .sink { [weak self] morphing in
+                    guard let self, !morphing else { return }
+                    if let pending = self.pendingAudioFlowing {
+                        panel.presenter.isAudioFlowing = pending
+                        self.pendingAudioFlowing = nil
+                    }
+                }
         }
 
         // Lock-state edge → drives the music card's visibility.
@@ -1400,6 +1508,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // every button tap.
         panelController?.presenter.onMediaCommand = { [weak orchestrator] command in
             orchestrator?.sendMediaCommand(command)
+        }
+        // 2026-05-23 — seek dispatch from progress-bar drag (MusicPanelView).
+        panelController?.presenter.onSeek = { [weak orchestrator] seconds in
+            orchestrator?.handleSeek(toSeconds: seconds)
         }
 
         // Click-on-artwork in MusicPanelView routes through this
@@ -1816,6 +1928,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (right after setActivationPolicy) so it appears BEFORE
         // service-startup-triggered TCC prompts. See the call-site
         // comment up there for the full rationale.
+        launchLog("applicationDidFinishLaunching EXIT")
+
+        // 2026-05-24 — Pre-warm the Settings window after the launch
+        // burst settles. Mount cost (~50-200ms of SwiftUI tree
+        // construction) is paid here on an idle main-runloop tick so
+        // the first user-triggered Settings open is just a window-
+        // show. 3s delay lets the panel pre-warm (parkAtNotchHidden →
+        // prewarmSwiftUIContent), service starts, and onboarding all
+        // settle first — Settings is lower-priority than any of those.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            self?.prewarmSettingsWindow()
+        }
     }
 
     /// Kicks on the services whose `start()` methods can fire macOS
@@ -1841,7 +1965,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // MediaRemote AppleScript timing fallback can fire the
         // Automation / Apple Events permission prompt the first
         // time it queries Spotify or Music while either is running.
+        MediaRemoteAdapterService.fileLog("LAUNCH(deferred) notchOrchestrator.start START")
         notchOrchestrator?.start()
+        MediaRemoteAdapterService.fileLog("LAUNCH(deferred) notchOrchestrator.start done")
         // AirDropWatcher and ScreenshotWatcher both seed by listing
         // `~/Downloads` / `~/Desktop` via FileManager, which on
         // macOS Sonoma+ trips the Files & Folders TCC dialog for
@@ -1851,6 +1977,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // explainers, not before. start() is idempotent on both.
         airDropWatcher?.start()
         screenshotWatcher?.start()
+        MediaRemoteAdapterService.fileLog("LAUNCH(deferred) airDrop + screenshot watchers started")
         // installFnKeyTap → AXIsProcessTrustedWithOptions(prompt=true)
         // is the call that pops the Accessibility permission dialog.
         if let mode = dictationPendingHotkeyMode {
@@ -2015,11 +2142,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        guard let env = environment else {
-            NSLog("nox: openSettings called before environment ready")
-            return
-        }
+        // Build a fresh window on this click (will use the prewarmed
+        // tree if `prewarmSettingsWindow()` ran first; otherwise pays
+        // the full mount cost now).
+        guard let window = buildSettingsWindow() else { return }
+        window.makeKeyAndOrderFront(nil)
+        NSLog("nox: settings window ordered front (fresh), level=\(window.level.rawValue) visible=\(window.isVisible)")
+    }
 
+    /// 2026-05-24 — Build the Settings NSWindow + NSHostingController
+    /// tree. Extracted from `openSettings()` so we can pre-warm it
+    /// from `prewarmSettingsWindow()` at app-launch idle time. First-
+    /// time SettingsView mount is ~50-200ms of synchronous SwiftUI
+    /// work (sidebar, GeneralSettings panel, theme resolution). Doing
+    /// it lazily on the user's click landed as visible lag.
+    private func buildSettingsWindow() -> NSWindow? {
+        guard let env = environment else {
+            NSLog("nox: buildSettingsWindow called before environment ready")
+            return nil
+        }
         let host = NSHostingController(rootView: SettingsView().environmentObject(env))
         let window = NSWindow(contentViewController: host)
         window.title = "nox Settings"
@@ -2049,8 +2190,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         settingsWindow = window
-        window.makeKeyAndOrderFront(nil)
-        NSLog("nox: settings window ordered front, level=\(window.level.rawValue) visible=\(window.isVisible)")
+        return window
+    }
+
+    /// 2026-05-24 — Pre-warm the Settings window at app-launch idle
+    /// time so the first user-triggered open is just a window-show
+    /// instead of a 50-200ms NSHostingController + SettingsView mount.
+    /// Builds the window OFF-screen (visible=false) so the user
+    /// doesn't see anything; their first click on Settings then hits
+    /// the cached-window branch in `openSettings()` and is instant.
+    /// Idempotent — bails if the window already exists.
+    func prewarmSettingsWindow() {
+        guard settingsWindow == nil, environment != nil else { return }
+        _ = buildSettingsWindow()
+        NSLog("nox: settings window pre-warmed")
     }
 
     /// Forward the orchestrator's now-playing snapshot to the panel,
@@ -2069,6 +2222,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// immediately so artwork / title updates land without delay,
     /// and any pending teardown is cancelled (the music came back).
     private func handleNowPlayingChange(_ info: NowPlayingInfo?, panel: PanelWindowController) {
+        // 2026-05-23 — ARTWORK-COLOR PREWARM. ArtworkColor.dominant(...)
+        // is called SYNCHRONOUSLY from PanelRootView.body on every body
+        // re-eval. On a cache miss it decodes the NSImage + draws into
+        // a 1×1 CGContext (5-15ms on main thread). First slab open
+        // after a track lands often paid this cost during the open
+        // spring → user-reported "first 2 times opening the big slab
+        // still causing lags." Prewarm the cache on a background
+        // queue the moment a non-transient track arrives, so by the
+        // time the user opens the slab the dominant color is already
+        // memoized and the body call returns in <0.01ms.
+        if let info, let data = info.artworkData {
+            DispatchQueue.global(qos: .userInitiated).async {
+                _ = ArtworkColor.dominant(from: data)
+            }
+        }
+
         // 2026-05-01 ALCOVE-STYLE REWRITE.
         //
         // Old design: pill visibility was tied to `presenter.nowPlaying
@@ -2219,6 +2388,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // the banner doesn't fight an open slab or a tease
                 // in flight.
                 let trackKey = "\(info.title)|\(info.artist)"
+                // 2026-05-23 — REVERTED the 10s wall-clock debounce.
+                // It was blocking LEGITIMATE different-track changes
+                // within the window — user: "it's not even opening
+                // for changings". The trackKey dedup
+                // (`trackKey != lastAnnouncedTrackKey`) already
+                // handles same-track re-fires; the time gate was
+                // redundant and over-broad.
                 let shouldAnnounce = !info.title.isEmpty
                     && trackKey != lastAnnouncedTrackKey
                     && info.isPlaying
@@ -2271,10 +2447,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         // earlier skip's banner is still up), so this just
                         // swaps content in place: the new title + the
                         // album-art flip driven by the .trackChanged event.
-                        panel.showTrackBanner()
+                        //
+                        // 2026-05-23 — pendingSystemEvent FIRST so the
+                        // SwiftUI radii animation (driven by
+                        // pillEventCaseKey) starts in PARALLEL with the
+                        // panel.frame grow that `showTrackBanner` kicks
+                        // off. Previous order had showTrackBanner first,
+                        // so the panel started expanding microseconds
+                        // before radii — same desync we just fixed on
+                        // the dismiss side (where the radii were
+                        // morphing for 300 ms AFTER the panel had
+                        // landed). User wants "opening more fluid";
+                        // synced start = both finish on the same frame.
                         panel.presenter.setPendingSystemEvent(
                             .trackChanged(title: info.title, artist: info.artist)
                         )
+                        panel.showTrackBanner()
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self, weak panel] in
                         guard let self, let panel = panel else { return }
@@ -2302,9 +2490,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         // even though it fades concurrently with the
                         // width retract.
                         panel.presenter.trackChangedFiring = false
-                        panel.dismissTrackBanner {
-                            panel.presenter.clearPendingSystemEvent(animated: false)
-                        }
+                        // 2026-05-23 — clear `pendingSystemEvent`
+                        // BEFORE dismissTrackBanner instead of in its
+                        // completion. Previously the radii animation
+                        // (driven by `pillEventCaseKey` which depends
+                        // on pendingSystemEvent) didn't start until
+                        // the panel.frame had ALREADY finished
+                        // shrinking — so the corners spent the FIRST
+                        // 0.30s at banner radii (12 top / 28 bottom)
+                        // and the SECOND 0.30s morphing to pill radii
+                        // (6 / 14). User perceived this as the small
+                        // pill's L/R sides "a little larger when the
+                        // big thing is closing, creating a slip
+                        // effect" — the corner curves visibly
+                        // sharpening for 300 ms AFTER the silhouette
+                        // landed. Clearing the event up-front lets
+                        // radii animate IN PARALLEL with the panel
+                        // close, so corners and frame land in the
+                        // same 0.30 s window.
+                        panel.presenter.clearPendingSystemEvent(animated: false)
+                        panel.dismissTrackBanner(completion: nil)
                     }
                 } else if trackKey == lastAnnouncedTrackKey,
                           let bytes = info.artworkData,
@@ -2561,26 +2766,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         audioFlowingRetractWork = nil
 
         if effectivelyPlaying {
+            // Anchor the linger clock: while playing (or paused-but-
+            // audio-flowing), keep stamping "now" so the post-playback
+            // grace window in `pillHasAnyAnchor()` always measures from
+            // the LAST moment audio was alive.
+            lastEffectivelyPlayingAt = now
             // enterRestingMode is idempotent.
             panel.enterRestingMode()
         } else {
-            // Grace LINGER before the music pill closes. 2026-05-22:
-            // 1.5s → 4.0s (user: "when there is no music let's have
-            // sometime before closing the music pill — right now it's
-            // instant"). So when audio stops, the pill stays on the last
-            // track for ~4s, then smoothly collapses into the notch —
-            // instead of vanishing almost immediately. Still covers brief
-            // gaps (track changes, scrubs) without flicker, and Focus mode
-            // still anchors the pill independently of this timer.
+            // Playback stopped. Close the pill, but only AFTER the linger
+            // window measured from `lastEffectivelyPlayingAt` lapses.
+            //
+            // 2026-05-22 root-cause fix: the real "closes the minute I
+            // close music" bug was NOT this timer's duration — it was that
+            // `pillHasAnyAnchor()` went false instantly on pause, so the
+            // hide→notch-hidden path tucked the pill before this ever ran.
+            // That's now fixed in `pillHasAnyAnchor()` (same linger). This
+            // timer is just the self-wake that performs the actual close.
+            //
+            // Fire at the ABSOLUTE deadline (lastEffectivelyPlayingAt +
+            // pillLingerSeconds), NOT now+delay. That makes the close time
+            // independent of how many times this re-runs in the meantime
+            // (the 3.0s stale-MR re-eval, audio flicker) — they all target
+            // the same instant instead of compounding. By that instant
+            // `pillHasAnyAnchor()`'s linger has also lapsed, so the guard
+            // below closes rather than bails. Cancels on any "music came
+            // back" event (line above), so track-changes/scrubs never
+            // flicker; Focus/Study/dictation anchor independently.
+            let deadline = lastEffectivelyPlayingAt
+                .addingTimeInterval(Self.pillLingerSeconds)
+            let delay = max(0.05, deadline.timeIntervalSinceNow)
             let work = DispatchWorkItem { [weak self] in
                 guard let self else { return }
+                self.audioFlowingRetractWork = nil
                 if !self.pillHasAnyAnchor() {
                     self.panelController?.exitRestingMode()
                 }
-                self.audioFlowingRetractWork = nil
             }
             audioFlowingRetractWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
         }
     }
 

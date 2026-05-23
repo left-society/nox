@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import Wave
 
 /// NSHostingView subclass that accepts the FIRST mouse click before
 /// the panel becomes key. The panel is `.nonactivatingPanel` so it
@@ -217,19 +218,26 @@ final class PanelWindowController {
     /// reads as a clear floating chip below the menu bar rather
     /// than as a wide bar trying to mimic a notch that isn't there.
     static let externalClosedPillWidth: CGFloat = 200
-    /// Extra width added to the resting pill while `presenter.isFocused`
-    /// is true, to fit the divider + "Focus" text + moon glyph that
-    /// musicPillContent renders during Focus / DND.
+    /// Extra width added to the resting pill while Focus / Study mode
+    /// is active alongside music, to fit the lock-in hero +
+    /// timer + waveform that `combinedPillContent` renders.
     ///
-    /// Width budget at 11pt SF Pro Semibold:
-    ///   • 1pt divider + 6pt spacing                =  7pt
-    ///   • 10pt moon glyph + 6pt spacing            = 16pt
-    ///   • ~28pt "Focus" text + 6pt leading spacing = 34pt
-    ///   • 8pt breathing room for kerning + clipping safety
-    /// Total: 65pt. Anything below ~60 squeezes the Spacer to 0
-    /// and starts crowding the waveform off the right edge.
-    /// Layout option 8 from docs/focus-indicator-layouts.html.
-    static let focusPillExtraWidth: CGFloat = 65
+    /// 2026-05-23 — bumped 65 → 100. The previous budget assumed
+    /// `[hero+text]` content totaling ~57pt, with waveform sitting
+    /// FIRST in the right wing (closest to notch hardware). User
+    /// reported the waveform was getting covered by the camera
+    /// notch protrusion, so we reordered to put waveform LAST (far
+    /// right, clear of notch). That moved the hero+timer to the
+    /// notch-adjacent slot — and at the old 65pt budget they didn't
+    /// fit, so the hero ended up partially under the camera ("Now
+    /// the study guys is hid"). 100pt gives the right-wing budget:
+    ///   • 14pt hero + 5pt spacing                =  19pt
+    ///   • ~40pt timer text + 5pt spacing         =  45pt
+    ///   • 18pt waveform + 4pt trailing margin    =  22pt
+    ///   • 14pt breathing room for the hero to sit
+    ///     CLEAR of the notch hardware boundary    =  14pt
+    /// Total: 100pt right-wing budget.
+    static let focusPillExtraWidth: CGFloat = 100
     /// Visible bump height below the menu-bar bottom. **14pt** —
     /// matches `pillCornerRadius` so the entire bottom-corner
     /// curve happens BELOW the menu bar (fully visible against the
@@ -305,8 +313,24 @@ final class PanelWindowController {
     /// instead of a distinct intermediate pill the slab jumps from.
     ///   • teasePillWidth 245 → 205  (+~14pt past the notch, like music)
     ///   • teasePillBump   11 → 4   (a hint of drop, not a hanging shape)
-    static let teasePillWidth: CGFloat = 205
-    static let teasePillBump: CGFloat = 4
+    ///
+    /// 2026-05-24 — calibrated to the reference video (toch feel.mp4)
+    /// via PIL per-row trace of frame 112 (full reach). The pill is
+    /// 219pt wide at its TOP edge and tapers inward to 189pt at its
+    /// bottom — a 42pt-tall silhouette where the top 32pt is the
+    /// hardware-notch portion behind the menu bar and the bottom
+    /// 10pt is the visible drop below.
+    ///
+    /// Iteration log this session:
+    ///   270/22 → 240/15 → 220/10 (vague — paired with slow 0.28s
+    ///   animation, eye didn't register the small drop) → 220/28
+    ///   (too aggressive — earlier deepest_y measurement was misled
+    ///   by cursor pixels below the pill, the real bump is 10pt).
+    /// Settled on the reference's actual values: 220/10. The vague
+    /// feel is addressed by the fast 0.16s animation duration
+    /// (matches reference) rather than by making the pill bigger.
+    static let teasePillWidth: CGFloat = 220
+    static let teasePillBump: CGFloat = 10
     /// 2026-05-22 — NO-MUSIC reach→open SETTLE. The no-music reach is a
     /// BIG grow (notch → ~245pt pill); the music reach is tiny (+14pt). The
     /// reach runs on NSAnimationContext, whose MODEL frame == the target
@@ -360,8 +384,37 @@ final class PanelWindowController {
     // here lands the silhouette at ~278pt = Alcove's banner width.
     // Apron depth stays unchanged (Alcove keeps it constant too —
     // the pop is purely horizontal + the title materializing in).
-    static let trackBannerWidth: CGFloat = 291
-    static let trackBannerBump: CGFloat = 32
+    //
+    // 2026-05-23 — REVERTED 310 → 291 after user pushback on the
+    // alcove.mp4 measurement pass. The recording's 1412×1080
+    // resolution doesn't match a clean retina-2x of any standard
+    // MBP display config, so the agent's "px/2 = pt" conversion
+    // for absolute geometry was unreliable. The +32 pt delta
+    // recommendation hinged on that conversion, so we cannot
+    // safely apply it as-is. The CURVE SHAPE measurement
+    // (independent of scale) is still applied below — that's the
+    // change with clear empirical backing.
+    // 2026-05-23 (LATER) — trackBannerWidth bumped 277 → 310.
+    // The earlier 277 was based on a comparison-agent recommendation
+    // to shave 14pt from 291 to match Alcove's measured silhouette,
+    // but that put trackBannerWidth (277) BELOW closedPillWidth
+    // (278) — i.e. the "expanded" banner was actually 1pt NARROWER
+    // than the resting pill. At dismiss-end the panel.frame had to
+    // grow back from 277+halo to 278+halo, which the user perceived
+    // as "the small slab is big while attaching, creating a breaking
+    // effect". Also the user explicitly compared to alcove.mp4 and
+    // reported "the big pill you open it's too small" — so the
+    // banner needed to be bigger, not smaller.
+    //
+    // 310 gives a +32pt delta from closedPillWidth — matches the
+    // first measurement-agent's measured Alcove delta (3 cycles
+    // averaged) and is clearly larger than the resting pill so the
+    // dismiss is a real shrink, no expansion-at-end artifact.
+    //
+    // trackBannerBump stays at 38 (visible-height tuning from the
+    // direct comparison; that one was unambiguous).
+    static let trackBannerWidth: CGFloat = 310
+    static let trackBannerBump: CGFloat = 38
 
     /// Volume HUD banner geometry — Alcove parity (round 7).
     ///
@@ -512,6 +565,17 @@ final class PanelWindowController {
     /// response to cursor entry into the notch hot zone, then promotes
     /// to a full open if the user dwells, or dismisses if they leave.
     private(set) var isTeasing = false
+
+    /// 2026-05-24 — Rate-limit floor for the tease/dismiss cycle.
+    /// On continuous cursor movement through the notch zone the
+    /// HoverActivator fires tease/dismiss as fast as ~10Hz; each
+    /// cycle spins up a fresh spring + re-runs SwiftUI body for the
+    /// isTeasing flip + regenerates the shadow CGPath. 150ms floor
+    /// is long enough to collapse rapid wiggles into one peek, short
+    /// enough that a deliberate sweep-then-return still teases on
+    /// the return.
+    private var lastTeaseEndedAt: Date = .distantPast
+    private static let minTeaseInterval: TimeInterval = 0.15
     private var openMode: OpenMode = .click
     private var clickOutsideMonitor: Any?
     private var keyMonitor: Any?
@@ -546,6 +610,11 @@ final class PanelWindowController {
     /// follow-up open/close can cancel it cleanly instead of letting
     /// two springs race each other on the same window frame.
     private var currentSpring: SpringFrameAnimator?
+    /// Wave-driven counterpart to `currentSpring`. Tracked separately
+    /// so both engines can coexist while we migrate piecemeal; cancel
+    /// helpers at the spring sites kill BOTH so a stale animation from
+    /// either engine can't fight a fresh one.
+    private var currentWaveSpring: WaveFrameAnimator?
     /// Frame the in-flight spring is animating TOWARD. Used by
     /// rapid-fire callers (held volume key fires showVolumeBanner
     /// 30×/sec) to skip the cancel+restart loop when we're already
@@ -1198,9 +1267,31 @@ final class PanelWindowController {
             // shoulder + rounder bottom during the banner).
             return (12, 28)
         }
+        // 2026-05-24 — TEASE STATE radii (12, 12). Mirrors
+        // PanelRootView's panelTopRadius / panelBottomRadius which
+        // also return 12/12 when isTeasing. Keeps the GPU shadow
+        // halo on the same outline as the visible silhouette
+        // during the no-music reach.
+        if presenter.isTeasing && presenter.nowPlaying == nil {
+            return (12, 12)
+        }
         if presenter.nowPlaying != nil {
-            // Music pill character
-            return (12, PanelWindowController.pillCornerRadius)
+            // Music pill character — must EXACTLY match the SwiftUI
+            // silhouette's `panelTopRadius` and `panelBottomRadius`
+            // for the music-playing resting state (PanelRootView
+            // lines ~654 + ~566 → topR = 6, bottomR = 14).
+            //
+            // 2026-05-23 — top fixed from 12 → 6. Previously the
+            // shadow rendered with a ROUNDER top corner (12) than
+            // the visible silhouette (6) — at the moment a banner
+            // dismissed back to the compact pill, the shadow's top
+            // curve extended past the silhouette's sharper top edge,
+            // creating the "small music pill corners are not the
+            // same as the closing thing's corners → cut effect" the
+            // user reported. Aligning to silhouette's (6, 14) means
+            // shadow halo and visible silhouette outline trace the
+            // SAME curve at all four corners of the compact pill.
+            return (6, 14)
         }
         // Empty resting state
         return (0, 6)
@@ -1430,6 +1521,15 @@ final class PanelWindowController {
                         Double(swipeAccumX / H_THRESHOLD)))
                     presenter.swipeHorizontalProgress = signedProgress
 
+                    // 2026-05-23 — drive the elastic CONTENT slide. The
+                    // content (NOT the window) slides toward the swipe with
+                    // Apple's rubber-band resistance — asymptotic + distance-
+                    // driven, so each swipe's give is unique. Modest
+                    // dimension keeps it a subtle give, not a big move (the
+                    // earlier whole-window slide was "too much").
+                    presenter.swipeOffsetX = RubberBand.resist(
+                        swipeAccumX, dimension: onMusicSlab ? 70 : 45)
+
                     if abs(swipeAccumX) > H_THRESHOLD {
                         swipeCommittedAxis = .horizontal
                         presenter.onMediaCommand?(
@@ -1451,6 +1551,7 @@ final class PanelWindowController {
                         // back to 0 visually.
                         presenter.swipeProgress = 0
                         presenter.swipeOffsetY = 0
+                        presenter.swipeOffsetX = 0
                         // Frame snap back so the panel doesn't carry
                         // any rubber-band offset into the next state.
                         panel.setFrame(swipeBaseFrame, display: false)
@@ -1494,17 +1595,29 @@ final class PanelWindowController {
             // closed — so the tucking motion flows smoothly into
             // the close animation with no snap.
             if swipeCommittedAxis != .horizontal && !swipeAutoCommitted {
-                let upDist = max(0, swipeAccumY)
+                // 2026-05-23 — only treat this as a vertical close when the
+                // gesture is actually vertical-leaning. A side (L/R) swipe
+                // with a little cross-axis drift used to set swipeProgress
+                // here → an unwanted BLUR during side swipes (user: "blur is
+                // making things worse"). Zeroing upDist when horizontal-
+                // leaning keeps swipeProgress/swipeOffsetY at rest, so side
+                // swipes no longer blur or scale the panel.
+                let yLeaning = abs(swipeAccumY) >= abs(swipeAccumX)
+                // upDist drives the CLOSE-gesture progress (positive Y only).
+                let upDist = yLeaning ? max(0, swipeAccumY) : 0
                 let progress = min(1.0, Double(upDist / V_SUCCESS))
                 presenter.swipeProgress = progress
 
-                if upDist > 0 {
-                    // Damped offset (0.45× input, capped). SwiftUI's
-                    // .interactiveSpring on swipeOffsetY adds the
-                    // elastic spring lag automatically — what we
-                    // write here is the TARGET, the spring tracks it.
-                    let offset = min(upDist * 0.45, V_CAP)
-                    presenter.swipeOffsetY = offset
+                // swipeOffsetY drives the elastic VERTICAL content drift
+                // (read by the music slab's per-element parallax). On the
+                // SLAB it's SIGNED — down also resists/springs, fixing the
+                // user's "no elasticness when sweaping down or up" gap. On
+                // the resting pill it stays positive-only (down is the
+                // open-commit path; a 26pt-tall pill would jiggle if its
+                // content shifted on a down-pull).
+                if yLeaning {
+                    let signedY = onMusicSlab ? swipeAccumY : upDist
+                    presenter.swipeOffsetY = RubberBand.resist(signedY, dimension: V_CAP)
                 } else {
                     presenter.swipeOffsetY = 0
                 }
@@ -1574,6 +1687,7 @@ final class PanelWindowController {
             presenter.swipeProgress = 0
             presenter.swipeHorizontalProgress = 0
             presenter.swipeOffsetY = 0
+            presenter.swipeOffsetX = 0
             swipeCommittedAxis = nil
             swipeAutoCommitted = false
 
@@ -1587,6 +1701,7 @@ final class PanelWindowController {
             presenter.swipeProgress = 0
             presenter.swipeHorizontalProgress = 0
             presenter.swipeOffsetY = 0
+            presenter.swipeOffsetX = 0
             swipeActive = false
             swipeCommittedAxis = nil
             swipeAutoCommitted = false
@@ -1637,25 +1752,42 @@ final class PanelWindowController {
     // Opposing motions on the bottom edge → "expanding back" feel.
     // Holding scale constant during the close avoids that conflict.
     private func commitSwipeClose() {
-        // Horizontal progress doesn't affect the close visual; clear
-        // it now so transport buttons stop showing swipe glow as
-        // soon as the close fires.
-        presenter.swipeHorizontalProgress = 0
-
-        hide()
-
-        // Defer the gesture-state reset until AFTER hide()'s visible
-        // close animation lands, so the pill doesn't briefly render
-        // at full open size before the close starts.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak presenter] in
-            guard let presenter else { return }
-            var txn = Transaction()
-            txn.disablesAnimations = true
-            withTransaction(txn) {
-                presenter.swipeProgress = 0
-                presenter.swipeOffsetY = 0
-            }
+        // Iteration log for the swipe-close hand-off:
+        //
+        // v1 (deferred reset +0.55s): preserved swipe pinch through the
+        // close, then snapped values to 0 after hide() landed. Problem:
+        // the swipe scaleEffect applied to the WHOLE panel including
+        // the resting pill artwork that becomes visible mid-close —
+        // when the deferred reset fired, the pill popped from ~0.91
+        // scale to 1.0. User: "small pill artwork is bouncing from
+        // nowhere when closing the big tab."
+        //
+        // v2 (instant reset with disablesAnimations): snapped all swipe
+        // values to 0 in one frame BEFORE hide(). Killed the bounce
+        // but introduced a different 1-frame glitch — the user's
+        // visible "pinched" panel state vanished instantly the moment
+        // they crossed the swipe threshold, BEFORE the close animation
+        // even began. User: "still when using two finger sweap to
+        // closing there is a weird glitch happening with everything."
+        //
+        // v3 (current): animate the reset using the SAME critical
+        // spring (438/42) that drives the panel.frame close. The
+        // pinch smoothly resolves to identity AS the panel shrinks —
+        // one continuous motion from "pinched slab" → "settled pill",
+        // no instant snap. The pill artwork only fades in at ~0.10–
+        // 0.20s into the close (after my recent fade-in delay
+        // removal), by which point the swipe-pinch has already
+        // resolved most of the way back to identity. Trade-off vs.
+        // v2: ~0.30s of pill-scale tail, but it's at low opacity
+        // during that window and dominated by the silhouette
+        // shrinking around it — invisible vs. v2's hard snap.
+        withAnimation(.interpolatingSpring(mass: 1.0, stiffness: 438, damping: 42, initialVelocity: 0)) {
+            presenter.swipeProgress = 0
+            presenter.swipeOffsetY = 0
+            presenter.swipeOffsetX = 0
+            presenter.swipeHorizontalProgress = 0
         }
+        hide()
     }
 
     func show(mode: OpenMode = .click, afterTeaseHold: Bool = false) {
@@ -1704,6 +1836,7 @@ final class PanelWindowController {
         // below for the full diagnosis + /tmp/nox-mra.log evidence.
         let wasTeasing = isTeasing
         isTeasing = false
+        presenter.isTeasing = false
         openMode = mode
         // Defensive reset of swipe progress signals at the start of
         // every show. Belt and suspenders alongside the matching
@@ -2393,7 +2526,24 @@ final class PanelWindowController {
         if isTeasing { return }
         if isVisible { return }
 
+        // 2026-05-24 — Tease/dismiss cycle rate limit. When the cursor
+        // wiggles continuously through the notch zone, the
+        // HoverActivator fires tease() and dismissTease() in rapid
+        // alternation (every ~100ms). Without a rate limit, each cycle
+        // starts a fresh SpringFrameAnimator + re-runs SwiftUI body
+        // for the isTeasing flip + regenerates the shadow CGPath.
+        // 10 cycles per second of that churn is the "glitches"
+        // user reports on continuous cursor movement. Skipping a
+        // tease that lands within `minTeaseInterval` of the last
+        // dismiss collapses rapid wiggles into one peek.
+        if Date().timeIntervalSince(lastTeaseEndedAt) < Self.minTeaseInterval {
+            return
+        }
+
         isTeasing = true
+        // Mirror onto the presenter so PanelRootView's silhouette can
+        // pick softer top/bottom radii during the reach (2026-05-24).
+        presenter.isTeasing = true
 
         // MUSIC-PILL HOVER REACTION (Alcove-inspired). User 2026-05-05:
         // "when you move the cursor closer it should react ... like
@@ -2497,6 +2647,19 @@ final class PanelWindowController {
     func dismissTease() {
         guard isTeasing else { return }
         isTeasing = false
+        presenter.isTeasing = false
+        // Stamp so the next tease() can rate-limit against this end
+        // time (see minTeaseInterval). Stamped BEFORE the animation
+        // starts so even mid-dismiss tease attempts are gated.
+        lastTeaseEndedAt = Date()
+
+        // 2026-05-24 — Cancel any in-flight tease spring so the
+        // NSAnimationContext retract below doesn't fight it on
+        // panel.frame. Same fast-cursor race as the new cancel in
+        // animateTease.
+        currentSpring?.cancel()
+        currentSpring = nil
+        haltInflightFrameAnimation()
 
         let screen = panel.screen ?? activeScreen
         // CRITICAL bug fixed 2026-05-06: was unconditionally retracting
@@ -3012,6 +3175,18 @@ final class PanelWindowController {
         guard presenter.isResting else { return }
         if isVisible { return }     // panel is in slab/expanded — leave it
         if isTeasing { return }
+        // 2026-05-23 — don't fight a banner morph in progress.
+        // `currentSpringTarget` is set in showTrackBanner/Volume etc.
+        // and cleared in their dismiss completions. If non-nil, a
+        // banner animation owns the panel.frame timeline right now;
+        // calling NSAnimationContext below would launch a SECOND
+        // panel.frame animation that competes with the banner's,
+        // visible as the dismiss pausing mid-shrink + landing at
+        // the wrong final size (user: "whole panel pauses mid-
+        // shrink + banner doesn't shrink to exact compact pill
+        // size"). Skip — when the banner dismiss completes it'll
+        // settle at the up-to-date resting frame anyway.
+        if currentSpringTarget != nil { return }
 
         let screen = panel.screen ?? activeScreen
         // Pick the right resting target — same logic as
@@ -3287,7 +3462,29 @@ final class PanelWindowController {
         let overlap = PanelWindowController.notchOverlap(for: screen)
         let halo = PanelWindowController.haloPadding
         let height = overlap + PanelWindowController.trackBannerBump + halo
-        let width = PanelWindowController.trackBannerWidth + 2 * halo
+        // 2026-05-23 — mirror `closedPillFrame`'s focus/study bonus
+        // (line ~3072). When BOTH music AND Focus/Study are active
+        // the resting pill grows by `focusPillExtraWidth` (65 pt) to
+        // make room for the focus indicator. Without applying the
+        // same bonus here, the banner expansion would actually
+        // SHRINK the silhouette when focus/study is on — the resting
+        // pill is 343 pt (278 + 65) but the banner stays at 310 pt.
+        // User: "we have study mode and focus mode so when expanding
+        // that time it should be bigger right?". Yes — the banner
+        // must always be wider than the resting pill it grew from.
+        let hasMusic = presenter.nowPlaying != nil
+        let noxFocus = UserDefaults.standard.bool(forKey: "noxFocusMode")
+        let noxStudy = UserDefaults.standard.bool(forKey: "noxStudyMode")
+        let respectFocus: Bool = {
+            if UserDefaults.standard.object(forKey: "respectFocusMode") == nil { return true }
+            return UserDefaults.standard.bool(forKey: "respectFocusMode")
+        }()
+        let modeActive = noxFocus || noxStudy || (presenter.isFocused && respectFocus)
+        let isNotched = PanelWindowController.isNotchedDisplay(screen)
+        let bonus = (isNotched && hasMusic && modeActive)
+            ? PanelWindowController.focusPillExtraWidth
+            : 0
+        let width = PanelWindowController.trackBannerWidth + bonus + 2 * halo
         return NSRect(
             x: frame.midX - width / 2,
             y: frame.maxY - height,
@@ -3423,35 +3620,6 @@ final class PanelWindowController {
                 ])
             }
         }
-
-        // 2026-05-22 SAFETY NET for the "slab splits, wallpaper through the
-        // gap, after switching tabs" bug. If ANOTHER morph bumps
-        // `animationGeneration` mid-resize (volume HUD, a second tab switch,
-        // an environment-suppression cancel), the spring's completion above
-        // bails on its gen guard and never runs the final `setFrame(target)`
-        // — leaving the panel stuck at the OLD tab's (shorter) height while
-        // the SwiftUI content is already the NEW (taller) tab. Both the
-        // background and the content are clipped to `panelSilhouette` (sized
-        // to the panel frame), so the too-short frame clips the silhouette
-        // above the new content and the desktop shows through the gap.
-        // Re-assert the CURRENT tab's target after the spring should have
-        // settled (ungated by generation, so an interrupted resize still
-        // converges). Cheap no-op when the frame already matches.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
-            guard let self, self.isVisible, self.presenter.isShown else { return }
-            let screen = self.panel.screen ?? self.activeScreen
-            let want = self.openSlabFrame(for: screen, tab: self.presenter.activeTab)
-            guard abs(self.panel.frame.height - want.height) > 1
-                    || abs(self.panel.frame.width - want.width) > 1 else { return }
-            MediaRemoteAdapterService.fileLog(
-                "TAB-RESIZE safety net: frame \(Int(self.panel.frame.width))x\(Int(self.panel.frame.height)) "
-                + "!= tab \(self.presenter.activeTab.rawValue) target "
-                + "\(Int(want.width))x\(Int(want.height)) — forcing (was the split-slab gap)")
-            self.currentSpring?.cancel()
-            self.currentSpring = nil
-            self.panel.setFrame(want, display: true)
-            self.updateShadowPath()
-        }
     }
 
     /// Settle any in-flight `NSAnimationContext` animation on
@@ -3507,16 +3675,54 @@ final class PanelWindowController {
         animationGeneration &+= 1
         let myGen = animationGeneration
 
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.18
-            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 1.0, 0.5, 1.0)
-            ctx.allowsImplicitAnimation = true
-            self.panel.animator().setFrame(target, display: true)
-        }, completionHandler: { [weak self] in
+        // 2026-05-24 — converted to SpringFrameAnimator for organic
+        // motion. Previous NSAnimationContext + fixed timing curve
+        // (out-quint 0.16s) interpolated linearly along the curve —
+        // smooth enough on paper but the eye perceives the lack of
+        // natural physics tail as "stiff." Spring with critical
+        // damping has the same approximate duration but a real
+        // ease-out tail (velocity decays smoothly to zero at the
+        // target). Same motion family the panel's open/close uses,
+        // so the reach reads consistently with the rest of the
+        // panel.
+        //
+        // Spring tuning:
+        //   response 0.20s  →  ω = 2π/0.20 ≈ 31.4 → stiffness ≈ 988
+        //   ζ = 1.0         →  damping = 2·ω·ζ ≈ 63 (critical, no
+        //                       overshoot to "jitter")
+        // Lands ~ 200-250ms perceived — slightly longer than 0.16s
+        // but the natural decay reads as smoother.
+        // 2026-05-24 — CANCEL any in-flight spring (open, close, or
+        // a previous tease) before starting a new tease. Without
+        // this, a fast cursor sweeping through the notch zone (tease
+        // → dismissTease → tease → dismissTease in <500ms) spawns
+        // multiple SpringFrameAnimators that all keep ticking and
+        // racing setFrame writes on the panel — visible as the lag
+        // / jitter the user reported. Same cancel pattern the
+        // open/close paths use.
+        currentSpring?.cancel()
+        currentSpring = nil
+        // Also halt any in-flight NSAnimationContext animation. The
+        // dismissTease path uses NSAnimationContext; if a dismiss is
+        // mid-flight when this tease starts, the two animation systems
+        // would fight on panel.frame at the window-server level.
+        haltInflightFrameAnimation()
+
+        let startFrame = panel.frame
+        let spring = SpringFrameAnimator(stiffness: 988, damping: 63, mass: 1.0)
+        spring.shadowTickHandler = { [weak self] in
+            self?.updateShadowPath()
+        }
+        currentSpring = spring
+        spring.animate(panel: panel, from: startFrame, to: target, initialVelocity: 0) { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
-            // Sub-pixel snap — same reason as animateOpen's final snap.
+            self.currentSpring = nil
+            // Sub-pixel snap — same reason as animateOpen's final
+            // snap; the spring's settle threshold can leave a few pt
+            // residual that benefits from a clean landing.
             self.panel.setFrame(target, display: true)
-        })
+            self.updateShadowPath()
+        }
     }
 
     /// Spring constants — calibrated against frame-by-frame audit of
@@ -3607,6 +3813,13 @@ final class PanelWindowController {
         //                      from the smooth acceleration profile,
         //                      not from oscillation.
         currentSpring?.cancel()
+        // Cancel any in-flight Wave-driven close so the open doesn't
+        // fight an active shrink. (Capturing velocity here would
+        // help close→open mid-flight redirection, but it's noisy on
+        // open since the user just clicked to expand — fresh start
+        // is fine.)
+        currentWaveSpring?.cancel()
+        currentWaveSpring = nil
         // Mark "morph in flight" so the sphere visualizer pauses
         // its 60Hz redraw loop while the spring is integrating.
         // Sphere + spring on the same main runloop at 60Hz each
@@ -3698,10 +3911,13 @@ final class PanelWindowController {
         animationGeneration &+= 1
         let myGen = animationGeneration
 
-        // Cancel any in-flight open spring so the close doesn't fight
-        // a still-running grow.
+        // Cancel any in-flight open spring (legacy or Wave) so the
+        // close doesn't fight a still-running grow.
         currentSpring?.cancel()
         currentSpring = nil
+        let openVelocity = currentWaveSpring?.currentVelocity ?? .zero
+        currentWaveSpring?.cancel()
+        currentWaveSpring = nil
 
         // Same NSAnimationContext halt as animateOpen — see comment
         // there for the full root-cause analysis. A close that
@@ -3805,7 +4021,21 @@ final class PanelWindowController {
             // "stops" regardless of whether it's landing on a
             // visible music pill or disappearing behind the
             // notch hardware.
-            spring = SpringFrameAnimator(stiffness: 438, damping: 36, mass: 1.0)
+            // 2026-05-23 — CRITICAL-DAMPED close (was 438/36 = ζ=0.86
+            // with ~5% overshoot). The matched-geometry artwork morph
+            // (PanelRootView.pillArtwork) anchors to the pill artwork's
+            // position, which itself is anchored to the panel's frame.
+            // With the panel overshooting 5%, the pill artwork's
+            // position briefly slid past target then bounced back — and
+            // the slab artwork tracking it via matchedGeometryEffect
+            // followed the same non-monotonic path. User: "Artwork is
+            // bouncing from the downside to upside which is a glich".
+            //   ω = √438 ≈ 20.94 (same perceptual duration ~250 ms)
+            //   ζ = 1.0 (critical) → damping = 2·ω·1 ≈ 42
+            // Critical damping settles slightly later than ζ=0.86 but
+            // with ZERO overshoot, so the artwork's path during the
+            // close is strictly monotonic toward the pill position.
+            spring = SpringFrameAnimator(stiffness: 438, damping: 42, mass: 1.0)
         } else {
             // 2026-05-21 (iteration after user feedback) — third
             // pass on the music-close spring. Journey so far:
@@ -3825,13 +4055,44 @@ final class PanelWindowController {
             // "too long" 322/45 (333ms). Same spring family as
             // the tab-switch (438/36), so close + tab-switch share
             // a consistent motion vocabulary across the panel.
-            spring = SpringFrameAnimator(stiffness: 438, damping: 36, mass: 1.0)
+            // 2026-05-23 — CRITICAL-DAMPED close (was 438/36 = ζ=0.86
+            // with ~5% overshoot). The matched-geometry artwork morph
+            // (PanelRootView.pillArtwork) anchors to the pill artwork's
+            // position, which itself is anchored to the panel's frame.
+            // With the panel overshooting 5%, the pill artwork's
+            // position briefly slid past target then bounced back — and
+            // the slab artwork tracking it via matchedGeometryEffect
+            // followed the same non-monotonic path. User: "Artwork is
+            // bouncing from the downside to upside which is a glich".
+            //   ω = √438 ≈ 20.94 (same perceptual duration ~250 ms)
+            //   ζ = 1.0 (critical) → damping = 2·ω·1 ≈ 42
+            // Critical damping settles slightly later than ζ=0.86 but
+            // with ZERO overshoot, so the artwork's path during the
+            // close is strictly monotonic toward the pill position.
+            spring = SpringFrameAnimator(stiffness: 438, damping: 42, mass: 1.0)
         }
+        // 2026-05-23 — REVERTED from WaveFrameAnimator back to
+        // SpringFrameAnimator. Wave is driven by a CVDisplayLink that
+        // fires on a dedicated IO thread, which forced a
+        // `DispatchQueue.main.async` per-frame hop to call setFrame
+        // safely — the queuing latency made the close visibly stutter
+        // (user: "glitching, not smooth"). SpringFrameAnimator uses a
+        // main-runloop CADisplayLink (no thread hop), and is the path
+        // that was smooth before Wave was introduced. Spring physics
+        // (438/42 critical-damped, response 0.30s) preserved from the
+        // calibration above. Trade-off: we lose Wave's velocity-
+        // preserving handoff on close-interrupted-by-open — acceptable
+        // vs. a stuttering close.
         spring.shadowTickHandler = { [weak self] in
             self?.updateShadowPath()
         }
         currentSpring = spring
-        spring.animate(panel: panel, from: start, to: target) { [weak self] in
+        spring.animate(
+            panel: panel,
+            from: start,
+            to: target,
+            initialVelocity: 0
+        ) { [weak self] in
             guard let self, self.animationGeneration == myGen else { return }
             self.updateShadowPath()
             // Shadow fades out ONLY after panel has arrived at the
@@ -3849,6 +4110,7 @@ final class PanelWindowController {
                 self.setShadowOpacity(0, duration: 0.14)
             }
             self.currentSpring = nil
+            self.currentWaveSpring = nil
             self.presenter.isMorphing = false
             PerformanceProbe.shared.mark("PANEL_CLOSE_ANIMATE_END", metadata: [
                 "target": self.performanceFrameString(target),
@@ -3894,6 +4156,24 @@ final class PanelWindowController {
                 let noxStudy = UserDefaults.standard.bool(forKey: "noxStudyMode")
                 return hasMusicLive || self.presenter.isFocused || noxQuiet || noxStudy
             }()
+            // 2026-05-23 — REMOVED the NSAnimationContext residual-
+            // landing. It was introduced to smooth the 3.5pt snap from
+            // SpringFrameAnimator's settle threshold (line ~5377), but
+            // running a separate easeOut animation AFTER the spring
+            // produced a visible curve-shift at the very end: the
+            // matched-geometry hero artwork tracks the pill artwork's
+            // position, which is anchored to the panel.frame — so when
+            // the panel's animation curve changed at the spring →
+            // NSAnimationContext handoff, the artwork's trajectory
+            // bent at that exact moment. User: "ending animation
+            // getting cut … different part at the last second", and
+            // separately "artwork is bouncing from the downside to
+            // upside" because the path-bend made the artwork's motion
+            // non-monotonic in screen coords. With critical damping
+            // (438/42) the spring ends with low velocity, so the
+            // residual snap is small enough to be subsumed by the
+            // surrounding matched-geom + opacity tails — cleaner end
+            // than the curve-shift artifact.
             self.panel.setFrame(target, display: true)
             if !(self.presenter.isResting && pillAnchored) {
                 // No anchor: panel STAYS visible at notch-hidden
@@ -4100,10 +4380,62 @@ final class PanelWindowController {
             }
             self.panel.setFrame(originalFrame, display: false)
             self.panel.alphaValue = 1
+
+            // 2026-05-24 — Warm the SPRING / DISPLAY-LINK / SHADOW-PATH
+            // code paths so the first user-triggered tease doesn't pay
+            // first-instantiation cost.
+            //
+            // Without this, the first hover after launch had to (1)
+            // create the first SpringFrameAnimator, (2) register the
+            // first CADisplayLink with NSScreen, (3) generate the
+            // first silhouetteCGPath at tease dimensions, (4) JIT-
+            // compile the spring tick. All under animation deadline,
+            // visible as the "first hover is slow / laggy + first
+            // tease is jumpy/stuttery" the user reports.
+            //
+            // Synthetic warm: build a SpringFrameAnimator and run a
+            // no-op animation (current frame → current frame) for
+            // one cycle. Settles instantly (no actual motion since
+            // start == target), but exercises every cold code path
+            // — spring init, displayLink registration, tickFrom-
+            // DisplayLink, shadowTickHandler, completion callback.
+            let prewarmSpring = SpringFrameAnimator(stiffness: 988, damping: 63, mass: 1.0)
+            prewarmSpring.shadowTickHandler = { [weak self] in
+                self?.updateShadowPath()
+            }
+            let frame = self.panel.frame
+            prewarmSpring.animate(
+                panel: self.panel,
+                from: frame,
+                to: frame,
+                initialVelocity: 0
+            ) {
+                // No-op completion; the warm-up's done.
+            }
+
+            // Also generate the tease-dimension silhouette CGPath so
+            // the first real tease doesn't pay CGPath construction
+            // cost mid-animation. Wrapped in CATransaction-disabled
+            // so it doesn't trigger an implicit shadow animation on
+            // the (invisible) panel.
+            let teaseFrame = self.teasePillFrame(for: screen)
+            let halo = PanelWindowController.haloPadding
+            let teaseRect = CGRect(
+                x: halo,
+                y: halo,
+                width: teaseFrame.width - 2 * halo,
+                height: teaseFrame.height - halo
+            )
+            _ = Self.silhouetteCGPath(
+                in: teaseRect,
+                topFlareRadius: 12,
+                bottomCornerRadius: 12
+            )
+
             let elapsed = (CACurrentMediaTime() - t0) * 1000
             DictationOrchestrator.dlog(
                 "🔥 prewarm DONE in \(String(format: "%.0f", elapsed))ms " +
-                "(slab=\(slabFrame.size))"
+                "(slab=\(slabFrame.size), spring + tease-path warmed)"
             )
         }
     }
@@ -4347,13 +4679,20 @@ final class PanelWindowController {
             width: target.size.width - 2 * halo,
             height: target.size.height - halo
         )
-        // Track banner radii — matches PanelRootView's
-        // panelTopRadius=6 / panelBottomRadius=14 for the
-        // `.trackChanged` + nowPlaying state.
+        // 2026-05-23 — Track banner shadow radii corrected to match
+        // PanelRootView's ACTUAL `.trackChanged` state. The
+        // silhouette renders with panelTopRadius=12 and
+        // panelBottomRadius=28 during the banner (PanelRootView
+        // lines ~648, ~548). The previous values (6, 14) were stale
+        // — left the shadow rendering with much SMALLER corner
+        // radii than the silhouette itself, so at the settled
+        // banner the shadow's curves fell INSIDE the visible
+        // silhouette outline. User: "slab border … broken at last
+        // point" on the grow-and-come-back.
         let targetShadowPath = Self.silhouetteCGPath(
             in: targetSilhouetteRect,
-            topFlareRadius: 6,
-            bottomCornerRadius: 14
+            topFlareRadius: 12,
+            bottomCornerRadius: 28
         )
         PerformanceProbe.shared.mark("PANEL_TRACK_BANNER_SHOW_START", metadata: [
             "target": performanceFrameString(target)
@@ -4379,22 +4718,44 @@ final class PanelWindowController {
         // approximation of Alcove's bounce-0.3 expand. Duration 0.35
         // matches Alcove's measured 0.35s (was 0.40).
         //
-        // The shadow path rides the SAME back-out curve so the halo
-        // overshoots in lockstep with the silhouette — they read as
-        // one elastic motion.
+        // The shadow path rides the SAME curve so the halo tracks
+        // the silhouette as one motion.
+        //
+        // 2026-05-23 — PIXEL-PERFECT ALCOVE CURVE FIT.
+        //
+        // Per-frame measurement of `/Users/apple/Downloads/alcove.mp4`
+        // (3 expansion cycles, 50fps) measured Alcove's width progress
+        // at q={0.25, 0.50, 0.75} of the expansion duration as:
+        // **28.1 %, 68.3 %, 90.8 %** — a "slow start, steep middle,
+        // gentle settle" shape characteristic of a mildly-underdamped
+        // spring `Spring(response: 0.30, bounce: 0.15)`.
+        //
+        // The previous (0.32, 0.72, 0.32, 1.0) out-quint was at
+        // **57.9 %, 89.5 %, 98.3 %** at the same quarters — front-
+        // loaded by 2× at the start, which made our banner pop feel
+        // "rushed" relative to Alcove's controlled launch.
+        //
+        // (0.30, 0.05, 0.50, 1.0) was the alcove-spring fit, but it
+        // didn't match the SwiftUI radii animation curve (which uses
+        // 0.32, 0.72, 0, 1 via `pillEventCaseKey`). At t=0.25 the
+        // alcove-fit curve was at ~10 % complete while the radii
+        // were at ~50 % — visible body-width desync during the
+        // grow. Aligned to the radii curve so panel.frame and
+        // corner radii now interpolate on the SAME timeline and
+        // the same intermediate states — the grow feels in
+        // lockstep, no body-width wave during expansion.
+        // (Same curve the dismiss already uses, so show + come-back
+        // round-trip is now symmetric on a single curve family.)
         let bannerExpandCurve = CAMediaTimingFunction(
-            controlPoints: 0.34, 1.3, 0.64, 1.0
+            controlPoints: 0.32, 0.72, 0, 1
         )
-        // 2026-05-21 — shell expansion 0.35 → 0.30s. Alcove's
-        // measured banner shell expansion (Alcove 2 recording,
-        // frames 942-955) is ~13 frames; the NEW content then
-        // materializes AFTER the shell settles (frames 956-965).
-        // The content delay is set in TrackChangedPillBody to land
-        // just as this shell expansion completes — that's the sync.
-        // REVERTED the SpringFrameAnimator (it dropped frames under the
-        // track-change main-thread load = "whole animation broken").
-        // Back to the off-thread NSAnimationContext back-out bezier —
-        // smooth, no main-thread contention.
+        // Shell expansion duration restored to 0.30s. The 0.22s
+        // value (from the alcove.mp4 frame audit) was too aggressive
+        // in combination with the new curve and the larger geometry
+        // changes that came with it — user reported the result felt
+        // wrong end-to-end. Keeping 0.30s preserves the established
+        // feel; the CURVE-SHAPE change below (independent of duration)
+        // is the actual measurement-validated improvement.
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.30
             ctx.timingFunction = bannerExpandCurve
@@ -4501,18 +4862,22 @@ final class PanelWindowController {
         let targetTopR: CGFloat
         let targetBottomR: CGFloat
         if targetKind == .pill {
-            // 2026-05-21 shadow-glitch fix: these MUST match the resting
-            // music-pill silhouette radii (`currentSilhouetteRadii()`
-            // nowPlaying branch = topFlare 12 / bottom pillCornerRadius).
-            // They were (6, 14) — a rounder, bigger bottom (14 vs 8) than
-            // the pill — and because the banner morph uses a CABasicAnimation
-            // and deliberately does NOT re-derive the path afterward, that
-            // mismatched (6,14) path PERSISTED at rest: the shadow's bottom
-            // poked out below the pill as a dark band (the reported
-            // "shadow glitch on music close"). Aligning them makes the
-            // shadow hug the pill exactly.
-            targetTopR = 12
-            targetBottomR = PanelWindowController.pillCornerRadius
+            // 2026-05-23 — shadow target radii now exactly match the
+            // SwiftUI silhouette's music-pill resting state (PanelRoot-
+            // View `panelTopRadius` = 6, `panelBottomRadius` = 14).
+            //
+            // History:
+            //   • (12, 8) — both wrong (top too big, bottom too small)
+            //   • (12, 14) — bottom fixed but top still rounder than
+            //     silhouette → "small music pill corners are not the
+            //     same as the closing things corners → cut effect"
+            //     because the shadow's rounder top curve poked past
+            //     the silhouette's sharper 6pt top corner at attach
+            //   • (6, 14) NOW — pixel-perfect parity with silhouette
+            //     at ALL FOUR corners → shadow halo and visible
+            //     outline share one curve at rest
+            targetTopR = 6
+            targetBottomR = 14
         } else {
             targetTopR = 0
             targetBottomR = 4
@@ -4553,8 +4918,18 @@ final class PanelWindowController {
         // REVERTED the SpringFrameAnimator (main-thread frame drops on
         // track-change). Back to the off-thread NSAnimationContext
         // ease-out bezier — smooth retract, no main-thread contention.
+        //
+        // 2026-05-23 — duration bumped 0.25 → 0.30 to UNIFY with the
+        // SwiftUI radii animation (pillEventCaseKey, currently 0.27s
+        // but bumped to 0.30 in the same pass) AND with the symmetric
+        // grow duration (showTrackBanner = 0.30). User reported the
+        // "big pill attaches with the small" moment was broken: with
+        // shell at 0.25s and radii at 0.27s, the silhouette corners
+        // kept morphing for ~20 ms after the panel frame settled, so
+        // the outline visibly shifted at the very last frame of the
+        // dismiss. All three timelines at 0.30s land in lockstep.
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.25
+            ctx.duration = 0.30
             ctx.timingFunction = bannerRetractCurve
             ctx.allowsImplicitAnimation = true
             panel.animator().setFrame(target, display: true, animate: true)
@@ -4565,7 +4940,7 @@ final class PanelWindowController {
                 let pathAnim = CABasicAnimation(keyPath: "shadowPath")
                 pathAnim.fromValue = fromPath
                 pathAnim.toValue = targetShadowPath
-                pathAnim.duration = 0.25
+                pathAnim.duration = 0.30
                 pathAnim.timingFunction = bannerRetractCurve
                 layer.removeAnimation(forKey: "trackBannerShadowPath")
                 layer.add(pathAnim, forKey: "trackBannerShadowPath")
@@ -4577,7 +4952,13 @@ final class PanelWindowController {
         }, completionHandler: { [weak self] in
             guard let self else { return }
             self.currentSpringTarget = nil
-            self.panel.setFrame(target, display: true)
+            // 2026-05-23 — removed redundant `panel.setFrame(target,
+            // display: true)`. NSAnimationContext above already lands
+            // the panel exactly on target via `animate: true`; the
+            // extra display flush at completion forced a 1-frame
+            // visual jolt right at the settle point — visible as the
+            // "border broken at last point" the user reported on the
+            // track-change grow-and-come-back. Trust the animator.
             self.presenter.isResting = targetKind == .pill
             self.presenter.isAtNotchHidden = targetKind == .notchHidden
             if targetKind == .notchHidden {
@@ -5166,6 +5547,105 @@ final class AirDropShareDelegate: NSObject, NSSharingServiceDelegate {
 
 // width, x, and y all reach their targets at the same beat. One
 // spring drives them together, the lerp distributes the motion.
+
+// MARK: - WaveFrameAnimator
+//
+// Drop-in replacement for SpringFrameAnimator that delegates to
+// jtrivedi/Wave's SpringAnimation<CGRect>. Wave (MIT, by Janum
+// Trivedi — formerly Apple's UIKit animations team) ships the same
+// spring physics UIKit uses internally:
+//
+//   • Velocity preservation across interrupts. If a NEW animation
+//     starts while an old one is mid-flight, Wave seamlessly
+//     transfers the in-flight velocity into the new spring instead
+//     of restarting from rest. That's the single biggest source
+//     of "not fluid" complaints we've had: cancelling SpringFrame-
+//     Animator and starting a new one always zeroed velocity, so
+//     interrupting a close mid-flight to re-open had a visible
+//     "stop, then reverse" beat.
+//   • Apple's `Spring(response:dampingRatio:)` parameterisation,
+//     identical to SwiftUI's `.spring(response:dampingFraction:)`.
+//   • Internally CADisplayLink-driven at the display's refresh rate
+//     (60/120Hz adaptive).
+//
+// The class signature mirrors SpringFrameAnimator so the call sites
+// in animateOpen / animateClose / showTrackBanner / dismissTrack-
+// Banner can switch over piecemeal.
+@MainActor
+final class WaveFrameAnimator {
+    var shadowTickHandler: (() -> Void)?
+
+    private weak var panel: NSPanel?
+    private let animator: SpringAnimator<CGRect>
+    private var completion: (() -> Void)?
+
+    init(response: Double, dampingRatio: Double) {
+        let spring = Spring(dampingRatio: dampingRatio, response: response)
+        self.animator = SpringAnimator<CGRect>(spring: spring)
+    }
+
+    func animate(
+        panel: NSPanel,
+        from start: NSRect,
+        to target: NSRect,
+        initialVelocity: CGRect = .zero,
+        completion: (() -> Void)? = nil
+    ) {
+        self.panel = panel
+        self.completion = completion
+        animator.value = start
+        animator.target = target
+        animator.velocity = initialVelocity
+        animator.valueChanged = { [weak self] frame in
+            // 2026-05-23 CRASH FIX. Wave's `SpringAnimator` is driven by
+            // a CVDisplayLink that runs on a dedicated IO thread (NOT the
+            // main thread, despite this class being @MainActor — the
+            // closure is captured by Wave and called from its own
+            // runtime). `NSWindow.setFrame` is main-thread-only; calling
+            // it from CVDisplayLink trapped with EXC_BREAKPOINT inside
+            // `NSWMWindowCoordinator performTransactionUsingBlock`,
+            // crashing the app within seconds of any open/close. Hop
+            // back to main before touching the panel. `async` is fine —
+            // 1-frame latency at 60Hz is imperceptible vs. a crash, and
+            // we're still on the spring's natural per-frame cadence.
+            DispatchQueue.main.async {
+                self?.panel?.setFrame(frame, display: false)
+                self?.shadowTickHandler?()
+            }
+        }
+        animator.completion = { [weak self] event in
+            guard case .finished = event else { return }
+            // Wave's last `valueChanged` already set the frame to
+            // target (see SpringAnimator line ~244). A redundant
+            // `setFrame(target, display: true)` here was forcing a
+            // second display flush at the very settle frame — the
+            // user perceived that as the close's tail "re-attaching"
+            // with a tiny jolt. Trust Wave's final valueChanged.
+            // Same main-thread hop as above — Wave fires this on its
+            // own thread too.
+            DispatchQueue.main.async {
+                self?.completion?()
+            }
+        }
+        animator.start()
+    }
+
+    /// Stops the in-flight animation, leaving the panel at its
+    /// current intermediate frame. Used when handing off to a new
+    /// animation that wants to preserve current velocity.
+    func cancel() {
+        animator.stop(immediately: true)
+    }
+
+    /// In-flight velocity for chained-spring handoffs (preserves
+    /// motion across interruption — pass into the next animation's
+    /// `initialVelocity` so it picks up at the current speed instead
+    /// of restarting from rest).
+    var currentVelocity: CGRect {
+        animator.velocity
+    }
+}
+
 @MainActor
 final class SpringFrameAnimator: NSObject {
     let stiffness: Double

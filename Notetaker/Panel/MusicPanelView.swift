@@ -49,6 +49,21 @@ struct MusicPanelView: View {
     @EnvironmentObject var presenter: PanelPresenter
     @Environment(\.panelAccent) private var panelAccent: Color
 
+    /// Hero-morph namespace shared with `PanelRootView.pillArtwork`. When
+    /// provided, the slab cover and the pill cover both tag themselves
+    /// with id "music-art-hero" so SwiftUI INTERPOLATES the frame
+    /// between them during the slab open/close — one continuous
+    /// element shrinking/growing in place instead of two disjoint
+    /// views. Optional so the #Preview at the bottom of this file
+    /// still compiles without a parent-owned namespace; in that case
+    /// we fall back to a local `@Namespace` (no cross-view morph,
+    /// just neutral behavior). (2026-05-23)
+    var heroArtworkNamespace: Namespace.ID? = nil
+    @Namespace private var fallbackHeroNS
+    private var effectiveHeroNS: Namespace.ID {
+        heroArtworkNamespace ?? fallbackHeroNS
+    }
+
     /// Drag-to-scrub state for the progress bar. While `isScrubbing`
     /// is true, the bar renders `scrubProgress` instead of the live
     /// playback fraction — gives the user immediate feedback as they
@@ -1525,8 +1540,14 @@ struct MusicPanelView: View {
                 // BACK face — incoming artwork. Pre-rotated 180°
                 // around Y so when the outer rotation passes through
                 // 180° the back face content is right-side up.
-                if let nextImage = nextArtworkImage {
-                    Image(nsImage: nextImage)
+                // 2026-05-22 — NEVER EMPTY. If the flip parks at 90-270°
+                // (front hidden) with no incoming cover — an interrupted
+                // or stuck flip — fall back to the current/last cover so
+                // the card shows art instead of BLACK. Together with the
+                // front-face fallback above, NO rotation angle can render
+                // this card black.
+                if let backImage = nextArtworkImage ?? displayedArtworkImage ?? ArtworkCache.shared.lastDecoded {
+                    Image(nsImage: backImage)
                         .resizable()
                         .interpolation(.high)
                         .aspectRatio(contentMode: .fill)
@@ -1539,6 +1560,16 @@ struct MusicPanelView: View {
             }
             .frame(width: 76, height: 76)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            // 2026-05-23 — matchedGeometryEffect REMOVED. Three rounds
+            // of debugging matched-geom across slab/pill artworks
+            // produced a "comes from bottom-right" artifact every time;
+            // see the full root-cause writeup at the corresponding
+            // pillArtwork removal in PanelRootView.swift. The slab
+            // cover now just fades out at its slab position via the
+            // contentOverlay's opacity ramp; the pill cover fades in at
+            // its own pill-position slot. The panel.frame spring
+            // shrinks the silhouette around both. Reads as one cohesive
+            // collapse without the artwork's path-bending.
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
@@ -1560,6 +1591,12 @@ struct MusicPanelView: View {
                 anchor: .center,
                 anchorZ: 0,
                 perspective: 0.5
+            )
+            // Alcove-style "not playing" cue: vibrant + full size while
+            // playing, desaturated + slightly smaller when paused/stopped.
+            // Same treatment as the resting pill cover (consistent signal).
+            .playbackArtworkTreatment(
+                isPlaying: presenter.nowPlaying?.isPlaying ?? presenter.isAudioFlowing
             )
         }
         .buttonStyle(.plain)
@@ -1600,17 +1637,23 @@ struct MusicPanelView: View {
                         // instead of hard-swapping. Otherwise it's a normal
                         // same-track async-artwork refresh → swap in place.
                         if pendingFlipKey == newKey, displayedArtworkImage != nil {
+                            // 2026-05-22 — clear the pending flag IMMEDIATELY
+                            // (not at completion). Spotify sends the cover in
+                            // several same-track partials; if the flag stayed
+                            // set, each partial fired ANOTHER flip (+=180), and
+                            // the racing absolute resets parked the angle on an
+                            // empty face → the "completely black + card
+                            // flipping wrong" bug. One flip per pending change.
+                            pendingFlipKey = nil
                             nextArtworkImage = img
                             let flipDuration: TimeInterval = 0.30
                             withAnimation(.easeInOut(duration: flipDuration)) {
                                 artworkFlipAngle += 180
                             }
-                            let promoteKey = newKey
                             DispatchQueue.main.asyncAfter(deadline: .now() + flipDuration) {
                                 displayedArtworkImage = img
                                 nextArtworkImage = nil
                                 artworkFlipAngle = 0
-                                if pendingFlipKey == promoteKey { pendingFlipKey = nil }
                             }
                         } else {
                             displayedArtworkImage = img
@@ -2131,17 +2174,16 @@ struct MusicPanelView: View {
     /// can take 100-300ms — blocking the main thread would cause a
     /// visible UI hitch on release.
     private func seek(toFraction fraction: Double, total: TimeInterval) {
-        guard let bundleID = presenter.nowPlaying?.sourceBundleID else { return }
-        // Defend against `total` going non-finite at the call site
-        // (the progress bar already filters but seek is callable
-        // from anywhere a future caller might add).
+        // 2026-05-23 — wired ALL sources through `presenter.onSeek` (which
+        // routes via NotchOrchestrator.handleSeek by bundle). Previously
+        // this function had `default: return` for anything but Spotify /
+        // Apple Music, so dragging the progress bar on YouTube/Chrome
+        // silently no-op'd AND skipped the optimistic update below → the
+        // bar visibly snapped back ("glitching"). Now the optimistic
+        // update fires for every source, and the orchestrator picks the
+        // right dispatch (AppleScript / BrowserMediaScripter / adapter).
+        guard let _ = presenter.nowPlaying?.sourceBundleID else { return }
         guard total.isFinite, total > 0, fraction.isFinite else { return }
-        let appName: String
-        switch bundleID {
-        case "com.spotify.client": appName = "Spotify"
-        case "com.apple.Music": appName = "Music"
-        default: return
-        }
         let target = max(0, min(total, fraction * total))
 
         // OPTIMISTIC LOCAL UPDATE — fire BEFORE dispatching the
@@ -2170,22 +2212,11 @@ struct MusicPanelView: View {
             )
         }
 
-        let script = "tell application \"\(appName)\" to set player position to \(target)"
-        DispatchQueue.global(qos: .userInitiated).async {
-            var error: NSDictionary?
-            if let scriptObj = NSAppleScript(source: script) {
-                _ = scriptObj.executeAndReturnError(&error)
-                // Log permission/app-not-running failures to the
-                // console so we can diagnose silent seek issues
-                // without crashing or showing a UI alert. The user
-                // already gets the "scrubber didn't move" visual
-                // feedback when the source ignores the seek; the
-                // log gives us something actionable in postmortems.
-                if let error = error {
-                    NSLog("[MusicPanel] seek to \(target)s in \(appName) failed: \(error)")
-                }
-            }
-        }
+        // Dispatch via the orchestrator (NotchOrchestrator.handleSeek) so
+        // ALL source types — Spotify/Music AppleScript, browser JS
+        // injection, perl adapter — share one entry point. AppDelegate
+        // wires this closure at launch.
+        presenter.onSeek?(target)
     }
 
     /// MM:SS formatter scoped to the panel — kept small/inline rather
@@ -2298,8 +2329,17 @@ struct MusicPanelView: View {
     /// pause-then-play on Spotify while Apple Music swallows the
     /// second command, leaving the two sources out of sync visually.
     private func dispatch(_ command: MediaRemoteService.Command) {
+        // 2026-05-23 — investigation log. User reported "pause/play not
+        // working on YouTube" while next/previous worked (per the MRA log,
+        // only 4/5 were being sent, never 2). If the tap reaches here we
+        // log it BEFORE the debounce, so we can tell whether the button's
+        // tap is being lost vs. dropped by the 150ms guard.
+        MediaRemoteAdapterService.fileLog("DISPATCH tap command=\(command) bundle=\(presenter.nowPlaying?.sourceBundleID ?? "nil")")
         let now = Date()
-        if now.timeIntervalSince(lastCommandAt) < 0.15 { return }
+        if now.timeIntervalSince(lastCommandAt) < 0.15 {
+            MediaRemoteAdapterService.fileLog("DISPATCH dropped \(command) (debounced \(Int(now.timeIntervalSince(lastCommandAt) * 1000))ms)")
+            return
+        }
         lastCommandAt = now
         // `.generic` is the lightest of the three NSHapticFeedback
         // patterns — a quiet "tick" that confirms the button

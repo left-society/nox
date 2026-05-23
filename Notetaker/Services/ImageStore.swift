@@ -261,14 +261,36 @@ final class ImageStore: ObservableObject {
         let thumbURL = rootURL.appendingPathComponent(thumbRel)
 
         try data.write(to: fileURL)
-        try Self.writeThumbnail(from: fileURL, to: thumbURL, maxPixel: 256)
+
+        // 2026-05-23: thumbnail generation is now NON-FATAL. Previously a
+        // `writeThumbnail` throw propagated out of performSave, and the
+        // deferred-save catch block silently removed the inflight cell —
+        // the user's pasted/dropped image "vanished" with only an NSLog
+        // (user report: "when one different sized photo is uploaded new
+        // photo become hidden"). CGImageSource can fail to thumbnail a
+        // perfectly valid image for format-specific reasons (some CMYK
+        // JPEGs, exotic ICC profiles, certain multi-frame payloads). The
+        // original full image was already written above and is intact, so
+        // a thumbnail miss must NOT lose the image. On failure we point
+        // thumbPath at the full image: the grid then renders the full
+        // file (heavier, but visible) rather than an empty cell.
+        // `ThumbnailDisplayPolicy` + LocalThumbnailView's fallback path
+        // provide a second layer of the same guarantee for records whose
+        // thumb file disappears later.
+        var thumbRelToStore = thumbRel
+        do {
+            try Self.writeThumbnail(from: fileURL, to: thumbURL, maxPixel: 256)
+        } catch {
+            NSLog("ImageStore.performSave: thumbnail failed for \(fileRel), falling back to full image: \(error)")
+            thumbRelToStore = fileRel
+        }
 
         let (w, h) = Self.dimensions(of: fileURL)
         var record = ImageRecord(
             id: id,
             noteId: noteId,
             filePath: fileRel,
-            thumbPath: thumbRel,
+            thumbPath: thumbRelToStore,
             width: w,
             height: h,
             mimeType: mimeType,
@@ -492,5 +514,65 @@ final class ImageStore: ObservableObject {
                 userInfo: [NSLocalizedDescriptionKey: "Cannot finalize thumb"]
             )
         }
+    }
+}
+
+// MARK: - Image display policies (pure logic, unit-tested)
+
+/// Decides which on-disk URL the images grid should load for a cell.
+///
+/// Extracted as a pure function (Codex policy-struct convention — see
+/// `TimingPollPolicy` / `ScreenshotPillPolicy`) so the fallback rule
+/// is exercised by `ImageDisplayPolicyTests` without touching AppKit,
+/// the file system, or SwiftUI.
+///
+/// **Rule:** prefer the small 256px thumbnail; fall back to the full
+/// image whenever the thumbnail is missing or failed to generate.
+///
+/// Background: combined with `ImageStore.performSave`'s non-fatal
+/// thumbnail step, this guarantees an image NEVER renders as an empty
+/// cell. Before this, a record whose thumbnail couldn't be produced
+/// (or whose thumb file was later pruned/corrupted) showed nothing —
+/// the user read that as the photo having "become hidden". Loading the
+/// full image is heavier, but a visible heavy image beats an invisible
+/// one; the fallback only fires in the rare miss case.
+enum ThumbnailDisplayPolicy {
+    static func displayURL(thumbExists: Bool, thumbURL: URL, fullURL: URL) -> URL {
+        thumbExists ? thumbURL : fullURL
+    }
+}
+
+/// Navigation math for the full-resolution image viewer. Pure index
+/// arithmetic, no SwiftUI/AppKit, so `ImageDisplayPolicyTests` can
+/// pin the clamping behavior (the bit most likely to regress into an
+/// out-of-bounds crash) without standing up a window.
+///
+/// **Behavior:** clamp at both ends, no wrap-around — matches
+/// Preview.app / Photos, where the arrow keys stop at the first and
+/// last image rather than cycling. `startIndex` fails safe to 0 when
+/// the requested id isn't present (e.g. it was trashed between the
+/// grid render and the open), so the viewer opens the first image
+/// instead of trapping on a `nil`/negative index.
+enum ImageViewerIndexPolicy {
+    static func startIndex(for id: String, in ids: [String]) -> Int {
+        ids.firstIndex(of: id) ?? 0
+    }
+
+    static func nextIndex(after index: Int, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        return min(index + 1, count - 1)
+    }
+
+    static func previousIndex(before index: Int, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        return max(index - 1, 0)
+    }
+
+    static func canGoNext(from index: Int, count: Int) -> Bool {
+        index < count - 1
+    }
+
+    static func canGoPrevious(from index: Int, count: Int) -> Bool {
+        index > 0
     }
 }
