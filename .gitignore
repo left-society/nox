@@ -49,3 +49,8 @@ notetaker-website.zip
 
 # Website "before-this-cinema-redesign" snapshot folder
 website/.backup-pre-cinema/
+
+# 2026-05-24 — Local secrets (Notion OAuth client secret etc.).
+# A copy-on-checkout template lives at
+# Notetaker/Services/Secrets.swift.example.
+Notetaker/Services/Secrets.swift

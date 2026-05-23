@@ -60,10 +60,15 @@ enum OAuthCredentials {
     /// Notion public integration Client Secret. Used in the token-
     /// exchange request (`POST /v1/oauth/token` with HTTP Basic
     /// auth `clientID:clientSecret`). Notion's "show once" flow
-    /// means we cannot recover this from the integration page — if
-    /// it gets lost we'd need to rotate by creating a fresh
-    /// integration.
-    static let notionClientSecret = "secret_KKIm9YKc47Yofcgvq1dyrhAv9QQH13o02HbMLi5St2p"
+    /// means we cannot recover this from the integration page — to
+    /// rotate, hit "Refresh OAuth client secret" on the integration
+    /// page and paste the new value into `Secrets.notionClientSecret`.
+    ///
+    /// 2026-05-24 — Extracted to `Secrets.swift` (gitignored) after
+    /// GitHub push-protection caught the literal in committed source.
+    /// `Secrets.swift.example` is the template a fresh checkout
+    /// should copy; the real `Secrets.swift` never reaches git.
+    static var notionClientSecret: String { Secrets.notionClientSecret }
 
     /// Loopback redirect URI registered with the Notion integration.
     /// nox spins up a temporary local HTTP server on this port to

@@ -138,6 +138,7 @@
 		LNI0AB1B2C3D4E5F60123456A /* LockNotchIndicatorWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = LNI0AB1B2C3D4E5F60123456B /* LockNotchIndicatorWindow.swift */; };
 		MEDIAKEY0001A1B2C3D4E5F0 /* MediaKeyInterceptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = MEDIAKEY0002A1B2C3D4E5F0 /* MediaKeyInterceptor.swift */; };
 		OAUTHCRED001A2B3C4D5 /* OAuthCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = OAUTHCRED002A2B3C4D5 /* OAuthCredentials.swift */; };
+		SECRETSWIFT001A2B3C4D5 /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = SECRETSWIFT002A2B3C4D5 /* Secrets.swift */; };
 		PILLMENU00A1B2C3D4E5F001 /* PillContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = PILLMENU00A1B2C3D4E5F002 /* PillContextMenu.swift */; };
 		PILLMENU00A1B2C3D4E5F003 /* PillContextMenuPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PILLMENU00A1B2C3D4E5F004 /* PillContextMenuPolicyTests.swift */; };
 		PKCE0001A2B3C4D5E6F /* PKCE.swift in Sources */ = {isa = PBXBuildFile; fileRef = PKCE0002A2B3C4D5E6F /* PKCE.swift */; };
@@ -297,6 +298,7 @@
 		LNI0AB1B2C3D4E5F60123456B /* LockNotchIndicatorWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockNotchIndicatorWindow.swift; sourceTree = "<group>"; };
 		MEDIAKEY0002A1B2C3D4E5F0 /* MediaKeyInterceptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaKeyInterceptor.swift; sourceTree = "<group>"; };
 		OAUTHCRED002A2B3C4D5 /* OAuthCredentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OAuthCredentials.swift; sourceTree = "<group>"; };
+		SECRETSWIFT002A2B3C4D5 /* Secrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Secrets.swift; sourceTree = "<group>"; };
 		PILLMENU00A1B2C3D4E5F002 /* PillContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PillContextMenu.swift; sourceTree = "<group>"; };
 		PILLMENU00A1B2C3D4E5F004 /* PillContextMenuPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PillContextMenuPolicyTests.swift; sourceTree = "<group>"; };
 		PKCE0002A2B3C4D5E6F /* PKCE.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PKCE.swift; sourceTree = "<group>"; };
@@ -419,6 +421,7 @@
 				STSESSTRK002A2B3C4D5 /* StudySessionTracker.swift */,
 				FCTIMSRV002A2B3C4D5 /* FocusTimerService.swift */,
 				OAUTHCRED002A2B3C4D5 /* OAuthCredentials.swift */,
+				SECRETSWIFT002A2B3C4D5 /* Secrets.swift */,
 				KEYCHAIN002A2B3C4D5 /* KeychainStore.swift */,
 				PKCE0002A2B3C4D5E6F /* PKCE.swift */,
 				GCALSVC002A2B3C4D5 /* GoogleCalendarService.swift */,
@@ -833,6 +836,7 @@
 				STSESSTRK001A2B3C4D5 /* StudySessionTracker.swift in Sources */,
 				FCTIMSRV001A2B3C4D5 /* FocusTimerService.swift in Sources */,
 				OAUTHCRED001A2B3C4D5 /* OAuthCredentials.swift in Sources */,
+				SECRETSWIFT001A2B3C4D5 /* Secrets.swift in Sources */,
 				KEYCHAIN001A2B3C4D5 /* KeychainStore.swift in Sources */,
 				PKCE0001A2B3C4D5E6F /* PKCE.swift in Sources */,
 				GCALSVC001A2B3C4D5 /* GoogleCalendarService.swift in Sources */,
