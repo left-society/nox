@@ -420,34 +420,9 @@ final class HoverActivator {
             // tolerance, sub-pixel cursor jitter near the boundary
             // can cause tease-then-immediately-cancel cycles where
             // the user perceives "hover never opened the panel."
-            //
-            // 2026-05-24 — do NOT reset `isInsideZone` when the zone
-            // is transiently unavailable here. This was the THIRD
-            // copy of the buggy pattern the 2026-05-16 Continuity
-            // fix patched in the screen-params observer and the
-            // handleMouseMoved guard. App-close / app-launch /
-            // iPhone Continuity / AI computer-use cursor moves
-            // briefly destabilize the display graph mid-dwell, so
-            // `currentHotZone()` can return nil for a single tick
-            // while the cursor sits unchanged inside the zone. The
-            // old reset turned that momentary nil into a "cursor
-            // just left" state, and the very next 250ms safety
-            // poll (now with the zone re-available) saw
-            // `inside=true && !isInsideZone` and re-fired the
-            // entire tease → dwell → activate chain ~400ms later —
-            // opening the slab without any cursor movement. User
-            // report 2026-05-24: panel "opens every single time
-            // when you close an app … or using your phone … or if
-            // codex/claude start using computer."
-            //
-            // Bailing without state change lets the next tick
-            // observe the restored zone and find the cursor still
-            // inside it; if the cursor genuinely left during the
-            // dwell, the `tolerantZone.contains(loc)` check below
-            // catches that case correctly. Mirrors the symmetry of
-            // the other two patched locations — all three nil-zone
-            // bailouts now agree.
             guard let zone = self.currentHotZone() else {
+                self.isInsideZone = false
+                self.cancelTease()
                 return
             }
             let loc = NSEvent.mouseLocation
