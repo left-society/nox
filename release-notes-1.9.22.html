@@ -3,9 +3,19 @@
 <head><meta charset="utf-8"><title>nox 1.9.22</title></head>
 <body style="font:14px/1.5 -apple-system,system-ui,sans-serif;color:#222;max-width:560px;margin:24px auto;padding:0 16px">
 <h2>nox 1.9.22</h2>
-<p>What is new in this release.</p>
+<p>Bug fixes and touch-feel polish.</p>
 <ul>
-  <li>(Edit this file before uploading.)</li>
+  <li><b>Slab no longer opens by itself.</b> Fixed the spurious open that fired on app close, iPhone Continuity events, and background app launches (the dwell-timer was resetting hover state during display flux).</li>
+  <li><b>YouTube and Chrome play / pause work reliably.</b> Browser media keys now use a synchronous AppleScript bridge with real status return; falls through to the system adapter on permission denial.</li>
+  <li><b>No-music notch pill touch feel.</b> Tease size, spring (988 / 63 critical), and silhouette corners calibrated to a measured reference; rate-limited to stop continuous-cursor churn.</li>
+  <li><b>Close gesture: no more stutter.</b> Switched the close animator off CVDisplayLink (which was hopping threads) onto a main-runloop CADisplayLink spring at 438 / 42 critical damping. Squarish-corner artifact during close also fixed.</li>
+  <li><b>Pill artwork no longer &ldquo;comes from down-right&rdquo; on close.</b> The matched-geometry effect that caused it has been removed; the pill content is now always-mounted so it doesn&rsquo;t fade in from an offset.</li>
+  <li><b>Live tab switch-back is instant.</b> The music panel is now always-mounted in a ZStack so coming back to Live from another tab no longer re-mounts the whole tree.</li>
+  <li><b>Settings window opens instantly.</b> Pre-warmed in the background 3s after launch.</li>
+  <li><b>Other:</b> production menu cleanup (debug &ldquo;Test pill&rdquo; hidden), dictation drag-and-drop perf, first-launch warmup pass.</li>
 </ul>
+<p style="margin-top:24px;color:#666;font-size:12px">
+Note: this release rotates the Sparkle update-signing key. Existing v1.9.21 installs cannot auto-update to v1.9.22 because their bundled key won&rsquo;t verify the new signature &mdash; please redownload from <a href="https://trynox.app">trynox.app</a> once. All future updates resume normal auto-updating.
+</p>
 </body>
 </html>
