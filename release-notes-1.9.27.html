@@ -3,9 +3,19 @@
 <head><meta charset="utf-8"><title>nox 1.9.27</title></head>
 <body style="font:14px/1.5 -apple-system,system-ui,sans-serif;color:#222;max-width:560px;margin:24px auto;padding:0 16px">
 <h2>nox 1.9.27</h2>
-<p>What is new in this release.</p>
+<p>Cumulative fixes since 1.9.24 &mdash; multi-monitor stability, smarter drag detection, cleaner drop picker.</p>
 <ul>
-  <li>(Edit this file before uploading.)</li>
+  <li><b>Drop picker redesign.</b> Fully transparent at rest (no card silhouette, no detached corners). On hover, the chosen side fills with a soft accent-tinted rectangle that follows the slab&rsquo;s own outer curve. No borders, no glow, no chrome &mdash; the fill is the entire commit affordance.</li>
+  <li><b>Multi-monitor: slab stays on the MacBook.</b> Previously the panel chased the cursor between displays whenever a screen-params event fired. Now it always lands on the notched display unconditionally (falls through to the active display only in clamshell mode).</li>
+  <li><b>Music pill stays on the MacBook too.</b> The resting notch HUD was positioning on whichever display was set as &ldquo;primary&rdquo; in System Settings. Fixed &mdash; it now follows the actual notch hardware.</li>
+  <li><b>Drag-anywhere no longer wakes the panel.</b> Dragging files in unrelated apps (Finder windows, external displays) used to pop the nox panel open via the system drag-pasteboard watcher. Added a cursor-position gate so the panel only wakes when the cursor is near the notch on the MacBook display.</li>
+  <li><b>Default tab on open: Live.</b> New default. The slab lands on the Live tab (now playing, Focus, Study, calendar) every time you open. If you prefer the previous &ldquo;last tab wins&rdquo; behavior, set Settings &rarr; General &rarr; Default tab &rarr; <b>Last</b>.</li>
+  <li><b>No-music notch hot zone narrowed.</b> Previously a generous 300pt zone that fired on cursor passes well past the notch edges. Now uses the actual notch hardware width when no music pill is visible, widens automatically when music is playing (covers the pill).</li>
+  <li><b>Post-drop tab switch deferred.</b> When you drop an image, the auto-switch to the Images tab waits ~200ms so the open animation completes before the heavy grid mounts. Smooth swap instead of a brief stall.</li>
+  <li><b>Stability under load.</b> MediaRemote duplicate emits collapsed via a 50ms dedup (kills Spotify&rsquo;s two-stage publish double-fires). Dictation waveform TimelineViews pause when their phase isn&rsquo;t active. HoverActivator NSLog calls compiled out of Release builds.</li>
 </ul>
+<p style="margin-top:24px;color:#666;font-size:12px">
+Auto-update: existing v1.9.22 (and later) installs get this on the next Sparkle check. Fresh downloads from <a href="https://trynox.app">trynox.app</a> are immediate.
+</p>
 </body>
 </html>
