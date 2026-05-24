@@ -1387,13 +1387,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hover = HoverActivator(
             onTeaseStart: { [weak self] in
                 guard let panel = self?.panelController else { return }
-                // Suppress tease when the pill is in video-preview
-                // mode. The pill becomes a tappable download button
-                // while a video URL is pending — letting the slab
-                // tease in would cover the button before the user
-                // can land on it. ("we can just finish the work on
-                // the pill itself, so we don't need to open another
-                // tab.")
                 if panel.presenter.pendingVideoCandidate != nil { return }
                 panel.tease()
             },
@@ -1407,14 +1400,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     panel.show(mode: .hover)
                 }
             },
-            // 2026-05-24 — state-aware hot zone. When the music pill
-            // is visible (resting + nowPlaying anchored to the
-            // notch), the zone needs to cover the pill geometry
-            // (~278pt + buffer). When no pill is visible, narrow
-            // to the actual notch hardware. Reading from presenter
-            // here so the closure picks up live state on every
-            // hot-zone resolution — no need for a separate
-            // invalidation hook.
             isMusicPillVisible: { [weak self] in
                 guard let presenter = self?.panelController?.presenter else { return false }
                 return presenter.isResting && presenter.nowPlaying != nil

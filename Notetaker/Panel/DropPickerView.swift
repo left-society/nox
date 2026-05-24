@@ -42,66 +42,36 @@ struct DropPickerView: View {
     var accent: Color = DS.Color.brandLavender
 
     var body: some View {
-        // Single seamless surface — no card backgrounds, no outer
-        // strokes. The panel's existing black silhouette IS the
-        // surface; the picker just paints two zones on it with a
-        // hairline midline divider. Matches the rest of the app's
-        // restrained dark aesthetic (transient pills also paint
-        // directly on the black background, no card chrome).
+        // 2026-05-24 — INSET CARDS, no border. Per user feedback
+        // ("go back to privious design just dont have the glows").
+        //
+        // Two side-by-side cards (rounded continuous squircle,
+        // 14pt radius), 8pt margin from slab edges, 10pt gap
+        // between cards. Save = LEFT half, AirDrop = RIGHT half
+        // (VideoDropCatcher.zoneAt restored to x-based mapping).
+        //
+        // Rest: each card has a 4% white background fill.
+        // Hover:  the hovered card's background swaps to an
+        //         accent-tinted fill (~18% accent opacity).
+        // No accent border, no shadow, no scale, no shadow-glow,
+        // no hairline. The fill change IS the entire commit
+        // affordance.
         HStack(spacing: 0) {
             DropZoneCard(
                 destination: .save,
-                // `square.and.arrow.down` is the macOS share/save
-                // convention — same glyph the system uses for "save
-                // a copy" in share sheets.
                 icon: "square.and.arrow.down",
                 title: "Save",
                 subtitle: "to nox",
-                // 2026-05-02: brand Lavender Mist accent for the
-                // Save zone — this is the app's primary "save to
-                // your storage" action, and should carry the brand
-                // color. AirDrop side keeps its existing Apple-
-                // sky-blue (the OS's own AirDrop accent).
-                //
-                // 2026-05-13: accent now comes from the parent
-                // so the picker matches the slab's music-driven
-                // color story when audio is playing.
                 accent: accent,
                 isHovered: hoveredZone == .save,
                 isOtherHovered: hoveredZone == .airDrop
             )
 
-            // Hairline vertical divider between zones. Only visible
-            // when neither zone is hovered (drops out the moment a
-            // commitment forms, so the eye reads "the hovered zone
-            // is the whole surface").
-            Rectangle()
-                .fill(Color.white.opacity(hoveredZone == nil ? 0.08 : 0))
-                .frame(width: 0.5)
-                .padding(.vertical, 28)
-                .animation(.easeOut(duration: 0.18), value: hoveredZone)
-
             DropZoneCard(
                 destination: .airDrop,
-                // `icon: nil` tells DropZoneCard to render the
-                // custom `AirDropLogo` shape instead of an SF
-                // Symbol — Apple's AirDrop mark has no matching
-                // SF Symbol.
                 icon: nil,
                 title: "AirDrop",
-                // Subtitle morphs based on the drag's file count.
-                // Single file or unknown → "to a device"; 2+ files
-                // → "5 files · to a device" so the user sees the
-                // whole batch was picked up before they release.
                 subtitle: fileCount > 1 ? "\(fileCount) files · to a device" : "to a device",
-                // 2026-05-02: AirDrop side uses the OS's own
-                // AirDrop accent (sky blue, also used by the
-                // app for `airDropReceived` / `screenshotSaved`
-                // events). This creates a clear hierarchy:
-                // lavender = "app's own action" (Save), sky-blue
-                // = "system action" (AirDrop). Same convention
-                // Apple uses internally — system services have
-                // their own colors, app brand color is separate.
                 accent: Color(red: 0.30, green: 0.78, blue: 0.99),
                 isHovered: hoveredZone == .airDrop,
                 isOtherHovered: hoveredZone == .save
@@ -128,11 +98,6 @@ private struct DropZoneCard: View {
     /// zone so the cursor's commitment is visually unambiguous.
     let isOtherHovered: Bool
 
-    /// Effective icon tint. Pure-white at rest, slightly dimmer when
-    /// the other zone is hovered (so the cold zone fades), full
-    /// white when this zone is hovered. No color accents — the
-    /// hover-state glass material provides commitment signal
-    /// instead.
     private var iconTint: Color {
         if isHovered { return Color.white }
         return Color.white.opacity(isOtherHovered ? 0.30 : 0.65)
@@ -140,26 +105,8 @@ private struct DropZoneCard: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            // 2026-05-24 — back to BARE ICON (no chip). Per user
-            // ("those circles are not making it better — make it
-            // more apple like"): Apple's macOS reserves circular
-            // containers for IDENTITIES (AirDrop avatars, contacts)
-            // — never for ACTION glyphs. Save and AirDrop are
-            // actions, not identities; the icon itself IS the
-            // affordance.
-            //
-            // Polish vs the original bare-icon design:
-            //  • Bigger glyph (36pt vs 30pt) — more confident
-            //    presence in the full-bleed zone.
-            //  • `.symbolRenderingMode(.hierarchical)` — SwiftUI
-            //    derives layered shading from the tint color,
-            //    giving subtle 3D depth without adding chrome.
-            //    Apple's preferred treatment for action glyphs
-            //    since macOS 12; share-sheet, Quick Look, and
-            //    Image Capture all use it.
-            //  • Soft accent glow on hover — radiates from the
-            //    icon's outline itself (no chip silhouette to
-            //    define a shape).
+            // 36pt SF Symbol with .hierarchical rendering for
+            // subtle layered depth. No shadow, no glow, no chip.
             ZStack {
                 if let icon = icon {
                     Image(systemName: icon)
@@ -167,16 +114,10 @@ private struct DropZoneCard: View {
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(iconTint)
                 } else {
-                    // Custom AirDrop mark — slightly larger to
-                    // visually match the 36pt SF Symbol in the
-                    // other zone.
                     AirDropLogo(tint: iconTint, lineWidth: 1.8)
                         .frame(width: 42, height: 42)
                 }
             }
-            .scaleEffect(isHovered ? 1.06 : 1.0)
-            .shadow(color: accent.opacity(isHovered ? 0.35 : 0),
-                    radius: isHovered ? 10 : 0)
 
             VStack(spacing: 3) {
                 Text(title)
@@ -196,42 +137,40 @@ private struct DropZoneCard: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Zone background:
-        //   • Rest:    barely-there 2% white tint so the zone has
-        //              a perceptible "drop here" target shape.
-        //   • Hovered: soft vertical accent gradient
-        //              (top-bright → bottom-faint) tints the whole
-        //              zone in the accent color. Same gradient as
-        //              the chip pass — keep what worked, drop
-        //              what didn't.
-        .background {
-            ZStack {
-                Color.white.opacity(0.02)
-                if isHovered {
-                    LinearGradient(
-                        colors: [
-                            accent.opacity(0.14),
-                            accent.opacity(0.03)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .transition(.opacity)
-                }
-            }
-        }
-        // Thin accent hairline along the BOTTOM edge of the
-        // hovered zone. Reads as "this side is underlined for
-        // commit" — same affordance Quick Look uses on selected
-        // mark-up tools and Apple's segmented controls use on the
-        // active segment. Hairline only, no chrome.
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(accent.opacity(isHovered ? 0.85 : 0))
-                .frame(height: 1.5)
-                .animation(.easeOut(duration: 0.18), value: isHovered)
-        }
+        // 2026-05-24 — Plain rectangular fill, no corner radius.
+        // Earlier attempts at rounded cards (14pt squircle) had
+        // corners that didn't match the slab's own outer
+        // silhouette (continuous-squircle bottom corners with a
+        // much larger inner radius ~44pt). The card extended into
+        // the slab's curve area, the slab's clip-shape cropped
+        // the rectangle's corners, and the accent fill ended up
+        // with awkward tapered corners — what the user saw as
+        // "accent corners getting cropped."
+        //
+        // Now: the accent fill is a plain rectangle filling the
+        // available space. The slab's OutwardFlaredShape clip
+        // path naturally shapes the fill to the slab silhouette,
+        // so the bottom corners follow the slab's continuous
+        // squircle exactly. No mismatch possible — there's only
+        // one shape involved (the slab itself).
+        .background(cardFillColor)
         .animation(.easeOut(duration: 0.18), value: isHovered)
         .animation(.easeOut(duration: 0.18), value: isOtherHovered)
+    }
+
+    /// 2026-05-24 — fully transparent at rest. Per user feedback:
+    /// the 4% white rest fill made the card silhouette readable
+    /// against the slab black, which read as a "detached corner"
+    /// floating element — basically the same "glow" the previous
+    /// accent border created. Now the cards have NO visible
+    /// silhouette until hovered; the icon + label sit directly on
+    /// the slab. The hover-state accent fill is the entire visual
+    /// affordance.
+    private var cardFillColor: Color {
+        if isHovered {
+            return accent.opacity(0.18)
+        } else {
+            return Color.clear
+        }
     }
 }

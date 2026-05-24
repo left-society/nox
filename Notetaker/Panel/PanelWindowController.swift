@@ -3774,6 +3774,12 @@ final class PanelWindowController {
         // would fight on panel.frame at the window-server level.
         haltInflightFrameAnimation()
 
+        // 2026-05-24 (rev 2) — back to a snappy spring for the
+        // reactive micro-breath. The breath itself is so subtle
+        // (200×4pt, 20pt soft corners) that a slow spring would
+        // make the motion barely visible at all. 988/63 settles
+        // in ~0.16s, fast enough that each cursor pass registers
+        // and dismisses cleanly without overlap.
         let startFrame = panel.frame
         let spring = SpringFrameAnimator(stiffness: 988, damping: 63, mass: 1.0)
         spring.shadowTickHandler = { [weak self] in
@@ -4465,6 +4471,8 @@ final class PanelWindowController {
             // start == target), but exercises every cold code path
             // — spring init, displayLink registration, tickFrom-
             // DisplayLink, shadowTickHandler, completion callback.
+            // 2026-05-24 (rev 2) — back to 988/63 for the reactive
+            // micro-breath tuning.
             let prewarmSpring = SpringFrameAnimator(stiffness: 988, damping: 63, mass: 1.0)
             prewarmSpring.shadowTickHandler = { [weak self] in
                 self?.updateShadowPath()
