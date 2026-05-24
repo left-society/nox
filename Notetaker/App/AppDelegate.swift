@@ -1284,9 +1284,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         monitor.start()
         self.clipboardMonitor = monitor
 
+        // 2026-05-24 — DragMonitor cursor-position gate. The monitor
+        // polls the system drag pasteboard every 150ms and fires on
+        // ANY drag with image/video data — including drags that have
+        // nothing to do with nox (rearranging Finder, dragging in a
+        // different app on the external display, etc.). Without the
+        // gate the panel pops open every time the user drags
+        // anything, anywhere — user report 2026-05-24: "Nox enlarges
+        // when dragging anything, anywhere on the screen."
+        //
+        // The gate: only fire showOnTab when the cursor is in the
+        // top ~200pt strip of the active screen. That's the band
+        // where a drag heading toward the notch lives. Drags
+        // anywhere lower silently no-op.
+        let isCursorNearNotch: @MainActor () -> Bool = {
+            let location = NSEvent.mouseLocation
+            // Resolve the screen the cursor is on. NSEvent.mouseLocation
+            // is in global Cocoa coords (origin = bottom-left of
+            // PRIMARY screen), so we have to find the screen whose
+            // frame contains the point.
+            guard let screen = NSScreen.screens.first(where: { $0.frame.contains(location) }) else {
+                return false
+            }
+            // Top 200pt strip: cursor.y must be above visibleFrame.maxY
+            // (top of the visibleFrame = bottom of the menubar) minus
+            // a 200pt buffer. Generous enough that a user fast-flicking
+            // toward the notch still triggers; tight enough that a
+            // drag at the middle/bottom of the screen never does.
+            let topStrip = screen.visibleFrame.maxY - 200
+            return location.y >= topStrip
+        }
         let drag = DragMonitor(
             onImageDrag: { [weak self] in
                 Task { @MainActor in
+                    guard isCursorNearNotch() else { return }
                     self?.panelController?.showOnTab(
                         .images,
                         mode: PanelOpenModePolicy.mode(for: .dragDetected)
@@ -1295,6 +1326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onVideoDrag: { [weak self] in
                 Task { @MainActor in
+                    guard isCursorNearNotch() else { return }
                     self?.panelController?.showOnTab(
                         .videos,
                         mode: PanelOpenModePolicy.mode(for: .dragDetected)

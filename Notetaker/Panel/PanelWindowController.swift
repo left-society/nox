@@ -2923,7 +2923,25 @@ final class PanelWindowController {
     /// never returns a screen that's been disconnected.
     @discardableResult
     private func resolveActiveScreen() -> NSScreen {
-        let resolved = screenContainingCursor()
+        // 2026-05-24 — multi-monitor fix. Previous logic resolved by
+        // CURSOR position first, then NSScreen.main as fallback. On
+        // a dual-monitor setup that meant the panel chased the
+        // cursor between screens — every time the user moved their
+        // cursor to the external display and a screen-params event
+        // fired (Continuity, AirPlay, fullscreen toggle, even some
+        // window-server rebuilds), handleDisplayReconfigure
+        // migrated the NSPanel to whichever screen the cursor was
+        // on. Reads as "random screen jumping" (user report
+        // 2026-05-24).
+        //
+        // The notch is a physical landmark on exactly ONE display
+        // (the M-series MacBook built-in). The panel belongs there.
+        // Prefer the notched display first; only fall through to
+        // cursor / main when no notched display is present (lid
+        // closed → external becomes the only display).
+        let notched = NSScreen.screens.first(where: { Self.isNotchedDisplay($0) })
+        let resolved = notched
+            ?? screenContainingCursor()
             ?? NSScreen.main
             ?? NSScreen.screens.first
             ?? activeScreen
