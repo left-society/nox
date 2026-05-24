@@ -1397,12 +1397,20 @@ final class PanelWindowController {
     /// Honor Settings → General → Default tab. Reads the stored
     /// raw value once per open and routes the panel there. The
     /// special `last` case is a no-op (keeps the previous active
-    /// tab), which is also the default. Other values force the
-    /// matching tab — useful for users who always want to land
-    /// on Notes regardless of last interaction.
+    /// tab). Other values force the matching tab — useful for
+    /// users who always want to land on a specific tab regardless
+    /// of last interaction.
+    ///
+    /// 2026-05-24 — unset (first-launch) default flipped from
+    /// "last" → "music" per user feedback: "if you left from one
+    /// page it will open same page" wasn't the desired behavior;
+    /// Live should be the predictable landing surface (it carries
+    /// now-playing, Focus, Study, calendar — the always-relevant
+    /// content). Users who prefer the previous behavior can pick
+    /// "Last" in Settings → General → Default tab.
     private func applyDefaultTabIfNeeded() {
-        guard let raw = UserDefaults.standard.string(forKey: "defaultTabRaw"),
-              raw != "last" else { return }
+        let raw = UserDefaults.standard.string(forKey: "defaultTabRaw") ?? "music"
+        if raw == "last" { return }
         switch raw {
         // 2026-05-11: removed `nowPlaying != nil` gate. The Live tab
         // (`.music`) is no longer hidden when nothing's playing — it
@@ -1855,6 +1863,14 @@ final class PanelWindowController {
         PerformanceProbe.shared.mark("PANEL_SHOW_ENTRY", metadata: [
             "mode": "\(mode)"
         ])
+        // 2026-05-24 — apply Settings → Default tab on every open path
+        // (was only on toggle()). Hover-open and click/hotkey open
+        // both flow through here, so this is the single chokepoint
+        // that guarantees the user's preference (or the new default
+        // of "music") is honored regardless of how the panel was
+        // opened. If raw == "last" the function bails out and the
+        // previous activeTab is preserved.
+        applyDefaultTabIfNeeded()
         // Clear any in-flight tease state — we're going to a full open
         // now, so the tease has served its purpose. If show() was called
         // from a non-tease entry point (click, hotkey), this is a no-op.
