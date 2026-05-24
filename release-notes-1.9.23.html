@@ -3,9 +3,17 @@
 <head><meta charset="utf-8"><title>nox 1.9.23</title></head>
 <body style="font:14px/1.5 -apple-system,system-ui,sans-serif;color:#222;max-width:560px;margin:24px auto;padding:0 16px">
 <h2>nox 1.9.23</h2>
-<p>What is new in this release.</p>
+<p>Polish + stability pass.</p>
 <ul>
-  <li>(Edit this file before uploading.)</li>
+  <li><b>Drop picker re-styled.</b> Removed the circular chips around the Save / AirDrop icons (felt heavy, not Apple-like). Bare 36pt SF Symbol with hierarchical rendering for subtle depth, soft accent glow on hover, thin accent hairline along the bottom edge of the hovered zone as the commit affordance.</li>
+  <li><b>Drop-to-Images no longer freezes.</b> When you drop an image onto Save, the auto-switch to the Images tab now defers 200ms so the open morph completes before the heavy ImagesGridView mounts. Reads as a smooth tab swap instead of a brief stall.</li>
+  <li><b>Drag-out jitter gone.</b> Dragging an image FROM the grid out to another app used to trigger the system drag monitor to repeatedly re-publish the Images tab, causing micro-stutter during the drag. Added an idempotent guard so re-arming the same tab is a no-op.</li>
+  <li><b>MediaRemote dedup.</b> Spotify's two-stage publish (metadata then bytes) and MediaRemote's metadata-refresh re-emissions used to fire the SwiftUI body re-evaluation twice per track tick. Now collapsed via a 50ms time-based dedup (mirrors Alcove&rsquo;s liveActivitySwapDebounce). Cuts pill-refresh body cost roughly in half during music playback.</li>
+  <li><b>Dictation waveforms only tick when active.</b> The recording and processing waveforms used to keep their 30Hz TimelineViews ticking even when the pill was in a different phase. Now paused unless their phase is active.</li>
+  <li><b>HoverActivator no-op in Release.</b> Removed the synchronous syslog calls in the hover hot path that fired on every display reconfigure (Continuity / AirPlay / fullscreen). Compiled out in Release.</li>
 </ul>
+<p style="margin-top:24px;color:#666;font-size:12px">
+Auto-update: v1.9.22 installs running the new Sparkle pubkey will get this automatically on the next check. Fresh downloads from <a href="https://trynox.app">trynox.app</a> are immediate.
+</p>
 </body>
 </html>
