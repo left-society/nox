@@ -1306,6 +1306,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let screen = NSScreen.screens.first(where: { $0.frame.contains(location) }) else {
                 return false
             }
+            // The notch is physically on ONE display — the notched
+            // MacBook built-in. A drag toward the notch only makes
+            // sense if the cursor is currently on that display.
+            // Dragging at the top of an external monitor doesn't
+            // mean the user is aiming at nox (the nox panel lives
+            // on the notched MacBook). Reject those.
+            guard screen.safeAreaInsets.top > 0 else { return false }
             // Top 200pt strip: cursor.y must be above visibleFrame.maxY
             // (top of the visibleFrame = bottom of the menubar) minus
             // a 200pt buffer. Generous enough that a user fast-flicking

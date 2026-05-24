@@ -526,7 +526,21 @@ final class NotchHUDWindowController {
     /// `safeAreaInsets.top` (notched) or `frame.maxY - visibleFrame.maxY`
     /// (non-notched). Both paths produce a flush bottom-of-notch landing.
     private func positionAtNotch() {
-        let screen = NSScreen.main
+        // 2026-05-24 multi-monitor fix — prefer the notched display
+        // unconditionally. NSScreen.main returns the screen with the
+        // ACTIVE menu bar, which on a multi-display setup can be
+        // either the MacBook or the external (user-configurable in
+        // System Settings → Displays → arrange). If the user has
+        // the external set as primary, NSScreen.main = external and
+        // this HUD positions on the external monitor — appearing
+        // as the "stuck overlay on external" the user reported on
+        // 2026-05-24. The notch is physical hardware on exactly
+        // ONE display (the MacBook built-in); position the HUD
+        // there regardless of which display is "primary" in the
+        // OS sense. Fall through to NSScreen.main only when no
+        // notched display exists (clamshell, external-only).
+        let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 })
+            ?? NSScreen.main
         let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let visible = screen?.visibleFrame ?? frame
 
