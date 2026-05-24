@@ -118,14 +118,32 @@ final class HoverActivator {
 
     // MARK: - Lifecycle
 
+    /// Returns true when there's a visible music pill anchored at
+    /// the notch (resting + nowPlaying). Drives the hot-zone width
+    /// — wide enough to cover the pill artwork + waveform wings
+    /// when music is playing, narrow enough to match the actual
+    /// notch hardware when no pill is visible. Default returns
+    /// false so existing call sites are unaffected.
+    private let isMusicPillVisible: () -> Bool
+
+    /// Cached music-pill state from the last hot-zone resolution.
+    /// Used to invalidate `cachedHotZone` when the user starts /
+    /// stops music — otherwise the zone width would stay frozen
+    /// at whatever state was current when the cache last filled,
+    /// and "music started but zone is still narrow" / "music
+    /// stopped but zone is still wide" mismatches would surface.
+    private var lastKnownMusicState: Bool = false
+
     init(
         onTeaseStart: @escaping () -> Void,
         onTeaseEnd: @escaping () -> Void,
-        onActivate: @escaping () -> Void
+        onActivate: @escaping () -> Void,
+        isMusicPillVisible: @escaping () -> Bool = { false }
     ) {
         self.onTeaseStart = onTeaseStart
         self.onTeaseEnd = onTeaseEnd
         self.onActivate = onActivate
+        self.isMusicPillVisible = isMusicPillVisible
     }
 
     deinit {
@@ -460,6 +478,16 @@ final class HoverActivator {
     // MARK: - Hot-zone geometry
 
     private func currentHotZone() -> CGRect? {
+        // 2026-05-24 — invalidate the cache when the music state
+        // transitions. The hot-zone width depends on whether a
+        // music pill is visible (wide cover for pill + wings vs
+        // narrow notch-hardware match), so a state change requires
+        // a recompute even when no screen-params event fires.
+        let currentMusic = isMusicPillVisible()
+        if currentMusic != lastKnownMusicState {
+            lastKnownMusicState = currentMusic
+            cachedHotZone = nil
+        }
         if let cachedHotZone {
             return cachedHotZone
         }
@@ -501,19 +529,55 @@ final class HoverActivator {
             return
         }
 
-        let width = min(hotZoneWidth, frame.width)
         // Anchor on the actual notch midX, not screen.midX. On
         // some hardware these differ by 0.5–1pt, and on a future
         // off-center notch revision we'd want the hover trigger
         // to follow the cutout regardless. Falls back to
         // `frame.midX` for non-notched displays.
         let cx: CGFloat
+        let actualNotchWidth: CGFloat?
         if let leftArea = screen.auxiliaryTopLeftArea,
            let rightArea = screen.auxiliaryTopRightArea {
             cx = (leftArea.maxX + rightArea.minX) / 2
+            actualNotchWidth = rightArea.minX - leftArea.maxX
         } else {
             cx = frame.midX
+            actualNotchWidth = nil
         }
+
+        // 2026-05-24 — state-aware hot zone width. User feedback:
+        // "cursor should trigger anything when it reachs the notch,
+        // the real notch. it's getting triggered by going the
+        // cursor to the side of the notch. i think the zone is
+        // there is from the music state not the no music state."
+        //
+        // The default 300pt zone was sized to fully cover the
+        // resting MUSIC pill (artwork + waveform wings, ~278pt
+        // total). When there's no music, no pill is visible —
+        // just the physical notch hardware (~178-188pt on M-series
+        // MacBooks). A 300pt zone in that state extends ~50pt
+        // past each notch edge, firing on cursor passes that
+        // weren't aiming at the notch at all.
+        //
+        // Music playing → use the user-tunable hotZoneWidth (300pt
+        //                 default — covers the pill, generous).
+        // No music     → use the ACTUAL notch hardware width plus
+        //                 a small 16pt buffer (8pt each side) so
+        //                 cursor near-misses still trigger but
+        //                 sub-cursor flicks to either side don't.
+        let baseWidth = hotZoneWidth
+        let resolvedWidth: CGFloat
+        if isMusicPillVisible() {
+            resolvedWidth = baseWidth
+        } else if let notch = actualNotchWidth, notch > 0 {
+            resolvedWidth = notch + 16
+        } else {
+            // Non-notched display fallback — keep the configured
+            // width since there's no hardware constraint to read.
+            resolvedWidth = baseWidth
+        }
+        let width = min(resolvedWidth, frame.width)
+
         let zone = CGRect(
             x: cx - width / 2,
             y: stripBottom,

@@ -1406,6 +1406,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if !panel.isVisible {
                     panel.show(mode: .hover)
                 }
+            },
+            // 2026-05-24 — state-aware hot zone. When the music pill
+            // is visible (resting + nowPlaying anchored to the
+            // notch), the zone needs to cover the pill geometry
+            // (~278pt + buffer). When no pill is visible, narrow
+            // to the actual notch hardware. Reading from presenter
+            // here so the closure picks up live state on every
+            // hot-zone resolution — no need for a separate
+            // invalidation hook.
+            isMusicPillVisible: { [weak self] in
+                guard let presenter = self?.panelController?.presenter else { return false }
+                return presenter.isResting && presenter.nowPlaying != nil
             }
         )
         hover.start()
