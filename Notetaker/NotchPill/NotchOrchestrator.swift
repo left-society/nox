@@ -86,6 +86,14 @@ final class NotchOrchestrator {
     /// same pattern.
     private var lastForwardedInfo: NowPlayingInfo?
 
+    /// Wall-clock time of the most recent forward to `onNowPlayingChange`.
+    /// Drives the 50ms time-based dedup that collapses MediaRemote's
+    /// rapid duplicate emits (Spotify's two-stage publish, MR's
+    /// metadata-refresh re-emissions) — see the guard in
+    /// `forwardSnapshot`. Initialized to `.distantPast` so the first
+    /// publish always passes.
+    private var lastForwardedAt: Date = .distantPast
+
     /// Timestamp of the most recent `isAudioFlowing` false→true
     /// transition. Used by the nil→paused transform's grace gate:
     /// the transform should only fire when audio has been
@@ -731,6 +739,27 @@ final class NotchOrchestrator {
         }
 
         lastForwardedBundleID = merged?.sourceBundleID
+
+        // 2026-05-24 stability — dedup duplicate emits within 50ms of
+        // the last forward when the key identity (title, artist,
+        // source) matches. Spotify's two-stage publish (metadata
+        // then bytes) and MR's metadata-refresh re-emissions arrive
+        // 15-50ms apart with identical-or-near-identical payloads;
+        // collapsing them here stops the full SwiftUI body re-eval
+        // cascade for each duplicate. The 50ms window is short
+        // enough that legitimate updates (isPlaying flip,
+        // elapsedTime ticks at ~1s cadence, new track) always
+        // pass through. Mirrors Alcove's `liveActivitySwapDebounce`
+        // pattern from the binary decode.
+        if let m = merged, let last = lastForwardedInfo,
+           m.title == last.title,
+           m.artist == last.artist,
+           m.sourceBundleID == last.sourceBundleID,
+           Date().timeIntervalSince(lastForwardedAt) < 0.05 {
+            return
+        }
+        lastForwardedAt = Date()
+
         onNowPlayingChange?(merged)
         // When the source is a known browser, kick off a title-based
         // tab scan so `openSourceApp` / `sendMediaCommand` know which

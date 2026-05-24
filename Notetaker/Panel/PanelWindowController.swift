@@ -906,7 +906,22 @@ final class PanelWindowController {
                     noteId: nil,
                     source: "drop"
                 )
-                presenter.activeTab = .images
+                // 2026-05-24 — defer the auto-switch to Images by
+                // 200ms so the open morph / drop-picker dismiss
+                // animation completes BEFORE ImagesGridView mounts.
+                // ImagesGridView is lazy-mounted (only the Music
+                // tab is always-mounted per the hybrid strategy),
+                // so switching to it triggers a full SwiftUI mount
+                // of LazyVGrid + N image cells + drag/drop wiring.
+                // Doing that mount while the panel is still
+                // morphing from drop-picker geometry causes the
+                // visible freeze the user reported ("Slab opens
+                // to Images tab and FREEZES briefly while the
+                // thumbnail loads"). Letting the morph settle
+                // first puts the mount on its own frame budget.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak presenter] in
+                    presenter?.activeTab = .images
+                }
             },
             onFile: { [weak presenter, weak environment] urls in
                 guard let presenter, let environment else { return }
@@ -1408,6 +1423,23 @@ final class PanelWindowController {
     }
 
     func showOnTab(_ tab: PanelTab, mode: OpenMode) {
+        // 2026-05-24 stability — idempotent guard. The DragMonitor
+        // (ClipboardService.DragMonitor in AppDelegate) polls the
+        // system drag pasteboard every 150ms and calls into here
+        // every time a drag is detected — including drag-OUT from
+        // nox's own Images grid. Without this guard, every 150ms
+        // during a drag-out we'd re-publish `presenter.activeTab`
+        // to its current value, firing every @Published subscriber
+        // (onChange handlers, visited-tabs cache, animation
+        // scopes) for a no-op state change. That's the jitter the
+        // user reported when dragging images out of nox to
+        // another app.
+        //
+        // Apple's @Published republishes on every set, even when
+        // the new value equals the old (Combine doesn't dedup like
+        // SwiftUI's view-equality optimization). So the guard
+        // matters even for Equatable types.
+        if isVisible && presenter.activeTab == tab { return }
         presenter.activeTab = tab
         if !isVisible { show(mode: mode) }
     }

@@ -212,7 +212,14 @@ final class HoverActivator {
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.cachedHotZone = nil
+                // 2026-05-24 stability fix — was a hot-path NSLog firing on
+                // every display reconfigure (Continuity, AirPlay,
+                // brightness change, fullscreen toggle). NSLog is a
+                // synchronous syslog IPC call and can stall the main
+                // thread mid-animation. Compiled out in Release.
+                #if DEBUG
                 NSLog("nox: HoverActivator screen params changed, hot zone invalidated")
+                #endif
             }
         }
 
@@ -263,7 +270,12 @@ final class HoverActivator {
             }
         }
 
+        // 2026-05-24 stability — start() is per-app-launch (not hot),
+        // but a synchronous NSLog at app launch contends with other
+        // start-up work. Compiled out in Release.
+        #if DEBUG
         NSLog("nox: HoverActivator started zone=\(cachedHotZone.map { "\($0)" } ?? "nil")")
+        #endif
     }
 
     /// Tear down the global monitor and any pending dwell work. Idempotent.

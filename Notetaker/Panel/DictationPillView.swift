@@ -143,10 +143,23 @@ struct DictationPillContent: View {
 
     private var waveformSlot: some View {
         ZStack {
-            DictationWaveform(audioLevel: audioLevel, autoPulse: true)
-                .opacity(phase == .recording ? 1 : 0)
+            // 2026-05-24 stability — gate TimelineView ticks on the
+            // active phase. Both waveforms stay MOUNTED for smooth
+            // crossfade transitions, but the underlying TimelineViews
+            // pause when their phase isn't active (autoPulse=false for
+            // DictationWaveform; isActive=false for ProcessingWaveform).
+            // Without this, both 30Hz timelines tick continuously
+            // while the pill is on screen, even though only one
+            // waveform is visible at any time — wasting half the
+            // budget on invisible work. Mirrors Alcove's pattern of
+            // pausing animation tasks when their surface is occluded.
+            DictationWaveform(
+                audioLevel: audioLevel,
+                autoPulse: phase == .recording
+            )
+            .opacity(phase == .recording ? 1 : 0)
 
-            DictationProcessingWaveform()
+            DictationProcessingWaveform(isActive: phase == .transcribing)
                 .opacity(phase == .transcribing ? 1 : 0)
 
             // Idle / error: empty slot (waveform fades out).
@@ -262,6 +275,13 @@ struct DictationWaveform: View {
 // MARK: - Processing waveform (transcribing state)
 
 struct DictationProcessingWaveform: View {
+    /// 2026-05-24 — when `false`, the TimelineView is paused so the
+    /// 30Hz body re-eval stops while this view is invisible
+    /// (opacity=0 during non-transcribing phases). The view stays
+    /// MOUNTED for smooth crossfade transitions; only the schedule
+    /// is paused. Default `true` keeps prior call sites unaffected.
+    var isActive: Bool = true
+
     private static let barCount = 9
     private static let multipliers: [CGFloat] = [0.42, 0.58, 0.76, 0.9, 1.0, 0.9, 0.76, 0.58, 0.42]
     private static let barWidth: CGFloat = 2.0
@@ -270,7 +290,7 @@ struct DictationProcessingWaveform: View {
     private static let maxHeight: CGFloat = 16.0
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isActive)) { context in
             let time = context.date.timeIntervalSinceReferenceDate
             HStack(spacing: Self.barSpacing) {
                 ForEach(0..<Self.barCount, id: \.self) { index in

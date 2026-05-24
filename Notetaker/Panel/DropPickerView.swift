@@ -140,22 +140,43 @@ private struct DropZoneCard: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            // Icon — bigger so it fills the larger full-coverage
-            // zone proportionally.
+            // 2026-05-24 — back to BARE ICON (no chip). Per user
+            // ("those circles are not making it better — make it
+            // more apple like"): Apple's macOS reserves circular
+            // containers for IDENTITIES (AirDrop avatars, contacts)
+            // — never for ACTION glyphs. Save and AirDrop are
+            // actions, not identities; the icon itself IS the
+            // affordance.
+            //
+            // Polish vs the original bare-icon design:
+            //  • Bigger glyph (36pt vs 30pt) — more confident
+            //    presence in the full-bleed zone.
+            //  • `.symbolRenderingMode(.hierarchical)` — SwiftUI
+            //    derives layered shading from the tint color,
+            //    giving subtle 3D depth without adding chrome.
+            //    Apple's preferred treatment for action glyphs
+            //    since macOS 12; share-sheet, Quick Look, and
+            //    Image Capture all use it.
+            //  • Soft accent glow on hover — radiates from the
+            //    icon's outline itself (no chip silhouette to
+            //    define a shape).
             ZStack {
                 if let icon = icon {
                     Image(systemName: icon)
-                        .font(.system(size: 30, weight: .semibold))
+                        .font(.system(size: 36, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(iconTint)
                 } else {
-                    // Custom AirDrop mark — concentric arcs + wedge.
-                    // Sized to visually match the SF-Symbol icon
-                    // in the other zone.
+                    // Custom AirDrop mark — slightly larger to
+                    // visually match the 36pt SF Symbol in the
+                    // other zone.
                     AirDropLogo(tint: iconTint, lineWidth: 1.8)
-                        .frame(width: 38, height: 38)
+                        .frame(width: 42, height: 42)
                 }
             }
             .scaleEffect(isHovered ? 1.06 : 1.0)
+            .shadow(color: accent.opacity(isHovered ? 0.35 : 0),
+                    radius: isHovered ? 10 : 0)
 
             VStack(spacing: 3) {
                 Text(title)
@@ -175,27 +196,40 @@ private struct DropZoneCard: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Layered backgrounds:
-        //   • Rest:    very faint white (2%) — barely-there tint
-        //              so the user can SEE that each half is a
-        //              drop target without it shouting. Without
-        //              this the zones looked invisible and the
-        //              icons appeared to float in a black void.
-        //   • Hovered: glass material (VisualEffectBlur sampling
-        //              the desktop behind the panel) plus a
-        //              brighter white overlay. The hover state
-        //              reads unambiguously as "this side is
-        //              committed."
-        // Both fill the full half top-to-bottom, edge-to-edge.
+        // Zone background:
+        //   • Rest:    barely-there 2% white tint so the zone has
+        //              a perceptible "drop here" target shape.
+        //   • Hovered: soft vertical accent gradient
+        //              (top-bright → bottom-faint) tints the whole
+        //              zone in the accent color. Same gradient as
+        //              the chip pass — keep what worked, drop
+        //              what didn't.
         .background {
             ZStack {
                 Color.white.opacity(0.02)
                 if isHovered {
-                    VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
-                        .overlay(Color.white.opacity(0.08))
-                        .transition(.opacity)
+                    LinearGradient(
+                        colors: [
+                            accent.opacity(0.14),
+                            accent.opacity(0.03)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .transition(.opacity)
                 }
             }
+        }
+        // Thin accent hairline along the BOTTOM edge of the
+        // hovered zone. Reads as "this side is underlined for
+        // commit" — same affordance Quick Look uses on selected
+        // mark-up tools and Apple's segmented controls use on the
+        // active segment. Hairline only, no chrome.
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(accent.opacity(isHovered ? 0.85 : 0))
+                .frame(height: 1.5)
+                .animation(.easeOut(duration: 0.18), value: isHovered)
         }
         .animation(.easeOut(duration: 0.18), value: isHovered)
         .animation(.easeOut(duration: 0.18), value: isOtherHovered)
