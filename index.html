@@ -1828,15 +1828,15 @@
       // ANY Tally form on this page — there's only one).
       var pid = data.payload && data.payload.formId;
       if (pid && pid !== FORM_ID) return;
-      // Trigger the download. Using a hidden anchor + click rather
-      // than location.href so the page itself doesn't navigate
-      // (download happens in a new request, current page stays put).
-      var a = document.createElement('a');
-      a.href = DMG_URL;
-      a.download = '';                  // hint browser to download
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      // 2026-05-30 — after the email form is submitted, send the
+      // visitor to the post-download install guide (/download.html)
+      // instead of silently downloading in place. download.html
+      // auto-triggers the DMG fetch on load AND shows the 3-step
+      // "open .dmg → drag to Applications → launch" walkthrough with
+      // the real macOS icons — the finish-the-install page. This both
+      // starts the download and tells first-timers what to do with
+      // the .dmg (the step most people miss).
+      window.location.href = '/download.html';
     });
   })();
 </script>

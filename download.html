@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Installing nox — a few steps left</title>
+<meta name="robots" content="noindex" />
+<meta name="description" content="Your nox download has started. Three quick steps to finish installing." />
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png" />
+<style>
+  :root {
+    --bg:           #07070a;
+    --surface:      rgba(255, 255, 255, 0.025);
+    --surface-2:    rgba(255, 255, 255, 0.05);
+    --line:         rgba(255, 255, 255, 0.075);
+    --fg:           #fff;
+    --fg-soft:      rgba(255, 255, 255, 0.78);
+    --muted:        rgba(255, 255, 255, 0.55);
+    --dim:          rgba(255, 255, 255, 0.36);
+    --accent:       #C5A3FF;
+    --accent-strong:#A688E8;
+    --success:      #7cee9f;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { height: 100%; }
+
+  body {
+    background: var(--bg);
+    color: var(--fg-soft);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display",
+                 "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: clamp(40px, 9vh, 110px) 24px 64px;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  /* Lavender bloom emanating from where the notch would be —
+     matches index.html's body::before backdrop. */
+  body::before {
+    content: "";
+    position: fixed;
+    top: -340px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 1100px;
+    height: 760px;
+    background: radial-gradient(
+      closest-side,
+      rgba(168, 130, 232, 0.20),
+      rgba(168, 130, 232, 0.05) 55%,
+      transparent 78%
+    );
+    filter: blur(20px);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrap {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 1000px;
+    text-align: center;
+  }
+
+  /* ── Status pill ───────────────────────────────────────── */
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 15px 7px 12px;
+    border-radius: 999px;
+    background: rgba(124, 238, 159, 0.10);
+    border: 1px solid rgba(124, 238, 159, 0.22);
+    color: var(--success);
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 28px;
+  }
+  .status svg { width: 15px; height: 15px; }
+
+  /* ── Headline ──────────────────────────────────────────── */
+  h1 {
+    color: var(--fg);
+    font-size: clamp(30px, 5vw, 52px);
+    line-height: 1.06;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin-bottom: 18px;
+  }
+  h1 .soft { color: var(--accent); display: block; font-weight: 500; }
+
+  .lede {
+    font-size: clamp(14px, 1.6vw, 16px);
+    color: var(--muted);
+    max-width: 540px;
+    margin: 0 auto 52px;
+    line-height: 1.55;
+  }
+  .lede a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(197, 163, 255, 0.35);
+    padding-bottom: 1px;
+    transition: border-color 0.18s, color 0.18s;
+  }
+  .lede a:hover { color: #fff; border-color: var(--accent); }
+
+  /* ── Steps grid ────────────────────────────────────────── */
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 22px;
+    margin-bottom: 56px;
+  }
+  @media (max-width: 760px) {
+    .steps { grid-template-columns: 1fr; max-width: 380px; margin-inline: auto; }
+  }
+
+  .step { position: relative; }
+
+  .step-num {
+    width: 30px; height: 30px;
+    margin: 0 auto 16px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #1a0f33;
+    font-size: 15px;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 0 5px rgba(197, 163, 255, 0.10);
+  }
+
+  .stage {
+    height: 196px;
+    border-radius: 20px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+    transition: border-color 0.2s, background 0.2s, transform 0.2s;
+  }
+  .step:hover .stage {
+    border-color: rgba(197, 163, 255, 0.30);
+    background: var(--surface-2);
+    transform: translateY(-3px);
+  }
+
+  .caption {
+    margin-top: 16px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--fg-soft);
+  }
+  .caption b { color: var(--fg); font-weight: 600; }
+
+  /* ── Mini-scene primitives (REAL macOS icons) ──────────── */
+  /* The real nox app icon (assets/app-icon-512.png) + the real
+     macOS Applications-folder, Music and Notes icons (extracted
+     from the system .icns), so the steps look like the actual
+     install flow rather than abstract placeholders. */
+  .nox-icon {
+    display: block;
+    filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.45));
+  }
+
+  /* Scene 1 — Downloads chip + the downloaded nox disk image */
+  .s1 { display: flex; flex-direction: column; align-items: center; gap: 16px; position: relative; }
+  .chip {
+    font-size: 12px; font-weight: 600; color: var(--fg);
+    background: rgba(255,255,255,0.08);
+    border: 1px solid var(--line);
+    padding: 5px 12px; border-radius: 8px;
+    position: relative;
+  }
+  .chip::after {
+    content: ""; position: absolute; bottom: -5px; left: 50%;
+    transform: translateX(-50%) rotate(45deg);
+    width: 9px; height: 9px;
+    background: rgba(255,255,255,0.08);
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .dmg-tile { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+  .dmg-tile .nox-icon { width: 58px; height: 58px; }
+  .dmg-tile .fname { font-size: 11.5px; font-weight: 600; color: var(--fg-soft); }
+  .cursor {
+    position: absolute; right: 26%; bottom: 30px;
+    font-size: 18px; color: #fff; transform: rotate(-8deg);
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6));
+  }
+
+  /* Scene 2 — drag the real nox icon into the real Applications folder */
+  .s2 { display: flex; align-items: center; gap: 16px; }
+  .s2 .nox-icon { width: 60px; height: 60px; }
+  .arrow { color: var(--accent); font-size: 22px; opacity: 0.85; }
+  .appfolder-img {
+    width: 78px; height: 78px; display: block;
+    filter: drop-shadow(0 8px 16px rgba(0,0,0,0.4));
+  }
+  .grab { position: relative; }
+  .grab::after {
+    content: "✋"; position: absolute; right: -12px; bottom: -12px; font-size: 15px;
+  }
+
+  /* Scene 3 — real Applications list */
+  .s3 {
+    width: 86%; border-radius: 12px; overflow: hidden;
+    background: rgba(255,255,255,0.045);
+    border: 1px solid var(--line);
+    text-align: left;
+    box-shadow: 0 10px 26px rgba(0,0,0,0.35);
+  }
+  .s3 .hd {
+    font-size: 12px; font-weight: 700; color: var(--fg);
+    padding: 9px 12px; border-bottom: 1px solid var(--line);
+  }
+  .s3 .row {
+    display: flex; align-items: center; gap: 9px;
+    padding: 7px 12px; font-size: 12.5px; color: var(--fg-soft);
+  }
+  .s3 .row.sel { background: var(--accent); color: #1a0f33; font-weight: 600; }
+  .s3 .row img { width: 20px; height: 20px; border-radius: 4px; flex: none; display: block; }
+
+  /* ── Footer ────────────────────────────────────────────── */
+  .foot {
+    display: inline-flex; align-items: center; gap: 9px;
+    color: var(--dim); font-size: 13px; text-decoration: none;
+    transition: color 0.18s;
+  }
+  .foot:hover { color: var(--fg-soft); }
+  .foot img { width: 20px; height: 20px; display: block; }
+  .foot b { color: var(--fg-soft); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<!-- Reusable nox ring mark — lavender gradient + notch cut, self-contained. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="noxRing" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#D9C2FF"/>
+      <stop offset="1" stop-color="#A688E8"/>
+    </linearGradient>
+    <mask id="noxNotch">
+      <rect width="1024" height="1024" fill="white"/>
+      <rect x="484" y="180" width="56" height="50" fill="black"/>
+    </mask>
+    <symbol id="ring" viewBox="0 0 1024 1024">
+      <g mask="url(#noxNotch)">
+        <circle cx="512" cy="512" r="350" fill="none"
+                stroke="url(#noxRing)" stroke-width="60" stroke-linecap="round"/>
+      </g>
+    </symbol>
+  </defs>
+</svg>
+
+<main class="wrap">
+  <div class="status">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M20 6 9 17l-5-5"/>
+    </svg>
+    Download started
+  </div>
+
+  <h1>Thanks for downloading!<span class="soft">Just a few steps left.</span></h1>
+
+  <p class="lede">
+    Your download will begin automatically. If it didn't start,
+    <a id="manual" href="#">download nox manually.</a>
+  </p>
+
+  <div class="steps">
+    <!-- Step 1 -->
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="stage">
+        <div class="s1">
+          <div class="chip">Downloads</div>
+          <div class="dmg-tile">
+            <img class="nox-icon" src="/assets/app-icon-512.png" alt="nox" width="58" height="58" />
+            <span class="fname">nox.dmg</span>
+          </div>
+        </div>
+        <div class="cursor">▸</div>
+      </div>
+      <p class="caption">Open <b>nox.dmg</b> from your <b>Downloads</b> folder</p>
+    </div>
+
+    <!-- Step 2 -->
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="stage">
+        <div class="s2">
+          <div class="grab">
+            <img class="nox-icon" src="/assets/app-icon-512.png" alt="nox" width="60" height="60" />
+          </div>
+          <div class="arrow">→</div>
+          <img class="appfolder-img" src="/assets/install/applications-folder.png" alt="Applications folder" width="78" height="78" />
+        </div>
+      </div>
+      <p class="caption">Drag the <b>nox</b> icon into your <b>Applications</b> folder</p>
+    </div>
+
+    <!-- Step 3 -->
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="stage">
+        <div class="s3">
+          <div class="hd">Applications</div>
+          <div class="row"><img src="/assets/install/music.png" alt="" width="20" height="20" />Music.app</div>
+          <div class="row sel"><img src="/assets/app-icon-512.png" alt="" width="20" height="20" />nox.app</div>
+          <div class="row"><img src="/assets/install/notes.png" alt="" width="20" height="20" />Notes.app</div>
+        </div>
+      </div>
+      <p class="caption">Open <b>nox</b> from your <b>Applications</b> folder</p>
+    </div>
+  </div>
+
+  <a class="foot" href="/">
+    <img src="/assets/app-icon-512.png" alt="" width="20" height="20" />
+    Back to <b>nox</b>
+  </a>
+</main>
+
+<script>
+  (function () {
+    // Single source of truth for the current build's DMG. Bump this
+    // in lockstep with index.html's DMG_URL on each release.
+    var DMG_URL = 'https://github.com/left-society/nox/releases/download/v1.9.27/nox.1.9.27.dmg';
+
+    // Wire the manual fallback link.
+    var manual = document.getElementById('manual');
+    if (manual) manual.href = DMG_URL;
+
+    // Auto-start the download a beat after the page paints — matches
+    // the "your download will begin automatically" copy. A hidden
+    // anchor click keeps THIS page in place (the .dmg is fetched in a
+    // separate request) so the install guide stays on screen.
+    // `?preview` suppresses the auto-download so the page can be
+    // viewed/QA'd without pulling a ~100MB DMG.
+    if (location.search.indexOf('preview') === -1) {
+      setTimeout(function () {
+        var a = document.createElement('a');
+        a.href = DMG_URL;
+        a.download = '';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }, 700);
+    }
+  })();
+</script>
+</body>
+</html>
