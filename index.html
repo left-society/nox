@@ -1,2815 +1,615 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="en" class="dark">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>nox. Your MacBook notch, actually useful.</title>
-<meta name="description" content="Music, voice, files, video downloads, AirDrop, meetings, notes — all from one tiny spot at the top of your MacBook. Free while we're testing." />
-
-<!-- Open Graph (iMessage, Slack, Discord, WhatsApp, LinkedIn, Facebook) -->
-<meta property="og:title" content="nox. Your MacBook notch, actually useful." />
-<meta property="og:description" content="Music, voice, files, video downloads, AirDrop, meetings, notes — all from one tiny spot at the top of your MacBook. Free while we're testing." />
-<meta property="og:type" content="website" />
+<title>nox. The Dynamic Island your Mac never got</title>
+<meta name="description" content="Music, voice-to-text, file drops, video downloads, your calendar and focus timers, all surfacing from your MacBook notch. Native, private, on-device AI. Free while we're testing." />
+<meta property="og:title" content="nox. Your whole Mac, one glance up" />
+<meta property="og:description" content="Everything your Mac does, surfaced in the notch, plus dictation, AirDrop and downloads. Native, private, free while we're testing." />
 <meta property="og:url" content="https://trynox.app" />
-<meta property="og:site_name" content="nox" />
 <meta property="og:image" content="https://trynox.app/assets/og-image.png" />
-<meta property="og:image:width" content="1200" />
-<meta property="og:image:height" content="630" />
-<meta property="og:image:type" content="image/png" />
-<meta property="og:image:alt" content="nox — your MacBook notch, actually useful" />
-
-<!-- Twitter card (uses og:* by default for most fields, but
-     summary_large_image needs the Twitter-specific opt-in) -->
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="nox. Your MacBook notch, actually useful." />
-<meta name="twitter:description" content="Music, voice, files, video downloads, AirDrop, meetings, notes — all from one tiny spot at the top of your MacBook." />
-<meta name="twitter:image" content="https://trynox.app/assets/og-image.png" />
-<meta name="twitter:image:alt" content="nox — your MacBook notch, actually useful" />
-
-<meta name="theme-color" content="#07070a" />
-
-<!-- Favicons + iOS / Android touch icons. App icon source:
-     /Notetaker/Resources/nox-icon.svg (rendered to PNG via sips
-     into multiple sizes for each launch surface). -->
-<link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon.png" />
-<link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png" />
-<link rel="icon" type="image/png" sizes="192x192" href="/assets/icon-192.png" />
-<link rel="icon" type="image/png" sizes="512x512" href="/assets/icon-512.png" />
-
+<link rel="icon" href="assets/favicon.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <style>
-  /*  ----------------------------------------------------------------
-      Design system — May 2026 redesign
-
-      The previous pass borrowed too much from generic dark-mode
-      SaaS. This one is anchored on the patterns that actually work
-      for premium Mac apps:
-
-        – Boring Notch's "spotlight on a dark stage" glow + huge
-          two-line headline with one bold emphasis line
-        – Alcove's tight typography, real product preview, generous
-          whitespace, Apple-clean confidence
-        – Linear / Raycast's precise spacing scale and accent
-          discipline (one purple, used sparingly)
-
-      Color anchor: #07070a — almost pure black with a hint of
-      blue-purple, identical in feel to the app's own onboarding
-      window. Single warm purple radial glow centered above the
-      hero, no second accent radial elsewhere — keeps the eye
-      where the content is instead of distracting with ambient
-      gradient noise.
-      ----------------------------------------------------------------  */
-  :root {
-    --bg:          #07070a;
-    --surface:     rgba(255, 255, 255, 0.025);
-    --surface-2:   rgba(255, 255, 255, 0.045);
-    --line:        rgba(255, 255, 255, 0.075);
-    --line-soft:   rgba(255, 255, 255, 0.04);
-
-    --fg:          #fff;
-    --fg-soft:     rgba(255, 255, 255, 0.78);
-    --muted:       rgba(255, 255, 255, 0.55);
-    --dim:         rgba(255, 255, 255, 0.36);
-
-    /*  Brand lavender — pulled from /Notetaker/Resources/nox-icon.svg.
-        These two stops are the 55% and 80% stops of the icon's
-        gradient ring, the same colors the macOS app uses for
-        its accent. Was #c8b5ff / #a882e8 (close but not exact). */
-    --accent:        #C5A3FF;
-    --accent-strong: #A688E8;
-    --success:       #7cee9f;
-  }
-
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
-  html {
-    scroll-behavior: smooth;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-  body {
-    background: var(--bg);
-    color: var(--fg-soft);
-    /*  Type scale — SF Pro on Apple, Inter as cross-OS fallback.
-        Body face is SF Pro Text (the 14-19pt body face); headlines
-        opt into SF Pro Display via font-family override. */
-    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text",
-          "Inter", system-ui, sans-serif;
-    text-rendering: optimizeLegibility;
-    min-height: 100vh;
-    overflow-x: hidden;
-  }
-
-  /*  ----------------------------------------------------------------
-      Backdrop: solid dark canvas with a brand-color bloom from the
-      notch.
-
-      Earlier passes used three real macOS wallpaper photos
-      (Tahoe Dark / Sonoma Dark / Sonoma Horizon) crossfaded by JS
-      on scroll. The wallpapers' photographic features competed
-      with the page content even after darkening + blur — light
-      bands and color swirls were still visible behind text.
-
-      The new approach is conceptually tied to the product:
-      the brand color "leaks" out of where the user's MacBook
-      notch would be (top-center of the viewport, fixed) so the
-      backdrop literally evokes the product. No photos to compete
-      with content, no scroll-driven JS, just a single soft
-      lavender bloom + a film-grain overlay.
-
-      Z-index stack (below content):
-        body                    var(--bg) — solid #07070a
-        body::before     z=-2   lavender bloom from the notch
-        body::after      z=-1   film-grain noise (kept from
-                                previous design — adds texture
-                                that pure gradients lack)
-      ----------------------------------------------------------------  */
-  body {
-    background: var(--bg);
-    position: relative;
-  }
-  /*  Lavender bloom — fixed at the top-center of the viewport so
-      it tracks the user's notch position regardless of scroll.
-      The radial origin is at 50% 0% (top edge) so light fades
-      downward + outward, evoking color leaking from the notch.
-
-      Width clamp keeps the bloom from getting absurd on ultrawide
-      displays while still scaling on narrower screens. The blur
-      filter diffuses any banding so the gradient reads as soft
-      glow instead of a hard ellipse.
-
-      Two color stops (lavender #C5A3FF + slightly more
-      saturated #A882E8) so the bloom has a subtle hue shift
-      from center to edge — feels lit, not flat. */
-  body::before {
-    content: "";
-    position: fixed;
-    top: -120px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: min(1600px, 130vw);
-    height: 820px;
-    z-index: -2;
-    pointer-events: none;
-    background: radial-gradient(ellipse 65% 80% at 50% 0%,
-      rgba(197, 163, 255, 0.30) 0%,
-      rgba(168, 130, 232, 0.16) 25%,
-      rgba(168, 130, 232, 0.06) 50%,
-      rgba(168, 130, 232, 0.02) 70%,
-      transparent 85%);
-    filter: blur(48px);
-  }
-  /*  Subtle film grain to break up the gradient banding and
-      give the page a film-stock feel. Bumped from 0.04 → 0.05
-      with the lighter backdrop — no wallpaper underneath to
-      provide texture, so the grain has to do more work. */
-  body::after {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    opacity: 0.05;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
-  }
-
-  ::selection { background: rgba(168,130,232,0.32); color: var(--fg); }
-
-  /*  ----------------------------------------------------------------
-      Layout primitives
-      ----------------------------------------------------------------  */
-  .wrap {
-    max-width: 1120px;
-    margin: 0 auto;
-    padding: 0 28px;
-  }
-  section { padding: 120px 0; position: relative; }
-  @media (max-width: 720px) { section { padding: 80px 0; } }
-
-  /*  Add the floating-header clearance to the first section.
-      Header is fixed and ~70px tall + 18px top margin = ~88px;
-      give the hero an extra ~80px of top padding so its
-      eyebrow chip sits visually clear of the pill. */
-  .hero { padding-top: 200px !important; }
-  @media (max-width: 720px) { .hero { padding-top: 140px !important; } }
-
-  /*  ----------------------------------------------------------------
-      Section dividers — give each section a clearly visible top
-      hairline and a darkening band so adjacent sections feel
-      distinct. Earlier the divider was 1px @ 10% white over a
-      480px width which read as zero against the bright wallpaper
-      — sections bled into one another. Now:
-
-        section + section::before  → wide, brighter hairline with
-                                     a faint lavender hint at the
-                                     center (matches brand)
-        section::after             → ~140px dark gradient at the
-                                     top of every new section so
-                                     the eye sees a clear "section
-                                     started here" band
-
-      Together they create a clean break between sections without
-      requiring a hard horizontal rule.
-      ----------------------------------------------------------------  */
-  section + section::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: linear-gradient(90deg,
-      transparent 0%,
-      rgba(255, 255, 255, 0.06) 18%,
-      rgba(200, 181, 255, 0.32) 50%,
-      rgba(255, 255, 255, 0.06) 82%,
-      transparent 100%);
-    z-index: 1;
-    pointer-events: none;
-  }
-  /*  Top-of-section darkening band. Fades from a strong dark
-      band at the very top of each section (right under the
-      hairline) to transparent ~140px down. The eye reads this
-      as "this section starts here, the previous section is
-      done" — a stronger signal than the wallpaper alone gives. */
-  section::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 140px;
-    background: linear-gradient(180deg,
-      rgba(7, 7, 10, 0.55) 0%,
-      rgba(7, 7, 10, 0.18) 60%,
-      transparent 100%);
-    pointer-events: none;
-    z-index: -1;
-  }
-  /*  Hero already has the header clearance + radial glow,
-      doesn't need the extra fade. */
-  .hero::after { display: none; }
-
-  /*  ----------------------------------------------------------------
-      Header — floating pill nav with scroll-driven morph.
-
-      Default state: full pill (logo + nav links + CTA).
-      Collapsed state (.collapsed class added when scrolled past
-      150px): morphs into a 44px circle with only the brand
-      mark visible. Click to re-expand.
-
-      Spring-like motion is approximated with a back-out
-      cubic-bezier on width / padding / border-radius.
-      ----------------------------------------------------------------  */
-  header {
-    position: fixed;
-    top: 18px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 50;
-    height: 44px;
-    display: flex;
-    align-items: center;
-    gap: 24px;
-    padding: 0 6px 0 18px;
-    /*  Real glass treatment matching the page's .liquid-glass
-        cards. Subtle white-tint gradient over a near-transparent
-        dark base lets the wallpaper bleed through; backdrop-filter
-        blur + saturate gives the actual glass refraction. */
-    background:
-      linear-gradient(180deg,
-        rgba(255, 255, 255, 0.07),
-        rgba(255, 255, 255, 0.02)),
-      rgba(20, 20, 28, 0.30);
-    backdrop-filter: blur(22px) saturate(180%);
-    -webkit-backdrop-filter: blur(22px) saturate(180%);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 999px;
-    box-shadow:
-      0 14px 40px rgba(0, 0, 0, 0.55),
-      0 1px 0 rgba(255, 255, 255, 0.10) inset,
-      0 -1px 0 rgba(0, 0, 0, 0.35) inset;
-    overflow: hidden;
-    /*  No CSS transition on width / padding / gap — those are
-        animated by the JS damped-spring integrator (matching
-        framer-motion's stiffness:260 damping:22) so we get
-        real spring physics with proper bounce-back, not just a
-        bezier curve approximation. See the inline spring
-        animator at the bottom of <body>.
-
-        Padding and gap still need a transition so they morph
-        in lockstep with the JS-driven width — keep them at
-        the same duration the spring takes to settle (~600ms). */
-    transition:
-      padding 0.55s cubic-bezier(0.4, 0, 0.2, 1),
-      gap 0.55s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  /*  Brand area: lavender notch glyph + "nox" wordmark. */
-  .brand {
-    display: inline-flex;
-    align-items: center;
-    gap: 9px;
-    text-decoration: none;
-    color: var(--fg);
-    font-size: 16px;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    flex-shrink: 0;
-    transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-  }
-  /*  Brand mark — wraps the inline #noxMark SVG (compact ring +
-      notch, no squircle background — at 22px the full app icon
-      compresses into an unreadable dark square, see the user's
-      screenshot). drop-shadow on the wrapper gives the ring the
-      soft lavender corona glow that matches the app icon. */
-  .brand-mark {
-    width: 24px;
-    height: 24px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    filter: drop-shadow(0 0 8px rgba(200, 181, 255, 0.55));
-    transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-  }
-  .brand-mark svg { display: block; }
-  /*  No CSS transition on .brand-name, .nav-links, or .nav-cta.
-      Their opacity / x-translate / scale are spring-animated
-      by JS (matching framer-motion's variants in the original
-      AnimatedNav.tsx) with explicit per-element delays for
-      the staggered fade. */
-  .brand-name { /* spring-animated by JS */ }
-
-  /*  Nav links — pill-highlight hover, fade out on collapse. */
-  .nav-links {
-    display: flex;
-    gap: 4px;
-    align-items: center;
-  }
-  .nav-links a {
-    text-decoration: none;
-    color: var(--muted);
-    font-size: 13.5px;
-    font-weight: 500;
-    transition: color 0.18s ease, background 0.18s ease;
-    padding: 6px 12px;
-    border-radius: 999px;
-    white-space: nowrap;
-  }
-  .nav-links a:hover {
-    color: var(--fg);
-    background: rgba(255, 255, 255, 0.06);
-  }
-
-  /*  CTA inside the nav pill — lavender on near-black for
-      brand recall. */
-  header .btn-primary.nav-cta {
-    background: var(--accent);
-    color: #1a0e2a;
-    padding: 0 16px;
-    height: 32px;
-    font-size: 13px;
-    font-weight: 600;
-    border-radius: 999px;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
-    flex-shrink: 0;
-    /*  Hover/active color transitions only. Opacity/transform
-        animations on collapse/expand are spring-driven by JS. */
-    transition:
-      background 0.18s ease,
-      filter 0.18s ease;
-  }
-  header .btn-primary.nav-cta:hover {
-    background: var(--accent-strong);
-    color: #fff;
-    filter: brightness(1.08);
-    transform: translateY(-1px);
-  }
-  header .btn-primary.nav-cta svg { fill: currentColor; }
-
-  /*  COLLAPSED-MARK
-      Sits absolute-centered, opacity 0 by default. JS fades it
-      to 1 on collapse and back to 0 on expand. Same pattern as
-      Subedit's separate <motion.div> with collapsedMarkVariants.
-      Lets the brand area crossfade between expanded (badge
-      visible) and collapsed (this mark visible) without a
-      position-flip jump. */
-  .collapsed-mark {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: none;
-    opacity: 0;
-    /*  Slight scale spring on the mark itself when it appears
-        is animated by JS, but the base scale starts at 0.85
-        so it has somewhere to spring up FROM. */
-    transform: scale(0.85);
-    filter: drop-shadow(0 0 6px rgba(200, 181, 255, 0.45));
-  }
-  .collapsed-mark svg { display: block; }
-
-  /*  COLLAPSED STATE — structural CSS only. Width, opacity,
-      and transform are JS-spring-driven. */
-  header.collapsed {
-    padding: 0;
-    gap: 0;
-    cursor: pointer;
-  }
-  header.collapsed:hover { transform: translateX(-50%) scale(1.06); }
-  header.collapsed:active { transform: translateX(-50%) scale(0.94); }
-
-  header.collapsed .brand,
-  header.collapsed .nav-cta,
-  header.collapsed .nav-links {
-    pointer-events: none;
-  }
-
-  @media (max-width: 720px) {
-    header { gap: 12px; padding: 0 4px 0 14px; }
-    .nav-links { display: none; }
-    .brand { font-size: 14.5px; }
-    header .btn-primary.nav-cta { height: 30px; padding: 0 14px; font-size: 12.5px; }
-  }
-
-  /*  ----------------------------------------------------------------
-      Buttons
-      ----------------------------------------------------------------  */
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 11px 22px;
-    border-radius: 999px;
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: -0.005em;
-    text-decoration: none;
-    border: 1px solid transparent;
-    transition: transform 0.18s ease, opacity 0.18s ease,
-                background 0.18s ease, border-color 0.18s ease;
-    white-space: nowrap;
-  }
-  .btn-primary { background: var(--fg); color: var(--bg); }
-  .btn-primary:hover {
-    transform: translateY(-1px);
-    opacity: 0.92;
-  }
-  .btn-ghost {
-    background: rgba(255,255,255,0.04);
-    color: var(--fg-soft);
-    border-color: var(--line);
-  }
-  .btn-ghost:hover {
-    background: rgba(255,255,255,0.08);
-    border-color: rgba(255,255,255,0.18);
-    color: var(--fg);
-  }
-  .btn-large {
-    padding: 14px 28px;
-    font-size: 15px;
-  }
-  .btn-icon {
-    width: 16px;
-    height: 16px;
-    flex-shrink: 0;
-  }
-
-  /*  ----------------------------------------------------------------
-      Eyebrow chip (small pill above headlines)
-      ----------------------------------------------------------------  */
-  .eyebrow-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 14px;
-    border-radius: 999px;
-    background: rgba(200, 181, 255, 0.07);
-    border: 1px solid rgba(200, 181, 255, 0.18);
-    color: var(--accent);
-    font-size: 12px;
-    font-weight: 500;
-    letter-spacing: 0.015em;
-  }
-  .eyebrow-chip::before {
-    content: "";
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--accent);
-    box-shadow: 0 0 12px var(--accent);
-  }
-
-  /*  Section eyebrow — uppercase, accent-colored, sits above H2 */
-  .section-eyebrow {
-    color: var(--accent);
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.13em;
-    text-transform: uppercase;
-    margin-bottom: 14px;
-    display: inline-block;
-  }
-
-  /*  ----------------------------------------------------------------
-      Hero — large two-line headline with one bold emphasis line.
-      Pattern lifted from Boring Notch's approach: lighter "Not so
-      boring" / heavier "Notch". For nox: lighter "Your MacBook
-      notch," / heavier "actually useful."
-      ----------------------------------------------------------------  */
-  .hero {
-    text-align: center;
-    padding: 130px 0 60px;
-  }
-  .hero .eyebrow-chip { margin-bottom: 28px; }
-  .hero h1 {
-    margin: 0 0 26px;
-    font-family: -apple-system, BlinkMacSystemFont,
-                 "SF Pro Display", "Inter", system-ui, sans-serif;
-    font-size: clamp(50px, 8.6vw, 108px);
-    line-height: 1.0;
-    letter-spacing: -0.05em;
-    color: var(--fg);
-    /*  Soft drop shadow so the headline always wins against
-        the wallpaper underneath, no matter which hue happens
-        to sit behind a given letter. Two layers: a tight dark
-        bed (1px) for crispness and a wider soft halo (10px)
-        for separation from busy backdrops. */
-    text-shadow:
-      0 1px 2px rgba(0, 0, 0, 0.55),
-      0 6px 22px rgba(0, 0, 0, 0.40);
-  }
-  .hero h1 .lead {
-    display: block;
-    font-weight: 500;
-    /*  Was var(--muted) (55% white) which got eaten by the
-        bright green/red regions of the Sonoma wallpaper. Bump
-        to fg-soft (78%) so the lead line reads cleanly across
-        every hue while still sitting visually behind the
-        bolder .punch line. */
-    color: var(--fg-soft);
-  }
-  .hero h1 .punch {
-    display: block;
-    font-weight: 700;
-    color: var(--fg);
-    margin-top: 4px;
-  }
-  .hero .tagline {
-    margin: 0 auto 36px;
-    max-width: 580px;
-    font-size: clamp(17px, 1.9vw, 19px);
-    /*  Tagline lifted from --muted (55%) to --fg-soft (78%)
-        for legibility on top of the wallpaper. Same reason as
-        the lead line above. */
-    color: var(--fg-soft);
-    line-height: 1.55;
-    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.50);
-  }
-  .hero .tagline strong {
-    color: var(--fg);
-    font-weight: 600;
-  }
-  /*  Two-layer tagline: the feature stack reads as a confident
-      list (one dot-separated line at desktop, naturally wraps on
-      mobile via the &middot; entities), and the coda below it
-      delivers the actual promise. Stacked with vertical breathing
-      room so neither layer fights the other for attention. */
-  .hero .tagline .feature-stack {
-    display: block;
-    color: var(--fg);
-    font-weight: 500;
-    font-size: clamp(15px, 1.7vw, 17px);
-    letter-spacing: 0.01em;
-    margin-bottom: 14px;
-  }
-  .hero .tagline .tagline-coda {
-    display: block;
-  }
-  /*  CTA + stats wrap into vertical stack — `inline-flex` was
-      letting them collapse onto the same line at desktop widths.
-      Block-level `flex` plus center-justify keeps them stacked
-      and centered both. */
-  .hero-cta {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  .hero-stats {
-    margin-top: 28px;
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 14px;
-    /*  Was --dim (36% white). Bumped to --muted (55%) so the
-        "Free while we're testing · Most Macs from 2017
-        onwards" line reads clearly against the wallpaper. */
-    color: var(--muted);
-    font-size: 13px;
-    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
-  }
-  .hero-stats > * {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .hero-stats .sep {
-    width: 3px;
-    height: 3px;
-    border-radius: 50%;
-    background: var(--dim);
-    flex-shrink: 0;
-  }
-  .hero-stats a {
-    color: var(--muted);
-    text-decoration: none;
-    border-bottom: 1px dotted rgba(255,255,255,0.18);
-  }
-  .hero-stats a:hover { color: var(--fg); }
-
-  /*  ----------------------------------------------------------------
-      Hero visual — fake macOS menu bar with the notch silhouette
-      and a morphing pill underneath. Pure CSS animation; no JS,
-      no images.
-
-      The mockup is more convincing than the previous "demo stage"
-      because it surrounds the notch with the actual macOS menu
-      bar context: an Apple logo, app menus on the left, a clock
-      and a battery on the right. Reads as "this is what your
-      menu bar looks like with nox on" instead of "here is a
-      black pill in a void."
-      ----------------------------------------------------------------  */
-  .hero-mockup {
-    margin: 64px auto 0;
-    max-width: 1040px;
-    aspect-ratio: 16 / 8.5;
-    position: relative;
-    border-radius: 20px;
-    /*  Wallpaper inside the lid — moody dark with subtle purple
-        radial so the menu bar reads as overlay, not floating. */
-    background:
-      radial-gradient(circle at 30% 20%,
-        rgba(168, 130, 232, 0.16), transparent 50%),
-      radial-gradient(circle at 75% 70%,
-        rgba(80, 140, 220, 0.10), transparent 50%),
-      #0d0c14;
-    border: 1px solid var(--line);
-    box-shadow:
-      0 1px 0 rgba(255,255,255,0.04) inset,
-      0 40px 100px -40px rgba(0, 0, 0, 0.65),
-      0 0 0 1px rgba(168, 130, 232, 0.04);
-    overflow: hidden;
-  }
-  /*  Hero video frame. Same chrome as .hero-mockup so the page
-      rhythm doesn't change when the placeholder swaps to the
-      real recording. 16:9 aspect to match standard YouTube
-      output; the iframe is absolute-positioned to fill the
-      frame regardless of viewport width. */
-  .hero-video-frame {
-    margin: 64px auto 0;
-    max-width: 1040px;
-    aspect-ratio: 16 / 9;
-    position: relative;
-    border-radius: 20px;
-    background: #0d0c14;
-    border: 1px solid var(--line);
-    box-shadow:
-      0 1px 0 rgba(255,255,255,0.04) inset,
-      0 40px 100px -40px rgba(0, 0, 0, 0.65),
-      0 0 0 1px rgba(168, 130, 232, 0.04);
-    overflow: hidden;
-  }
-  .hero-video-frame iframe {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    border: 0;
-    display: block;
-  }
-  /*  The macOS menu bar strip across the top. Semi-translucent
-      so the wallpaper bleeds through, like the real OS. */
-  .menu-bar {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 32px;
-    padding: 0 16px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: rgba(15, 14, 22, 0.42);
-    backdrop-filter: blur(20px) saturate(160%);
-    -webkit-backdrop-filter: blur(20px) saturate(160%);
-    border-bottom: 1px solid rgba(255,255,255,0.04);
-    color: rgba(255,255,255,0.78);
-    font-size: 12.5px;
-    font-weight: 500;
-    letter-spacing: 0.005em;
-  }
-  .menu-bar .left,
-  .menu-bar .right {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-  }
-  /*  Apple logo glyph — solid white circle with a tiny leaf to
-      hint at the silhouette. Approximation; the real Apple
-      logo isn't redistributable as-is. */
-  .menu-bar .apple {
-    display: inline-block;
-    width: 12px;
-    height: 14px;
-    background: var(--fg);
-    /*  Apple-logo silhouette via mask. The path is a
-        simplification but reads correctly at this size. */
-    -webkit-mask: radial-gradient(circle at 65% 22%, transparent 12%, #000 13%) 0 0 / 100% 100%, linear-gradient(#000, #000);
-    mask: radial-gradient(circle at 65% 22%, transparent 12%, #000 13%) 0 0 / 100% 100%, linear-gradient(#000, #000);
-    border-radius: 30% 30% 32% 32%;
-  }
-  .menu-bar .menu-item {
-    color: var(--fg);
-    font-weight: 600;
-  }
-  .menu-bar .menu-item.dim { color: rgba(255,255,255,0.62); font-weight: 400; }
-  /*  Status icons on the right — battery glyph + clock. Tiny,
-      simple. */
-  .menu-bar .battery {
-    width: 22px;
-    height: 10px;
-    border-radius: 2px;
-    border: 1px solid rgba(255,255,255,0.55);
-    position: relative;
-  }
-  .menu-bar .battery::after {
-    content: "";
-    position: absolute;
-    right: -3px;
-    top: 2px;
-    width: 2px;
-    height: 4px;
-    background: rgba(255,255,255,0.55);
-    border-radius: 0 1px 1px 0;
-  }
-  .menu-bar .battery::before {
-    content: "";
-    position: absolute;
-    inset: 1px;
-    width: 60%;
-    background: rgba(255,255,255,0.78);
-    border-radius: 1px;
-  }
-
-  /*  The notch silhouette + pill. Centered horizontally. Black-
-      on-black so it nests into the top bezel of the rendered lid. */
-  .hero-pill {
-    position: absolute;
-    top: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    background: #000;
-    border-radius: 0 0 18px 18px;
-    width: 220px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    box-shadow:
-      0 4px 14px -2px rgba(0,0,0,0.6),
-      inset 0 -1px 0 rgba(255,255,255,0.04);
-    animation: pill-morph 9s ease-in-out infinite;
-    z-index: 2;
-  }
-  /*  Pill content states — fade through three. Pure CSS via
-      keyframed opacity per state. */
-  .pill-state {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--fg);
-    font-size: 11.5px;
-    font-weight: 500;
-    letter-spacing: 0.01em;
-    opacity: 0;
-    animation-duration: 9s;
-    animation-iteration-count: infinite;
-    animation-timing-function: ease-in-out;
-    padding: 0 12px;
-  }
-  .pill-state.idle  { animation-name: state-idle; }
-  .pill-state.music { animation-name: state-music; }
-  .pill-state.drag  { animation-name: state-drag; }
-
-  .pill-state .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--accent);
-    margin-right: 8px;
-    box-shadow: 0 0 12px var(--accent);
-  }
-  .pill-state .album {
-    width: 18px;
-    height: 18px;
-    border-radius: 4px;
-    background: linear-gradient(135deg, #FF6F61 0%, #B048D6 100%);
-    margin-right: 8px;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.4);
-    flex-shrink: 0;
-  }
-  .pill-state .bars {
-    display: inline-flex;
-    align-items: end;
-    gap: 2px;
-    margin-left: 8px;
-    height: 12px;
-  }
-  .pill-state .bars span {
-    width: 2px;
-    background: var(--accent);
-    border-radius: 1px;
-    animation: bars 0.9s ease-in-out infinite;
-  }
-  .pill-state .bars span:nth-child(1) { height: 4px;  animation-delay: 0.0s; }
-  .pill-state .bars span:nth-child(2) { height: 8px;  animation-delay: 0.15s; }
-  .pill-state .bars span:nth-child(3) { height: 12px; animation-delay: 0.3s; }
-  .pill-state .bars span:nth-child(4) { height: 6px;  animation-delay: 0.45s; }
-
-  @keyframes bars {
-    0%, 100% { transform: scaleY(0.5); }
-    50%      { transform: scaleY(1); }
-  }
-  /*  Pill morph — resting (220x32) → music card (320x40) → drag
-      pill (260x40) → resting. */
-  @keyframes pill-morph {
-    0%,  20%  { width: 220px; height: 32px; border-radius: 0 0 18px 18px; }
-    28%, 58%  { width: 320px; height: 40px; border-radius: 0 0 22px 22px; }
-    66%, 88%  { width: 260px; height: 40px; border-radius: 0 0 22px 22px; }
-    100%      { width: 220px; height: 32px; border-radius: 0 0 18px 18px; }
-  }
-  @keyframes state-idle {
-    0%, 16%   { opacity: 1; }
-    22%, 92%  { opacity: 0; }
-    96%, 100% { opacity: 1; }
-  }
-  @keyframes state-music {
-    0%, 24%   { opacity: 0; }
-    32%, 58%  { opacity: 1; }
-    62%, 100% { opacity: 0; }
-  }
-  @keyframes state-drag {
-    0%, 60%   { opacity: 0; }
-    66%, 86%  { opacity: 1; }
-    90%, 100% { opacity: 0; }
-  }
-
-  /*  "Hover the notch" hint under the mockup — same pattern
-      Boring Notch uses. For us this is just a static label
-      since the website pill animates on its own. */
-  .mockup-caption {
-    margin-top: 18px;
-    text-align: center;
-    color: var(--dim);
-    font-size: 13px;
-    letter-spacing: 0.005em;
-  }
-  .mockup-caption .accent { color: var(--accent); }
-
-  /*  ----------------------------------------------------------------
-      Section heads — eyebrow + big H2 + one-line subhead
-      ----------------------------------------------------------------  */
-  .section-head {
-    text-align: center;
-    margin-bottom: 72px;
-    max-width: 660px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-  .section-head h2 {
-    margin: 0 0 16px;
-    font-family: -apple-system, BlinkMacSystemFont,
-                 "SF Pro Display", "Inter", system-ui, sans-serif;
-    font-size: clamp(32px, 4.8vw, 54px);
-    letter-spacing: -0.038em;
-    line-height: 1.05;
-    font-weight: 600;
-    color: var(--fg);
-    /*  Soft drop shadow so section headings stay legible
-        across the wallpaper's brighter regions. Same idea
-        as the hero h1 treatment, scaled down. */
-    text-shadow: 0 2px 16px rgba(0, 0, 0, 0.40);
-  }
-  .section-head p {
-    margin: 0;
-    /*  Lifted from --muted (55%) to --fg-soft (78%) so the
-        section subtitle reads against the wallpaper. */
-    color: var(--fg-soft);
-    font-size: 16.5px;
-    line-height: 1.6;
-    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
-  }
-
-  /*  ----------------------------------------------------------------
-      Feature cards — glass with hover lift + accent border
-      ----------------------------------------------------------------  */
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
-  }
-  @media (max-width: 960px) { .grid { grid-template-columns: repeat(2, 1fr); } }
-  @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
-
-  .card {
-    position: relative;
-    border-radius: 18px;
-    padding: 28px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    backdrop-filter: blur(20px) saturate(140%);
-    -webkit-backdrop-filter: blur(20px) saturate(140%);
-    transition: transform 0.28s ease, border-color 0.28s ease,
-                background 0.28s ease;
-  }
-  .card:hover {
-    transform: translateY(-3px);
-    background: var(--surface-2);
-    border-color: rgba(200, 181, 255, 0.22);
-  }
-  .card .icon-tile {
-    width: 40px;
-    height: 40px;
-    border-radius: 11px;
-    background: linear-gradient(135deg,
-      rgba(200, 181, 255, 0.20),
-      rgba(200, 181, 255, 0.06));
-    border: 1px solid rgba(200, 181, 255, 0.18);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 20px;
-    color: var(--accent);
-    font-size: 18px;
-    font-weight: 500;
-  }
-  .card h3 {
-    margin: 0 0 8px;
-    font-size: 17px;
-    font-weight: 600;
-    letter-spacing: -0.012em;
-    color: var(--fg);
-  }
-  .card p {
-    margin: 0;
-    color: var(--muted);
-    font-size: 14.5px;
-    line-height: 1.6;
-  }
-
-  /*  ----------------------------------------------------------------
-      Liquid-glass card treatment
-
-      Inspiration: github.com/nikdelvin/liquid-glass — the iOS-26
-      "frosted glass with inner light reflection" aesthetic. Three-
-      layer build:
-        1. Frosted backdrop (.liquid-glass) — heavy backdrop-blur
-           + saturate so what's behind it shows as a soft tint
-        2. Inner border highlight (::before) — diagonal gradient
-           painted as a 1px ring so the card edge catches light
-           on the top-left and dims toward the bottom-right
-        3. Soft top-corner accent radial (::after) — adds the
-           tiny gleam at the top edge that real frosted-glass
-           panels show under a soft light
-
-      Used on the pricing cards and on any glass surface where we
-      want the card itself to feel like a physical object instead
-      of a flat dark panel.
-      ----------------------------------------------------------------  */
-  .liquid-glass {
-    position: relative;
-    /*  Frosted card body. 5% white tint so the surface reads as
-        actual glass (a frost layer) rather than a transparent
-        film that lets the wallpaper bleed straight through.
-        Earlier 1.2% was too transparent against a colorful
-        wallpaper — wallpaper's green swooshes saturated into
-        solid green tiles via the saturate() filter.
-        Dark glass tint (0.04 black) keeps the frost feeling
-        cool and quiet, especially on the dark Sonoma backdrop. */
-    background:
-      linear-gradient(180deg,
-        rgba(255, 255, 255, 0.05),
-        rgba(255, 255, 255, 0.02)),
-      rgba(0, 0, 0, 0.18);
-    /*  Frosted-glass treatment. The real per-card displacement
-        filter is computed in JS at the bottom of <body> (see
-        initLiquidGlass) and writes a custom feDisplacementMap
-        backdrop-filter onto each element. The blur/saturate
-        below is what every browser falls back to when the
-        per-card displacement isn't supported (Safari, Firefox).
-
-        Saturation kept at 130%, NOT cranked. 210% earlier
-        was multiplying the wallpaper's green/red hues into
-        full-color stains (visible as the bright-green FAQ
-        cards). Real Apple glass is closer to neutral — it
-        picks up a hint of the underlying color, not a
-        pigmented copy of it. Brightness lift removed for
-        the same reason. */
-    backdrop-filter: blur(22px) saturate(130%);
-    -webkit-backdrop-filter: blur(22px) saturate(130%);
-    border: 1px solid rgba(255, 255, 255, 0.085);
-    border-radius: 20px;
-    overflow: hidden;
-    isolation: isolate;
-  }
-  .liquid-glass::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    padding: 1px;
-    background: linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.22) 0%,
-      rgba(255, 255, 255, 0.04) 28%,
-      rgba(255, 255, 255, 0.02) 65%,
-      rgba(255, 255, 255, 0.10) 100%
-    );
-    -webkit-mask:
-      linear-gradient(#000, #000) content-box,
-      linear-gradient(#000, #000);
-    -webkit-mask-composite: xor;
-            mask-composite: exclude;
-    pointer-events: none;
-    z-index: 0;
-  }
-  .liquid-glass::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    background:
-      radial-gradient(circle at 30% 0%,
-        rgba(200, 181, 255, 0.10), transparent 55%);
-    pointer-events: none;
-    z-index: 0;
-  }
-  .liquid-glass > * { position: relative; z-index: 1; }
-
-  /*  Featured variant — the nox card. Picks up a stronger inner
-      glow so it visually leads the row. */
-  .liquid-glass.featured {
-    background:
-      linear-gradient(180deg,
-        rgba(200, 181, 255, 0.08),
-        rgba(200, 181, 255, 0.02) 50%,
-        rgba(255, 255, 255, 0.02) 100%),
-      rgba(255, 255, 255, 0.03);
-    border-color: rgba(200, 181, 255, 0.22);
-  }
-  .liquid-glass.featured::after {
-    background:
-      radial-gradient(circle at 50% 0%,
-        rgba(200, 181, 255, 0.20), transparent 65%);
-  }
-
-  /*  ----------------------------------------------------------------
-      Pricing-style comparison cards (Threekit-inspired)
-
-      Replaces the old 18-row dense table. Same 4 apps, but laid
-      out as side-by-side cards so each app reads as one object
-      to scan instead of a column of cells. The short feature
-      checklist below is reduced to ONLY rows where the apps
-      actually differ — universal "everyone has it" rows like
-      Music controls, Drag files, Notes were dropped because
-      they don't help anyone choose between options.
-      ----------------------------------------------------------------  */
-  .pricing-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 14px;
-    margin-bottom: 32px;
-  }
-  @media (max-width: 960px) { .pricing-grid { grid-template-columns: repeat(2, 1fr); } }
-  @media (max-width: 540px) { .pricing-grid { grid-template-columns: 1fr; } }
-
-  /*  ----------------------------------------------------------------
-      Why nox · numbered principles
-
-      Editorial manifesto layout. Big SF Display numerals in
-      lavender, copy beside them, no card frames. Reads as a
-      magazine spread. Visually distinct from the Features
-      cards above (which use icon-tile + bordered cards). Two
-      columns at desktop so each row pairs cleanly; collapses
-      to one column under 720px.
-
-      `list-style: none` + reset the OL counter ourselves via
-      data-supplied numerals so we can style the digits as
-      display type rather than relying on the browser's default
-      ordered-list rendering.
-      ----------------------------------------------------------------  */
-  .principles {
-    list-style: none;
-    padding: 0;
-    margin: 0 0 56px;
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 56px 64px;
-  }
-  @media (max-width: 720px) {
-    .principles {
-      grid-template-columns: 1fr;
-      gap: 40px;
-      margin-bottom: 40px;
-    }
-  }
-  .principles li {
-    display: grid;
-    grid-template-columns: 96px 1fr;
-    gap: 18px;
-    align-items: start;
-  }
-  @media (max-width: 540px) {
-    .principles li { grid-template-columns: 64px 1fr; gap: 12px; }
-  }
-  .principles .num {
-    font-family: -apple-system, BlinkMacSystemFont,
-                 "SF Pro Display", "Inter", system-ui, sans-serif;
-    font-size: 80px;
-    font-weight: 200;
-    letter-spacing: -0.05em;
-    line-height: 0.85;
-    color: var(--accent);
-    /*  Subtle gradient on the numeral itself for a touch of
-        depth without making the digit shouty. Kept very
-        narrow in opacity range so it still reads as one
-        confident lavender stroke. */
-    background: linear-gradient(180deg,
-      var(--accent) 0%,
-      rgba(168, 130, 232, 0.55) 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    display: inline-block;
-  }
-  @media (max-width: 540px) {
-    .principles .num { font-size: 56px; }
-  }
-  .principles h3 {
-    font-family: -apple-system, BlinkMacSystemFont,
-                 "SF Pro Display", "Inter", system-ui, sans-serif;
-    font-size: 22px;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    color: var(--fg);
-    margin: 8px 0 8px;
-  }
-  .principles p {
-    /*  Open section (no card background), so muted text
-        gets eaten by the wallpaper. Lifted to --fg-soft +
-        soft shadow for legibility. */
-    color: var(--fg-soft);
-    font-size: 14.5px;
-    line-height: 1.6;
-    margin: 0;
-    max-width: 38ch;
-    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
-  }
-  .principles h3 {
-    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.40);
-  }
-
-  /*  Compare table — feature inventory with side-by-side
-      yes/no across nox + three other notch apps. The first
-      column carries the feature label AND a plain-language
-      sub line so a non-technical reader still understands
-      what each row means. The four right columns are narrow
-      tile cells with a green ✓ or muted ○ glyph. nox column
-      is highlighted with the lavender accent so the eye lands
-      on it first.
-      ----------------------------------------------------------------  */
-  .compare-table {
-    overflow: hidden;
-  }
-  .compare-table .head {
-    padding: 16px 24px 14px;
-    border-bottom: 1px solid var(--line-soft);
-    display: grid;
-    grid-template-columns: 2.4fr 0.7fr 0.7fr 0.9fr 0.9fr;
-    gap: 14px;
-    align-items: center;
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.10em;
-    text-transform: uppercase;
-  }
-  .compare-table .head .feat {
-    text-align: left;
-    color: var(--muted);
-  }
-  .compare-table .head .self,
-  .compare-table .head > span:not(.feat) {
-    text-align: center;
-  }
-  .compare-table .head .self { color: var(--accent); }
-  .compare-table .row {
-    padding: 18px 24px;
-    display: grid;
-    grid-template-columns: 2.4fr 0.7fr 0.7fr 0.9fr 0.9fr;
-    gap: 14px;
-    align-items: center;
-    border-bottom: 1px solid var(--line-soft);
-  }
-  .compare-table .row:last-child { border-bottom: none; }
-  .compare-table .row .feat {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .compare-table .row .label {
-    color: var(--fg);
-    font-weight: 500;
-    font-size: 14.5px;
-  }
-  .compare-table .row .sub {
-    color: var(--muted);
-    font-size: 12.5px;
-    line-height: 1.5;
-  }
-  .compare-table .row > span:not(.feat) {
-    text-align: center;
-    font-size: 14px;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-  }
-  .compare-table .row .self { color: var(--fg); font-weight: 600; }
-  .compare-table .yes {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    background: rgba(124, 238, 159, 0.14);
-    color: var(--success);
-    font-size: 14px;
-    font-weight: 700;
-  }
-  .compare-table .no {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    color: var(--dim);
-    font-size: 14px;
-    font-weight: 400;
-  }
-  .compare-table .price-row {
-    background: rgba(200, 181, 255, 0.04);
-  }
-  .compare-table .price-row > span:not(.feat) { font-weight: 600; color: var(--fg-soft); }
-  .compare-table .price-row .self strong { color: var(--accent); }
-
-  .compare-note {
-    margin-top: 18px;
-    text-align: center;
-    color: var(--muted);
-    font-size: 13px;
-    line-height: 1.6;
-    max-width: 70ch;
-    margin-left: auto;
-    margin-right: auto;
-  }
-
-  /*  Mobile: hide the four app-name columns and show only
-      the feature label + plain description. The takeaway on
-      a phone is what the app does, not which competitor
-      lacks the row. The desktop table still does that work
-      for buyers who scroll on a laptop.
-      ----------------------------------------------------------------  */
-  @media (max-width: 720px) {
-    .compare-table .head { display: none; }
-    .compare-table .row {
-      grid-template-columns: 1fr;
-      gap: 8px;
-      padding: 18px 20px;
-    }
-    .compare-table .row > span:not(.feat) {
-      display: none;
-    }
-  }
-
-  .pricing-card {
-    padding: 24px 22px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    transition: transform 0.28s ease;
-  }
-  .pricing-card:hover { transform: translateY(-3px); }
-
-  .pricing-card .badge {
-    align-self: flex-start;
-    padding: 4px 10px;
-    border-radius: 999px;
-    background: rgba(200, 181, 255, 0.12);
-    color: var(--accent);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    border: 1px solid rgba(200, 181, 255, 0.22);
-  }
-  .pricing-card .name {
-    font-family: -apple-system, BlinkMacSystemFont,
-                 "SF Pro Display", "Inter", system-ui, sans-serif;
-    font-size: 22px;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    color: var(--fg);
-    margin: 0;
-  }
-  .pricing-card .tagline {
-    color: var(--muted);
-    font-size: 13.5px;
-    line-height: 1.5;
-    margin: 0;
-    /*  Reserve roughly 2 lines so the card heights match across
-        4 cards regardless of tagline length. */
-    min-height: 40px;
-  }
-  .pricing-card .price {
-    font-family: -apple-system, BlinkMacSystemFont,
-                 "SF Pro Display", "Inter", system-ui, sans-serif;
-    font-size: 26px;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    color: var(--fg);
-    line-height: 1.1;
-  }
-  .pricing-card .price small {
-    display: block;
-    font-size: 13px;
-    font-weight: 400;
-    color: var(--muted);
-    letter-spacing: 0;
-    margin-top: 4px;
-  }
-  .pricing-card .btn { margin-top: auto; }
-
-  /*  Compact differentiator list — 6 rows max, all of which are
-      moments where nox actually behaves differently from the
-      other three. Same liquid-glass shell as the cards so the
-      pair reads as one comparison block. */
-  .feature-list {
-    padding: 8px 0;
-  }
-  .feature-list .head {
-    padding: 18px 24px 14px;
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.10em;
-    text-transform: uppercase;
-    border-bottom: 1px solid var(--line-soft);
-    display: grid;
-    grid-template-columns: 2fr repeat(4, 1fr);
-    gap: 12px;
-    align-items: center;
-  }
-  .feature-list .head .self { color: var(--fg); }
-  .feature-list .row {
-    padding: 18px 24px;
-    display: grid;
-    grid-template-columns: 2fr repeat(4, 1fr);
-    gap: 12px;
-    align-items: center;
-    border-bottom: 1px solid var(--line-soft);
-    font-size: 14.5px;
-  }
-  .feature-list .row:last-child { border-bottom: none; }
-  /*  Each row is now a label + a one-line explainer that tells
-      a regular person WHY they'd want this — turning a terse
-      feature checklist into something a non-developer can
-      actually understand at a glance. */
-  .feature-list .row .label-col {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-  .feature-list .row .label {
-    color: var(--fg);
-    font-weight: 500;
-    font-size: 14.5px;
-  }
-  .feature-list .row .sub {
-    color: var(--muted);
-    font-size: 12.5px;
-    line-height: 1.45;
-  }
-  .feature-list .row .self {
-    color: var(--fg);
-    font-weight: 600;
-  }
-  /*  Check / X glyphs — circular tile so each cell scans at a
-      glance without reading. Green-positive for "yes", muted
-      gray for "no/unclear". */
-  .check, .cross {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    font-size: 12px;
-    font-weight: 600;
-  }
-  .check {
-    background: rgba(124, 238, 159, 0.12);
-    color: var(--success);
-    border: 1px solid rgba(124, 238, 159, 0.28);
-  }
-  .cross {
-    background: rgba(255, 255, 255, 0.04);
-    color: var(--dim);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-  }
-
-  @media (max-width: 720px) {
-    /*  On phones the 5-column grid breaks. Flip to a stacked
-        layout where each row shows the feature name on its own
-        line and the four answers below. */
-    .feature-list .head { display: none; }
-    .feature-list .row {
-      grid-template-columns: 1fr;
-      gap: 10px;
-      padding: 16px 18px;
-    }
-    .feature-list .row .label {
-      font-size: 14px;
-      color: var(--fg);
-    }
-    .feature-list .row .answer {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      color: var(--muted);
-      font-size: 13px;
-    }
-    .feature-list .row .answer::before {
-      content: attr(data-app);
-      color: var(--dim);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      font-size: 11px;
-    }
-  }
-
-  /*  Comparison table — auxiliary classes (yes/no/soon badges,
-      footnote). The full .compare-table block below was removed
-      in 2026-05-08's bug-audit pass: it was a leftover deprecated
-      copy that overrode the live `liquid-glass` styling at the
-      top of the file via cascade order, flattening the table
-      surface and adding `overflow-x: auto`. Cleanup audit: H16. */
-  .compare-yes  { color: var(--success); font-weight: 600; }
-  .compare-no   { color: var(--dim); font-weight: 400; }
-  .compare-soon {
-    display: inline-block;
-    padding: 2px 9px;
-    border-radius: 999px;
-    background: rgba(255,255,255,0.05);
-    color: var(--muted);
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.02em;
-    text-transform: lowercase;
-  }
-  /*  Footnote sits below the table — kept here, the duplicate
-      .compare-note that existed in this block was removed in the
-      H16 cleanup (the live one is at line ~1284). */
-  .compare-footnote {
-    margin-top: 24px;
-    color: var(--dim);
-    font-size: 12.5px;
-    text-align: center;
-    line-height: 1.6;
-  }
-  .compare-footnote a {
-    color: var(--muted);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-    text-decoration-color: rgba(255,255,255,0.2);
-  }
-  .compare-footnote a:hover { color: var(--fg); }
-
-  /*  ----------------------------------------------------------------
-      Privacy callout
-      ----------------------------------------------------------------  */
-  .privacy {
-    text-align: center;
-    border-top: 1px solid var(--line-soft);
-    border-bottom: 1px solid var(--line-soft);
-    padding: 110px 0;
-  }
-  .privacy .eyebrow-chip {
-    background: rgba(124, 238, 159, 0.06);
-    border-color: rgba(124, 238, 159, 0.20);
-    color: var(--success);
-    margin-bottom: 24px;
-  }
-  .privacy .eyebrow-chip::before {
-    background: var(--success);
-    box-shadow: 0 0 12px var(--success);
-  }
-  .privacy h2 {
-    margin: 0 0 20px;
-    font-family: -apple-system, BlinkMacSystemFont,
-                 "SF Pro Display", "Inter", system-ui, sans-serif;
-    font-size: clamp(30px, 4.4vw, 48px);
-    letter-spacing: -0.035em;
-    line-height: 1.12;
-    font-weight: 600;
-    color: var(--fg);
-    max-width: 720px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-  .privacy p {
-    margin: 0 auto;
-    max-width: 620px;
-    /*  Brightened from --muted (55%) to --fg-soft (78%) so
-        the privacy paragraph reads against the wallpaper.
-        Plus soft shadow for legibility on busy hues. */
-    color: var(--fg-soft);
-    font-size: 16.5px;
-    line-height: 1.65;
-    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.40);
-  }
-  .privacy h2 {
-    text-shadow: 0 2px 16px rgba(0, 0, 0, 0.45);
-  }
-
-  /*  ----------------------------------------------------------------
-      Storage panel — two cards side by side under the privacy
-      headline. Left card lists what nox writes to disk and
-      where. Right card lists what nox never collects. Same
-      liquid-glass shell as the rest of the site so it slots
-      into the privacy section visually.
-      ----------------------------------------------------------------  */
-  .storage-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 16px;
-    margin: 56px auto 0;
-    max-width: 940px;
-    text-align: left;
-  }
-  @media (max-width: 760px) { .storage-grid { grid-template-columns: 1fr; } }
-  .storage-card {
-    padding: 28px 26px 22px;
-  }
-  .storage-card h3 {
-    font-family: -apple-system, BlinkMacSystemFont,
-                 "SF Pro Display", "Inter", system-ui, sans-serif;
-    font-size: 17px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    color: var(--fg);
-    margin: 0 0 18px;
-  }
-  .storage-card ul {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-  .storage-card ul li {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.025);
-    border: 1px solid var(--line-soft);
-  }
-  .storage-card .lab {
-    color: var(--fg);
-    font-size: 13px;
-    font-weight: 500;
-  }
-  .storage-card .loc {
-    color: var(--muted);
-    font-size: 11.5px;
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    letter-spacing: -0.01em;
-  }
-  .storage-card ul.bad li {
-    flex-direction: row;
-    align-items: flex-start;
-    gap: 10px;
-    background: transparent;
-    border: 0;
-    padding: 6px 0;
-    color: var(--muted);
-    font-size: 13.5px;
-    line-height: 1.55;
-  }
-  .storage-card ul.bad li::before {
-    content: "";
-    flex: 0 0 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--dim);
-    margin-top: 8px;
-  }
-  .storage-foot {
-    margin: 18px 0 0 !important;
-    padding-top: 14px;
-    border-top: 1px solid var(--line-soft);
-    color: var(--muted);
-    font-size: 12.5px !important;
-    line-height: 1.55 !important;
-    text-align: left !important;
-    max-width: none !important;
-  }
-  .storage-foot code {
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    font-size: 11.5px;
-    padding: 2px 6px;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.05);
-    color: var(--fg-soft);
-  }
-
-  /*  ----------------------------------------------------------------
-      FAQ grid — liquid-glass cards, two columns at desktop,
-      single column on phones. Each card shows Q + A always
-      visible (faster to scan than collapsing details).
-      ----------------------------------------------------------------  */
-  .faq {
-    /*  No section-level background. The body's wallpaper +
-        vignette veil already creates a consistent backdrop
-        across every section; layering an additional gradient
-        here was making the section transparent in the middle
-        (so wallpaper bled through) and opaque at the edges
-        (so the section border was visible against the
-        adjacent fully-transparent sections). The result was
-        the FAQ cards looking like green tiles because the
-        wallpaper's green swooshes leaked through unfiltered.
-        Letting the global backdrop carry the visuals keeps
-        every section visually consistent. */
-    background: transparent;
-  }
-  .faq-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 14px;
-    margin-top: 48px;
-  }
-  @media (max-width: 760px) { .faq-grid { grid-template-columns: 1fr; } }
-  .faq-card {
-    padding: 22px 24px;
-  }
-  .faq-card h3 {
-    font-family: -apple-system, BlinkMacSystemFont,
-                 "SF Pro Display", "Inter", system-ui, sans-serif;
-    font-size: 16px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    color: var(--fg);
-    margin: 0 0 8px;
-    line-height: 1.35;
-  }
-  .faq-card p {
-    color: var(--muted);
-    font-size: 13.5px;
-    line-height: 1.6;
-    margin: 0;
-  }
-  .faq-card code {
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    font-size: 12px;
-    padding: 1px 6px;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.05);
-    color: var(--fg-soft);
-  }
-  .faq-foot {
-    margin: 32px auto 0;
-    text-align: center;
-    color: var(--muted);
-    font-size: 13.5px;
-  }
-  .faq-foot a {
-    color: var(--accent);
-    text-decoration: none;
-    font-weight: 500;
-  }
-  .faq-foot a:hover { color: var(--fg); }
-
-  /*  ----------------------------------------------------------------
-      Final CTA
-      ----------------------------------------------------------------  */
-  .cta { text-align: center; padding: 130px 0; }
-  .cta h2 {
-    margin: 0 0 16px;
-    font-family: -apple-system, BlinkMacSystemFont,
-                 "SF Pro Display", "Inter", system-ui, sans-serif;
-    font-size: clamp(40px, 6vw, 68px);
-    letter-spacing: -0.045em;
-    font-weight: 600;
-    color: var(--fg);
-    line-height: 1.0;
-    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.45);
-  }
-  .cta p {
-    /*  Lifted from --muted (55%) to --fg-soft (78%) so it
-        reads against the wallpaper. */
-    color: var(--fg-soft);
-    margin: 0 auto 36px;
-    max-width: 480px;
-    font-size: 16.5px;
-    line-height: 1.55;
-    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.40);
-  }
-
-  /*  ----------------------------------------------------------------
-      Footer
-      ----------------------------------------------------------------  */
-  footer {
-    border-top: 1px solid var(--line-soft);
-    padding: 38px 0;
-    color: var(--dim);
-    font-size: 13px;
-  }
-  footer .wrap {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 16px;
-  }
-  footer a { color: var(--muted); text-decoration: none; }
-  footer a:hover { color: var(--fg); }
-  footer .links { display: flex; gap: 24px; flex-wrap: wrap; }
-
-  /*  ----------------------------------------------------------------
-      Reduced motion
-      ----------------------------------------------------------------  */
-  @media (prefers-reduced-motion: reduce) {
-    .hero-pill,
-    .pill-state,
-    .pill-state .bars span { animation: none !important; }
-    .pill-state.idle { opacity: 1; }
-    .pill-state.music, .pill-state.drag { opacity: 0; }
-    .hero-pill { width: 220px; height: 32px; }
-  }
-
-  /* Download buttons styled identically to <a> .btn — they're
-     <button> elements now because clicking them opens the Tally
-     email-gate modal instead of navigating directly to the DMG. */
-  button.btn { font: inherit; cursor: pointer; }
-  button.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:root{
+  --bg:#000; --acc:#C5A3FF; --acc-rgb:197,163,255; --acc-deep:#9E7BF0;
+  --g1:#f5f5f7; --g2:#c7c7cc; --g3:#98989d; --g4:#6e6e73; --g5:#48484a;
+  --line:rgba(255,255,255,0.08); --line-2:rgba(255,255,255,0.14);
+  --card:rgba(255,255,255,0.055); --glass:rgba(14,13,18,0.86);
+  --max:1140px; --e:cubic-bezier(.22,.61,.36,1);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--g1);overflow-x:hidden;
+  font:16px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.disp{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",sans-serif;letter-spacing:-0.032em;font-weight:600;line-height:1.04}
+.wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
+a{color:inherit;text-decoration:none}
+body::before{content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;
+  background:radial-gradient(58vw 42vh at 50% -10%,rgba(var(--acc-rgb),0.05),transparent 60%),
+            radial-gradient(48vw 50vh at 88% 8%,rgba(var(--acc-rgb),0.022),transparent 55%)}
+
+/* motion */
+.rv{opacity:0;transform:translateY(22px);transition:opacity .7s var(--e),transform .7s var(--e)}
+.rv.in{opacity:1;transform:none}
+.scaleup{opacity:0;transform:translateY(26px) scale(.975);transition:opacity .9s var(--e),transform .9s var(--e)}
+.scaleup.in{opacity:1;transform:none}
+@keyframes win{to{opacity:1;filter:blur(0);transform:none}}
+@keyframes ping{75%,100%{transform:scale(2.4);opacity:0}}
+@keyframes eq{0%,100%{height:6px}50%{height:20px}}
+@keyframes mq{to{transform:translateX(-50%)}}
+@media(prefers-reduced-motion:reduce){.rv,.scaleup{opacity:1;transform:none;transition:none}.word{opacity:1!important;filter:none!important;transform:none!important;animation:none!important}.eqbar,.mqrow{animation:none!important}.hero .ey,.hero .lede,.hero .hcta,.hero .micro{animation:none!important;opacity:1!important;transform:none!important}}
+
+/* type scale */
+.h1{font-size:clamp(42px,7vw,82px);font-weight:600;color:#fff}
+.h2{font-size:clamp(28px,4.2vw,50px);font-weight:600;color:#fff}
+.kick{font-size:12px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--ph,var(--acc))}
+.lede{font-size:clamp(17px,1.8vw,20px);color:var(--g3);line-height:1.55}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:9px;font-weight:600;border-radius:999px;cursor:pointer;transition:all .3s var(--e);border:1px solid transparent;white-space:nowrap}
+.btn .a{transition:transform .3s var(--e)} .btn:hover .a{transform:translateX(3px)}
+.btn-acc{background:#f5f5f7;color:#16161a;font-size:15px;padding:14px 28px}
+.btn-acc:hover{background:#fff;box-shadow:0 10px 30px rgba(255,255,255,0.1);transform:translateY(-1px)}
+.btn-ghost{color:var(--g2);border-color:var(--line-2);font-size:15px;padding:14px 28px}
+.btn-ghost:hover{border-color:rgba(255,255,255,0.32);color:#fff;background:rgba(255,255,255,0.05)}
+.btn-sm{font-size:13px;padding:9px 16px}
+/* ── Alcove-style fluid touches ── */
+/* morph button: icon slides out left, arrow slides in from right */
+.morph{position:relative;padding-left:48px!important;overflow:hidden}
+.morph .m-ic,.morph .m-ar{position:absolute;top:0;bottom:0;display:inline-flex;align-items:center}
+.morph .m-ic{left:20px;transition:transform .4s var(--e),opacity .4s,filter .4s}
+.morph .m-ic svg{width:18px;height:18px;fill:currentColor}
+.morph .m-tx{display:inline-block;transition:transform .4s var(--e)}
+.morph .m-ar{right:18px;opacity:0;transform:translateX(14px) scaleX(.5);filter:blur(4px);transition:transform .4s var(--e),opacity .4s,filter .4s}
+.morph .m-ar svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.morph:hover .m-ic{transform:translateX(-180%) scaleX(.5);opacity:0;filter:blur(4px)}
+.morph:hover .m-tx{transform:translateX(-14px)}
+.morph:hover .m-ar{opacity:1;transform:translateX(0) scaleX(1);filter:blur(0)}
+/* staggered hero entrance */
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+.hero .ey{opacity:0;animation:fadeUp .7s var(--e) .05s forwards}
+.hero .lede{opacity:0;animation:fadeUp .75s var(--e) .58s forwards}
+.hero .hcta{opacity:0;animation:fadeUp .75s var(--e) .72s forwards}
+.hero .micro{opacity:0;animation:fadeUp .75s var(--e) .84s forwards}
+/* hover life on icons */
+.bcard .bi{transition:transform .4s var(--e)}
+.glow:hover .bi{transform:scale(1.18) rotate(-7deg)}
+.wcard .wi{transition:transform .4s var(--e)}
+.wcard:hover .wi{transform:translateY(-3px) rotate(-4deg)}
+/* hand-drawn "psst" note */
+.psst{display:inline-flex;align-items:center;gap:9px;color:var(--g3);font-size:14px;font-weight:500}
+.psst svg{width:24px;height:24px;fill:var(--acc);opacity:.85;transition:transform .5s var(--e)}
+.psst:hover svg{transform:rotate(-8deg) scale(1.08)}
+
+/* top + nav */
+.topbar{position:fixed;top:0;left:0;right:0;z-index:60;text-align:center;padding:8px 16px;font-size:12.5px;
+  background:rgba(0,0,0,0.78);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.topbar b{color:var(--g2);font-weight:600}.topbar span{color:var(--g4)}
+nav{position:fixed;top:33px;left:0;right:0;z-index:50;pointer-events:none;transition:top .4s var(--e)}
+.navbar{pointer-events:auto;margin:0 auto;max-width:var(--max);transition:max-width .45s var(--e),margin-top .45s var(--e)}
+.navbar-in{display:flex;align-items:center;justify-content:space-between;height:54px;padding:0 10px 0 20px;border-radius:0;border:1px solid transparent;background:transparent;transition:all .45s var(--e)}
+nav.float .navbar{max-width:840px;margin-top:8px}
+nav.float .navbar-in{border-radius:999px;border-color:var(--line-2);background:var(--glass);backdrop-filter:blur(22px) saturate(160%);box-shadow:0 14px 46px rgba(0,0,0,0.5);padding:0 10px 0 18px}
+.brand{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:600;color:var(--g1)}
+.brand img{width:26px;height:26px;border-radius:7px}
+.nlinks{display:flex;gap:26px;font-size:13.5px}
+.nlinks a{color:var(--g3);font-weight:500;transition:color .25s}.nlinks a:hover{color:#fff}
+@media(max-width:820px){.nlinks{display:none}}
+
+/* hero */
+.hero{min-height:100vh;display:flex;flex-direction:column;justify-content:flex-start;padding:150px 0 40px;text-align:center}
+.ey{display:inline-flex;align-items:center;gap:10px;padding:8px 16px;border-radius:999px;font-size:13px;font-weight:500;margin-bottom:30px;
+  background:rgba(255,255,255,0.03);border:1px solid var(--line-2)}
+.ey .ping{position:relative;display:flex;height:7px;width:7px}
+.ey .ping b{position:absolute;inset:0;border-radius:50%;background:var(--acc);opacity:.6;animation:ping 1.6s var(--e) infinite}
+.ey .ping i{position:relative;height:7px;width:7px;border-radius:50%;background:var(--acc)}
+.ey span{background:linear-gradient(90deg,#fff,var(--g3),#fff);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.word{display:inline-block;opacity:0;filter:blur(8px);transform:translateY(8px);animation:win .7s var(--e) forwards}
+.hero .lede{max-width:600px;margin:26px auto 0}
+.hcta{display:flex;gap:13px;justify-content:center;flex-wrap:wrap;margin-top:34px}
+.micro{font-size:12.5px;color:var(--g4);margin-top:16px}
+.frame{max-width:860px;margin:58px auto 0;border-radius:18px;overflow:hidden;border:1px solid var(--line);background:#000;position:relative;box-shadow:0 50px 120px rgba(0,0,0,0.85)}
+.frame .chrome{position:absolute;top:0;left:0;right:0;height:30px;z-index:3;display:flex;align-items:center;gap:7px;padding:0 13px;background:linear-gradient(180deg,rgba(0,0,0,0.55),transparent)}
+.frame .chrome i{width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,0.16)}
+.frame video{width:100%;display:block}
+.vframe{border-radius:18px;overflow:hidden;border:1px solid var(--line);box-shadow:0 26px 70px rgba(0,0,0,0.6);position:relative;background:#0a0a0d;line-height:0}
+.vframe video{width:100%;height:auto;display:block}
+.frame::after{content:"";position:absolute;left:50%;top:-24px;transform:translateX(-50%);width:55%;height:48px;background:radial-gradient(50% 100% at 50% 0,rgba(var(--acc-rgb),0.18),transparent 70%);filter:blur(38px);opacity:.45}
+
+/* alive strip */
+.alive{padding:30px 0 8px;overflow:hidden}
+.alive .cap{text-align:center;color:var(--g4);font-size:13px;letter-spacing:.06em;margin-bottom:20px}
+.mqmask{overflow:hidden;-webkit-mask:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent)}
+.mqrow{display:flex;gap:12px;width:max-content;animation:mq 32s linear infinite}
+.apill{display:inline-flex;align-items:center;gap:9px;padding:10px 16px;border-radius:999px;border:1px solid var(--line);background:var(--card);white-space:nowrap;font-size:14px;color:var(--g2)}
+.apill .d{width:8px;height:8px;border-radius:50%}
+.apill .eq{display:flex;gap:2px;align-items:flex-end;height:16px}
+.apill .eq i{width:2.5px;background:var(--g3);border-radius:2px;animation:eq 1s ease-in-out infinite}
+.apill svg{width:15px;height:15px;stroke:var(--g3);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.spark{width:13px;height:13px;fill:var(--acc);flex:none}
+.zone svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;vertical-align:-2px;margin-right:5px}
+
+/* sections */
+section{padding:100px 0;position:relative}
+.spot{background:radial-gradient(82% 130% at 50% 50%,color-mix(in srgb,var(--ph,var(--acc)) 9%,transparent),transparent 70%);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.spot .chip{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;font-size:12px;font-weight:600;color:var(--ph,var(--acc));background:color-mix(in srgb,var(--ph,var(--acc)) 13%,transparent);border:1px solid color-mix(in srgb,var(--ph,var(--acc)) 30%,transparent);margin-bottom:16px}
+.sec-head{text-align:center;max-width:640px;margin:0 auto 18px}
+.sec-head .lede{margin-top:16px}
+
+/* pillars (alternating) */
+.pillar{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:center;padding:54px 0}
+.pillar.flip .ptext{order:2}.pillar.flip .pmedia{order:1}
+.ptext .kick{margin-bottom:16px}
+.ptext h3{font-size:clamp(26px,3.2vw,38px);font-weight:600;color:#fff;letter-spacing:-0.02em;line-height:1.1;margin-bottom:16px}
+.ptext p{color:var(--g3);font-size:17px;line-height:1.6;margin-bottom:22px}
+.plist{list-style:none;display:grid;gap:11px}
+.plist li{display:flex;gap:11px;align-items:flex-start;color:var(--g2);font-size:15px}
+.plist li svg{width:18px;height:18px;flex:none;margin-top:1px;stroke:var(--g3);fill:none;stroke-width:2.4}
+@media(max-width:840px){.pillar{grid-template-columns:1fr;gap:32px;padding:30px 0}.pillar.flip .ptext{order:1}.pillar.flip .pmedia{order:2}}
+
+/* device mock */
+.device{position:relative;border-radius:18px;border:1px solid var(--line);overflow:hidden;aspect-ratio:16/8;
+  background:radial-gradient(130% 110% at 50% 0,#16141f,#09090c);display:flex;justify-content:center;align-items:flex-start;
+  box-shadow:0 30px 80px rgba(0,0,0,0.6)}
+.device .menu{position:absolute;top:0;left:0;right:0;height:22px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:10.5px;color:var(--g5);background:rgba(255,255,255,0.02);border-bottom:1px solid var(--line)}
+.device .menu .sp{margin-left:auto}
+.device .glow{position:absolute;left:50%;top:-10%;width:60%;height:60%;transform:translateX(-50%);background:radial-gradient(50% 60% at 50% 0,rgba(var(--acc-rgb),0.18),transparent 70%);filter:blur(30px);pointer-events:none}
+.nbar{position:relative;z-index:2;margin-top:0;background:#000;border:1px solid rgba(255,255,255,0.07);border-top:0;border-radius:0 0 20px 20px;
+  min-width:260px;padding:12px 16px;box-shadow:0 18px 50px rgba(0,0,0,0.6);display:flex;align-items:center;gap:12px}
+.nbar .art{width:46px;height:46px;border-radius:10px;flex:none;position:relative;overflow:hidden;background:linear-gradient(135deg,#c5a3ff,#7d5fc4)}
+.nbar .art.b{background:linear-gradient(135deg,#7fd1ff,#4a86ff)}.nbar .art.g{background:linear-gradient(135deg,#9be0b4,#3fae7d)}
+.nbar .art::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 32% 26%,rgba(255,255,255,0.45),transparent 46%)}
+.nbar .meta{flex:1;min-width:0;text-align:left}
+.nbar .t{font-size:13px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nbar .s{font-size:11.5px;color:rgba(255,255,255,0.55);margin-top:2px}
+.nbar .pbar{height:3px;border-radius:2px;background:rgba(255,255,255,0.16);margin-top:9px;overflow:hidden}
+.nbar .pbar i{display:block;height:100%;width:46%;background:var(--ph,var(--acc));border-radius:2px}
+.nbar .eq{display:flex;gap:3px;align-items:flex-end;height:30px;flex:none}
+.nbar .eq i{width:3px;background:var(--ph,var(--acc));border-radius:2px;animation:eq 1s ease-in-out infinite}
+.nbar .eq.o i{background:#ff9636}
+.zones{display:flex;gap:8px}.zone{flex:1;border:1px dashed rgba(255,255,255,0.2);border-radius:10px;padding:10px 14px;text-align:center;font-size:11.5px;color:var(--g2)}
+.zone.on{border-color:var(--ph,var(--acc));background:color-mix(in srgb,var(--ph,var(--acc)) 15%,transparent);color:#fff}
+.ring{width:42px;height:42px;border-radius:50%;flex:none;background:conic-gradient(var(--ph,var(--acc)) 62%,rgba(255,255,255,0.12) 0);display:grid;place-items:center}
+.ring::after{content:"";width:32px;height:32px;border-radius:50%;background:#000}
+.ringtxt{position:absolute;font-size:10px;font-weight:600;color:#fff}
+.evrow{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--g2);margin-top:6px}
+.evrow .cd{width:7px;height:7px;border-radius:50%}
+.dlrow{font-size:11.5px;color:var(--g2);text-align:left;width:100%}
+.dlrow .pbar{height:4px;border-radius:2px;background:rgba(255,255,255,0.14);margin-top:8px;overflow:hidden}
+.dlrow .pbar i{display:block;height:100%;width:64%;background:var(--ph,var(--acc))}
+.chk{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--g2);margin:5px 0}
+.chk b{width:14px;height:14px;border-radius:4px;border:1.5px solid var(--ph,var(--acc));display:inline-grid;place-items:center;color:var(--ph,var(--acc));font-size:9px}
+.chk.done{color:var(--g4)}.chk.done b{background:var(--ph,var(--acc));color:#000}
+
+/* breadth grid */
+.bgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:44px}
+@media(max-width:880px){.bgrid{grid-template-columns:repeat(2,1fr)}}
+.glow{position:relative;overflow:hidden;border-radius:20px;border:1px solid var(--line);background:rgba(255,255,255,0.03);transition:border-color .4s;height:100%}
+.glow::before{content:"";position:absolute;inset:0;border-radius:inherit;opacity:0;transition:opacity .4s;pointer-events:none;background:radial-gradient(500px circle at var(--mx,50%) var(--my,50%),rgba(var(--acc-rgb),0.1),transparent 40%)}
+.glow:hover::before{opacity:1}.glow:hover{border-color:var(--line-2)}
+.bcard{padding:22px}
+.bcard .bi{font-size:22px;margin-bottom:12px;display:block}
+.bcard .fi{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;margin-bottom:14px;background:rgba(255,255,255,0.05);border:1px solid var(--line);transition:transform .4s var(--e)}
+.bcard .fi svg{width:22px;height:22px;stroke:var(--g2);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.glow:hover .fi{transform:scale(1.08) rotate(-5deg)}
+.bcard h4{font-size:15.5px;font-weight:600;color:#fff;margin-bottom:6px}
+.bcard p{font-size:13.5px;color:var(--g3);line-height:1.5}
+
+/* why grid */
+.why{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:44px}
+@media(max-width:820px){.why{grid-template-columns:1fr}}
+.wcard{padding:28px;border-radius:18px;border:1px solid var(--line-2);background:rgba(255,255,255,0.035)}
+.wcard .wi{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;margin-bottom:18px;background:rgba(255,255,255,0.05);border:1px solid var(--line)}
+.wcard .wi svg{width:22px;height:22px;stroke:var(--g2);fill:none;stroke-width:1.8}
+.wcard h4{font-size:18px;font-weight:600;color:#fff;margin-bottom:8px;letter-spacing:-0.01em}
+.wcard p{font-size:14.5px;color:var(--g3);line-height:1.6}
+
+/* privacy */
+.privgrid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:48px}
+@media(max-width:820px){.privgrid{grid-template-columns:1fr}}
+.privcard{padding:30px 30px 34px}
+.privh{font-size:17px;font-weight:600;color:#fff;margin-bottom:20px;letter-spacing:-0.01em}
+.privrows{display:grid;gap:9px}
+.privrow{padding:13px 16px;border-radius:12px;background:rgba(255,255,255,0.025);border:1px solid var(--line)}
+.privrow .pt{font-size:14.5px;font-weight:600;color:var(--g1)}
+.privrow .pp{font-size:12.5px;color:var(--g4);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin-top:3px}
+.privlist{list-style:none;display:grid;gap:15px}
+.privlist li{position:relative;padding-left:20px;font-size:15px;color:var(--g2);line-height:1.45}
+.privlist li::before{content:"";position:absolute;left:3px;top:8px;width:6px;height:6px;border-radius:50%;background:var(--g4)}
+.privnote{margin-top:24px;padding-top:20px;border-top:1px solid var(--line);font-size:14px;color:var(--g3);line-height:1.6}
+.privfoot{text-align:center;margin-top:28px;font-size:14px;color:var(--g3)}
+.privfoot code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em;background:rgba(255,255,255,0.07);padding:2px 6px;border-radius:5px;color:var(--g2)}
+
+/* interactive demo */
+.demo{text-align:center}
+/* a believable macOS desktop: dark wallpaper + translucent menu bar + dock */
+.stage{position:relative;height:404px;margin-top:34px;border-radius:20px;overflow:hidden;border:1px solid var(--line);display:flex;justify-content:center;align-items:flex-start;
+  background:#0a0810 url('assets/desktop-wall.jpg') center/cover}
+.stage::after{content:"";position:absolute;inset:0;pointer-events:none;border-radius:inherit;box-shadow:inset 0 1px 0 rgba(255,255,255,0.09),inset 0 -54px 76px rgba(0,0,0,0.34)}
+.menubar{position:absolute;top:0;left:0;right:0;height:24px;display:flex;align-items:center;gap:15px;padding:0 13px;font-size:12px;font-weight:500;color:rgba(255,255,255,0.82);z-index:2;background:linear-gradient(rgba(18,16,26,0.55),rgba(18,16,26,0.1));backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.menubar .logo{width:13px;height:13px;fill:rgba(255,255,255,0.92);position:relative;top:-1px}
+.menubar .app{font-weight:700}
+.menubar .mi{color:rgba(255,255,255,0.74)}
+.menubar .sp{margin-left:auto}
+.menubar .stat{display:flex;align-items:center;gap:13px}
+.menubar .stat svg{fill:rgba(255,255,255,0.86);display:block}
+.menubar .clk{font-variant-numeric:tabular-nums;color:rgba(255,255,255,0.86);letter-spacing:.2px}
+.dock{position:absolute;left:50%;right:auto;top:auto;bottom:11px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;padding:7px 11px;border-radius:18px;z-index:6;pointer-events:auto;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 12px 34px rgba(0,0,0,0.4)}
+.dock a{position:relative;width:34px;height:34px;border-radius:8px;display:block;overflow:hidden;box-shadow:0 5px 11px rgba(0,0,0,0.42);transition:transform .18s var(--e)}
+.dock a::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 1px 0 rgba(255,255,255,0.3),inset 0 0 0 .5px rgba(0,0,0,0.12);pointer-events:none}
+.dock a:hover{transform:translateY(-8px) scale(1.07)}
+.dock a svg{width:34px;height:34px;display:block}
+@media(max-width:720px){.menubar .mi,.dock a:nth-child(n+6){display:none}.dock{gap:8px}}
+@keyframes eqc{0%,100%{height:5px}50%{height:15px}}
+/* the notch morphs from resting pill to now-playing slab — faithful to the real nox HUD */
+.notch{position:relative;z-index:5;margin-top:-1px;cursor:pointer;background:#000;border:1px solid rgba(255,255,255,0.06);border-top:0;border-radius:0 0 10px 10px;width:250px;height:31px;box-shadow:0 6px 18px rgba(0,0,0,0.55);outline:none;overflow:hidden;transition:width .55s cubic-bezier(.34,1.42,.5,1),height .55s cubic-bezier(.34,1.42,.5,1),border-radius .5s cubic-bezier(.34,1.42,.5,1),box-shadow .5s var(--e)}
+.notch:focus-visible{box-shadow:0 6px 18px rgba(0,0,0,0.55),0 0 0 2px rgba(var(--acc-rgb),0.45)}
+.notch.open{width:452px;height:298px;border-radius:0 0 42px 42px;box-shadow:0 34px 90px rgba(0,0,0,0.9),0 14px 44px rgba(var(--acc-rgb),0.10)}
+/* resting pill content: art left of notch, waveform right */
+.nrest{position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 9px;transition:opacity .18s}
+.notch.open .nrest{opacity:0;pointer-events:none}
+.nart{width:22px;height:22px;border-radius:6px;flex:none;position:relative;overflow:hidden;background:#1a1530 url('assets/demo-cover.jpg') center/cover}
+.nart::after,.bart::after{content:"";position:absolute;inset:0;background:linear-gradient(158deg,rgba(255,255,255,0.18),transparent 44%)}
+.nwave,.swave{display:flex;align-items:center;gap:2.6px;flex:none}
+.nwave i,.swave i{width:2.8px;border-radius:2px;background:var(--acc);height:6px}
+.notch.playing .nwave i,.notch.playing .swave i{animation:eqc 1.05s ease-in-out infinite}
+.nwave{height:18px}.swave{height:28px}
+/* expanded now-playing slab */
+.slab{position:absolute;inset:0;opacity:0;pointer-events:none;text-align:left;transition:opacity .26s .08s}
+.notch.open .slab{opacity:1;pointer-events:auto}
+.slab::before{content:"";position:absolute;top:0;left:0;right:0;height:130px;background:radial-gradient(120% 95% at 50% -12%,rgba(var(--acc-rgb),0.30),transparent 62%);pointer-events:none}
+.slabin{position:relative;padding:24px 26px 20px}
+.inforow{display:flex;align-items:center;gap:16px}
+.bart{width:64px;height:64px;border-radius:14px;flex:none;position:relative;overflow:hidden;background:#1a1530 url('assets/demo-cover.jpg') center/cover;box-shadow:0 5px 14px rgba(0,0,0,0.45);border:.5px solid rgba(255,255,255,0.1)}
+.smeta{flex:1;min-width:0}
+.smeta .t{font-size:16px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.smeta .a{font-size:13px;font-weight:500;color:rgba(255,255,255,0.85);margin-top:3px}
+.smeta .al{font-size:11px;color:rgba(255,255,255,0.55);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sprog{margin-top:22px}
+.ptrack{height:4px;border-radius:2px;background:rgba(255,255,255,0.145);overflow:hidden}
+.ptrack i{display:block;height:100%;width:0;border-radius:2px;background:linear-gradient(90deg,#fff,rgba(255,255,255,0.72));transition:width .25s linear}
+.ptime{display:flex;justify-content:space-between;margin-top:9px;font-size:11px;font-weight:500;color:rgba(255,255,255,0.6);font-variant-numeric:tabular-nums}
+.strans{display:flex;align-items:center;justify-content:center;gap:22px;margin-top:18px}
+.tb{width:36px;height:36px;border-radius:50%;border:.5px solid rgba(255,255,255,0.07);background:rgba(255,255,255,0.06);display:grid;place-items:center;cursor:pointer;transition:background .2s,transform .12s}
+.tb:hover{background:rgba(255,255,255,0.1)}.tb:active{transform:scale(.93)}
+.tb svg{width:15px;height:15px;fill:rgba(255,255,255,0.85)}
+.tbp{width:50px;height:50px;background:linear-gradient(135deg,rgba(255,255,255,0.18),rgba(255,255,255,0.22) 50%,rgba(0,0,0,0.24));border:.6px solid rgba(255,255,255,0.12);box-shadow:0 0 16px rgba(255,255,255,0.05)}
+.tbp svg{width:19px;height:19px;fill:#fff}
+.sbadge{display:inline-flex;align-items:center;gap:6px;margin-top:18px;padding:4px 11px;border-radius:999px;background:rgba(255,255,255,0.06);border:.5px solid rgba(255,255,255,0.08);font-size:11px;font-weight:500;color:rgba(255,255,255,0.55)}
+.sbadge svg{width:12px;height:12px;fill:rgba(255,255,255,0.45)}
+.tip{text-align:center;margin-top:20px;color:var(--g4);font-size:14px}.tip b{color:var(--acc)}
+
+/* faq */
+.faq{max-width:720px;margin:36px auto 0}
+.qa{border-bottom:1px solid var(--line)}
+.qa summary{list-style:none;cursor:pointer;padding:22px 4px;font-size:17px;font-weight:500;color:var(--g2);display:flex;justify-content:space-between;gap:16px;transition:color .25s}
+.qa summary:hover{color:#fff}.qa summary::-webkit-details-marker{display:none}
+.qa summary::after{content:"+";color:var(--g4);font-size:22px;font-weight:300;transition:transform .3s var(--e)}
+.qa[open] summary::after{transform:rotate(45deg);color:#fff}
+.qa p{padding:0 4px 22px;color:var(--g3);font-size:15px;line-height:1.7}
+
+/* final + footer */
+.final{text-align:center;padding:120px 0;position:relative}
+.final::before{content:"";position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--line-2),transparent)}
+footer{border-top:1px solid var(--line);padding:56px 0 40px;color:var(--g3)}
+.foot{display:flex;gap:48px;flex-wrap:wrap}
+.foot .lead-col{max-width:260px}.foot .lead-col .brand{margin-bottom:14px}
+.foot h4{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--g4);margin-bottom:15px}
+.foot a{display:block;font-size:13.5px;color:var(--g3);margin-bottom:10px;transition:color .25s}.foot a:hover{color:#fff}
+.copy{margin-top:42px;padding-top:26px;border-top:1px solid var(--line);font-size:12.5px;color:var(--g4);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
 </style>
-<!-- Tally embed — opens modal forms via data-tally-open attribute.
-     The form (xX9Apd) collects the visitor's email. Post-submission
-     download is handled client-side here rather than via Tally's
-     redirect setting: when Tally posts back the FormSubmitted event,
-     we trigger the DMG download programmatically. UX win — the popup
-     closes and the download starts in one motion, instead of a
-     full-page redirect to a GitHub raw URL. -->
+<!-- Tally email-gate: the download CTAs open form xX9Apd; on submit we send the
+     visitor to /download.html (which starts the DMG fetch + shows the install steps).
+     Origin-checked so a spoofed FormSubmitted event can't trigger the redirect. -->
 <script async src="https://tally.so/widgets/embed.js"></script>
-<script>
-  (function () {
-    var DMG_URL = 'https://github.com/left-society/nox/releases/download/v1.9.29/nox.1.9.29.dmg';
-    var FORM_ID = 'xX9Apd';
-
-    // Tally posts events as window messages. Shape:
-    //   { event: 'Tally.FormSubmitted', payload: { formId: '...' } }
-    // (Plus Tally.PopupClosed when the modal dismisses.)
-    // Origin allowlist for the Tally postMessage. Without this,
-    // ANY cross-origin frame or popup that posts a JSON payload
-    // matching {event:'Tally.FormSubmitted'} could trigger the
-    // DMG download — a clickjacking vector for phishing pages
-    // that iframe trynox.app and post fake events. Audit M25.
-    var TALLY_ORIGINS = [
-      'https://tally.so',
-      'https://www.tally.so'
-    ];
-    window.addEventListener('message', function (e) {
-      // First gate: origin must be Tally. Reject everything else
-      // silently — this is a fast path that runs on every message
-      // posted to the window (browsers post their own internal
-      // messages too).
-      if (TALLY_ORIGINS.indexOf(e.origin) === -1) return;
-      // Tally sends string messages, JSON-encoded. Some other
-      // origins post non-JSON strings — ignore those.
-      var data = e.data;
-      if (typeof data === 'string') {
-        try { data = JSON.parse(data); } catch (_) { return; }
-      }
-      if (!data || typeof data !== 'object') return;
-      if (data.event !== 'Tally.FormSubmitted') return;
-      // The payload's formId may be the public id or the form's
-      // internal id. We accept either match (or any submission of
-      // ANY Tally form on this page — there's only one).
-      var pid = data.payload && data.payload.formId;
-      if (pid && pid !== FORM_ID) return;
-      // 2026-05-30 — after the email form is submitted, send the
-      // visitor to the post-download install guide (/download.html)
-      // instead of silently downloading in place. download.html
-      // auto-triggers the DMG fetch on load AND shows the 3-step
-      // "open .dmg → drag to Applications → launch" walkthrough with
-      // the real macOS icons — the finish-the-install page. This both
-      // starts the download and tells first-timers what to do with
-      // the .dmg (the step most people miss).
-      window.location.href = '/download.html';
-    });
-  })();
-</script>
+<script>(function(){var FORM_ID='xX9Apd';var OK=['https://tally.so','https://www.tally.so'];window.addEventListener('message',function(e){if(OK.indexOf(e.origin)===-1)return;var d=e.data;if(typeof d==='string'){try{d=JSON.parse(d);}catch(_){return;}}if(!d||typeof d!=='object'||d.event!=='Tally.FormSubmitted')return;var pid=d.payload&&d.payload.formId;if(pid&&pid!==FORM_ID)return;window.location.href='/download.html';});})();</script>
 </head>
 <body>
+<!-- nox homepage. Repositioned around the real capability map (capability audit, 2026-06). Prev approved page in website/.backup-pre-capability/ -->
+<!-- ▶ VIDEO SLOTS: hero = assets/hero-loop.mp4 (real). Pillar media currently CSS notch-mockups; swap in screen recordings when supplied (see request list). -->
 
-<!--
-  No wallpaper stack — the backdrop is now a fixed lavender
-  bloom (body::before) that emanates from where the user's
-  notch would be. See the body CSS at the top of <style>.
--->
+<div class="topbar"><b>Free while we're testing</b><span> · no account, no credit card, just download.</span></div>
 
-<!--
-  Reusable nox brand mark — full app icon (1024×1024 source).
+<nav id="nav"><div class="navbar"><div class="navbar-in">
+  <a class="brand" href="#"><img src="assets/app-icon-512.png" alt="nox" />nox</a>
+  <div class="nlinks"><a href="#music">Music</a><a href="#voice">Voice</a><a href="#files">Files</a><a href="#more">More</a><a href="#why">Why nox</a></div>
+  <a class="btn btn-acc btn-sm" href="download.html" data-tally-open="xX9Apd" data-tally-layout="modal" data-tally-overlay="1">Download free</a>
+</div></div></nav>
 
-  Authoritative source: /Notetaker/Resources/nox-icon.svg, the
-  same SVG the macOS app exports as its app icon. Embedded as
-  a <symbol> here so any element on the page can render the
-  logo at any size with <svg><use href="#noxGlyph"/></svg>.
-  All gradient and filter IDs are namespaced with "nox-" so
-  they don't collide with the LiquidGlass per-card displacement
-  filters elsewhere on the page.
-
-  Layers (bottom → top):
-    1. Squircle clip (1024×1024 with 230px corner radius)
-    2. Dark radial-gradient base (#0A0612 → #040108 → #000)
-    3. Inner lavender corona glow (radial, 36% radius)
-    4. Outer halo (blurred circle, low opacity, lavender)
-    5. Sharp lavender ring (5-stop linear gradient)
-    Notch cut from top via mask (484,200 56×36)
--->
-<svg width="0" height="0" aria-hidden="true" style="position:absolute">
-  <defs>
-    <clipPath id="nox-squircleClip" clipPathUnits="userSpaceOnUse">
-      <rect width="1024" height="1024" rx="230" ry="230"/>
-    </clipPath>
-    <radialGradient id="nox-bgDepth" cx="0.5" cy="0.5" r="0.75">
-      <stop offset="0%"   stop-color="#0A0612"/>
-      <stop offset="55%"  stop-color="#040108"/>
-      <stop offset="100%" stop-color="#000000"/>
-    </radialGradient>
-    <radialGradient id="nox-innerCorona" cx="0.5" cy="0.5" r="0.36">
-      <stop offset="0%"   stop-color="#C5A3FF" stop-opacity="0.10"/>
-      <stop offset="60%"  stop-color="#C5A3FF" stop-opacity="0.04"/>
-      <stop offset="100%" stop-color="#C5A3FF" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="nox-ringFill" x1="0.3" y1="0.05" x2="0.75" y2="0.98">
-      <stop offset="0%"   stop-color="#EFDEFF"/>
-      <stop offset="25%"  stop-color="#D9BCFF"/>
-      <stop offset="55%"  stop-color="#C5A3FF"/>
-      <stop offset="80%"  stop-color="#A688E8"/>
-      <stop offset="100%" stop-color="#8064C8"/>
-    </linearGradient>
-    <filter id="nox-outerHalo" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="22"/>
-    </filter>
-    <mask id="nox-notchMask" maskUnits="userSpaceOnUse">
-      <rect width="1024" height="1024" fill="white"/>
-      <rect x="484" y="200" width="56" height="36" fill="black"/>
-    </mask>
-    <symbol id="noxGlyph" viewBox="0 0 1024 1024">
-      <g clip-path="url(#nox-squircleClip)">
-        <rect width="1024" height="1024" fill="url(#nox-bgDepth)"/>
-        <rect width="1024" height="1024" fill="url(#nox-innerCorona)"/>
-        <g mask="url(#nox-notchMask)">
-          <circle cx="512" cy="512" r="290" fill="none"
-                  stroke="#C5A3FF" stroke-width="46" opacity="0.42"
-                  filter="url(#nox-outerHalo)"/>
-          <circle cx="512" cy="512" r="290" fill="none"
-                  stroke="url(#nox-ringFill)" stroke-width="20"/>
-        </g>
-      </g>
-    </symbol>
-
-    <!--
-      Compact mark for inline use at small sizes (nav, footer, etc).
-      Just the lavender ring + notch — no squircle background, no
-      blurred halo, because at 20–28px those layers compress to a
-      tiny dark square and the ring detail disappears (visible in
-      the user's screenshot when we tried the full glyph in the
-      nav).
-
-      Mask defined INSIDE the symbol so it inherits the symbol's
-      viewBox coordinate system (0 0 1024 1024). Earlier the mask
-      was in the outer 0×0 wrapper SVG and its coordinates were
-      interpreted in that wrapper's user space — making the mask
-      effectively black everywhere and hiding the entire ring.
-
-      Stroke-width 60/1024 so the ring stays readable when scaled
-      down to 22-28px (effective stroke ~1.3-1.7px).
-    -->
-    <symbol id="noxMark" viewBox="0 0 1024 1024">
-      <defs>
-        <mask id="nox-mark-notch">
-          <rect width="1024" height="1024" fill="white"/>
-          <rect x="484" y="180" width="56" height="50" fill="black"/>
-        </mask>
-      </defs>
-      <g mask="url(#nox-mark-notch)">
-        <circle cx="512" cy="512" r="350" fill="none"
-                stroke="url(#nox-ringFill)" stroke-width="60"
-                stroke-linecap="round"/>
-      </g>
-    </symbol>
-  </defs>
-</svg>
-
-<!--
-  Floating pill nav with scroll-driven morph.
-
-  Ported from /Users/apple/Caption app/caption-app/src/components/
-  landing/AnimatedNav.tsx (Subedit's nav, which itself is a port of
-  the reapollo "Navigation Menu" pattern from 21st.dev).
-
-  Behaviour (vanilla JS, no framer-motion):
-    - scroll DOWN past 150px  → header collapses to a 44px circle,
-                                  only the brand mark stays visible
-    - scroll UP by 80px from the collapse point → re-expand
-    - click the collapsed circle → expand immediately
-    - hover the collapsed circle → subtle scale lift (CSS only)
-
-  Spring-like motion is approximated with a back-out cubic-bezier.
--->
-<header id="navHeader">
-  <a class="brand" href="/">
-    <span class="brand-mark" aria-hidden="true">
-      <svg width="24" height="24" viewBox="0 0 1024 1024"><use href="#noxMark"/></svg>
-    </span>
-    <span class="brand-name">nox</span>
-  </a>
-  <div class="nav-links">
-    <a href="#features">Features</a>
-    <a href="#why">Why nox</a>
-    <a href="#privacy">Privacy</a>
-    <a href="#faq">FAQ</a>
-    <a href="https://github.com/left-society/nox">GitHub</a>
+<main>
+<!-- HERO -->
+<header class="hero"><div class="wrap">
+  <div class="ey"><span>The Dynamic Island your Mac never got</span></div>
+  <h1 class="h1 disp" id="headline">Your whole Mac, one glance up.</h1>
+  <p class="lede">Music, your voice, file drops, video downloads, your calendar and focus timers. They all surface from the notch, then slip away when you're done. Native to macOS. Private by default.</p>
+  <div class="hcta">
+    <a class="btn btn-acc morph" href="download.html" data-tally-open="xX9Apd" data-tally-layout="modal" data-tally-overlay="1" aria-label="Download for Mac"><span class="m-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.37 7.648c-.114.088-2.11 1.213-2.11 3.715 0 2.894 2.54 3.918 2.616 3.944-.011.062-.403 1.402-1.34 2.767-.834 1.201-1.706 2.4-3.032 2.4s-1.667-.77-3.198-.77c-1.492 0-2.022.796-3.235.796-1.214 0-2.06-1.112-3.033-2.477C4.911 16.42 4 13.93 4 11.566c0-3.791 2.465-5.802 4.891-5.802 1.29 0 2.364.847 3.173.847.77 0 1.972-.897 3.438-.897.556 0 2.553.05 3.867 1.934Zm-4.564-3.54c.607-.719 1.036-1.718 1.036-2.716 0-.138-.012-.279-.037-.392-.987.037-2.161.657-2.87 1.478-.555.632-1.074 1.63-1.074 2.643 0 .152.026.304.037.353.063.011.164.025.266.025.885 0 1.998-.593 2.642-1.39Z"/></svg></span><span class="m-tx">Download for Mac</span><span class="m-ar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12h15m0 0l-6.75-6.75M19.5 12l-6.75 6.75"/></svg></span></a>
+    <a class="btn btn-ghost" href="#music">See what it does</a>
   </div>
-  <button class="btn btn-primary nav-cta" type="button" data-tally-open="xX9Apd" data-tally-layout="modal" data-tally-overlay="1" data-tally-emoji-text="🌙" data-tally-emoji-animation="wave">
-    <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.463 1.58-1.518 3.12-.945 1.34-1.94 2.71-3.43 2.71-1.517 0-1.9-.88-3.63-.88-1.698 0-2.302.91-3.67.91-1.49 0-2.534-1.32-3.43-2.64-1.911-2.81-3.39-7.94-1.41-11.4.954-1.69 2.717-2.78 4.66-2.81 1.46-.03 2.83.96 3.71.96.88 0 2.55-.96 4.31-.82.74.03 2.81.3 4.13 2.25-.11.07-2.47 1.44-2.44 4.31.04 3.43 3.01 4.57 3.04 4.59-.07.04-2.84-1.41-3.5-2.91z"/></svg>
-    <span class="cta-label">Download</span>
-  </button>
-  <!--
-    Collapsed-state mark. Sits absolute-centered, hidden when
-    expanded, fades in on collapse. This is the same pattern
-    Subedit uses (a separate <motion.div> with collapsedMark
-    Variants in AnimatedNav.tsx) so the brand area can crossfade
-    smoothly between expanded and collapsed without a position-
-    flip jump.
-  -->
-  <span class="collapsed-mark" aria-hidden="true">
-    <svg width="28" height="28" viewBox="0 0 1024 1024"><use href="#noxMark"/></svg>
-  </span>
-</header>
+  <p class="micro">16 MB · No account · macOS 15+ · Apple Silicon</p>
 
-<!-- ── Hero ─────────────────────────────────────────────────── -->
-<section class="hero">
-  <div class="wrap">
-    <span class="eyebrow-chip">nox 1.9.29 is out</span>
-    <h1>
-      <span class="lead">Your MacBook notch,</span>
-      <span class="punch">actually useful.</span>
-    </h1>
-    <p class="tagline">
-      <span class="feature-stack">Music &middot; Voice &middot; Files &middot; Video downloads &middot; AirDrop &middot; Meetings &middot; Notes</span>
-      <span class="tagline-coda">All from <strong>one tiny spot</strong> at the top of your screen. <strong>No new windows.</strong></span>
-    </p>
-    <div class="hero-cta">
-      <button class="btn btn-primary btn-large" type="button" data-tally-open="xX9Apd" data-tally-layout="modal" data-tally-overlay="1" data-tally-emoji-text="🌙" data-tally-emoji-animation="wave">
-        <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.463 1.58-1.518 3.12-.945 1.34-1.94 2.71-3.43 2.71-1.517 0-1.9-.88-3.63-.88-1.698 0-2.302.91-3.67.91-1.49 0-2.534-1.32-3.43-2.64-1.911-2.81-3.39-7.94-1.41-11.4.954-1.69 2.717-2.78 4.66-2.81 1.46-.03 2.83.96 3.71.96.88 0 2.55-.96 4.31-.82.74.03 2.81.3 4.13 2.25-.11.07-2.47 1.44-2.44 4.31.04 3.43 3.01 4.57 3.04 4.59-.07.04-2.84-1.41-3.5-2.91z"/></svg>
-        Download for macOS
-      </button>
-      <a class="btn btn-ghost btn-large" href="https://github.com/left-society/nox">
-        <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56 0-.27-.01-.99-.02-1.95-3.2.7-3.87-1.54-3.87-1.54-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.69 1.25 3.34.95.1-.74.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.18.91-.25 1.89-.38 2.86-.38.97 0 1.95.13 2.86.38 2.18-1.49 3.14-1.18 3.14-1.18.62 1.58.23 2.75.11 3.04.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.13 0 1.54-.01 2.78-.01 3.16 0 .31.21.67.8.55C20.21 21.39 23.5 17.07 23.5 12 23.5 5.65 18.35.5 12 .5z"/></svg>
-        View on GitHub
-      </a>
-    </div>
-    <div class="hero-stats">
-      <span><strong style="color: var(--fg-soft); font-weight: 500;">Free</strong> while we're testing</span>
-      <span class="sep"></span>
-      <span>Most Macs from 2017 onwards</span>
-    </div>
-
-    <!--
-      Hero demo video. Replaces the previous CSS pill mockup —
-      a real recording is more convincing than an illustrative
-      animation. youtube-nocookie.com is the privacy-enhanced
-      embed domain (no cookies set until playback). rel=0 hides
-      related videos at the end, modestbranding=1 trims the
-      YouTube logo. The frame matches the styling tokens of the
-      old .hero-mockup (border, lavender shadow, rounded corners)
-      so the visual rhythm of the page is preserved.
-    -->
-    <div class="hero-video-frame">
-      <iframe
-        src="https://www.youtube-nocookie.com/embed/mp9dOv3Fnq8?rel=0&amp;modestbranding=1"
-        title="nox — your MacBook notch, actually useful"
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-        allowfullscreen
-        loading="lazy"
-        referrerpolicy="strict-origin-when-cross-origin"></iframe>
-    </div>
-    <p class="mockup-caption">A real recording, no edits. <span class="accent">Press play.</span></p>
+  <div class="frame scaleup">
+    <video src="assets/hero.mp4" autoplay muted loop playsinline preload="metadata" poster="assets/hero-poster.jpg"></video>
   </div>
+</div></header>
+
+<!-- ALIVE STRIP -->
+<section class="alive" style="padding-top:24px">
+  <p class="cap">One quiet pill. Everything your Mac is doing, then gone.</p>
+  <div class="mqmask"><div class="mqrow" id="aliveRow">
+    <span class="apill"><span class="eq"><i style="height:14px;animation-delay:0s"></i><i style="height:9px;animation-delay:.2s"></i><i style="height:17px;animation-delay:.4s"></i></span>Now playing</span>
+    <span class="apill"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9v6h4l5 4V5L9 9H5z"/><path d="M17 9a4 4 0 010 6"/></svg>Volume</span>
+    <span class="apill"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="8" width="15" height="8" rx="2"/><path d="M20 11v2M6 11v2M9 11v2"/></svg>87% · charging</span>
+    <span class="apill"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 15v-3a7 7 0 0114 0v3"/><rect x="3" y="13" width="3" height="6" rx="1.5"/><rect x="18" y="13" width="3" height="6" rx="1.5"/></svg>AirPods Pro</span>
+    <span class="apill"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V5h4M16 4h4v4M20 15v4h-4M8 20H4v-4"/></svg>Screenshot saved</span>
+    <span class="apill"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 9h16M9 3v4M15 3v4"/></svg>Standup in 5 min</span>
+    <span class="apill"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg>Focus · 24:13</span>
+    <span class="apill"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0012 0M12 17v4"/></svg>Dictating…</span>
+  </div></div>
 </section>
 
-<!-- ── Features ─────────────────────────────────────────────── -->
-<section id="features">
-  <div class="wrap">
-    <div class="section-head">
-      <span class="section-eyebrow">What it does</span>
-      <h2>One small spot. Everything you used to need apps for.</h2>
-      <p>Move your cursor to the top, it opens. Move away, it closes. No new windows, no clutter on your desktop.</p>
-    </div>
+<!-- PILLAR 1: MUSIC -->
+<section id="music"><div class="wrap"><div class="pillar">
+  <div class="ptext rv">
+    <p class="kick">Now Playing</p>
+    <h3 class="disp">Every sound on your Mac, in one beautiful pill.</h3>
+    <p>Spotify, Apple Music, YouTube in any browser, Podcasts, SoundCloud. nox shows what's playing with album art, a live waveform and full controls. It even works on the latest macOS, where other notch apps go blank.</p>
+    <ul class="plist">
+      <li><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Scrub, skip and adjust volume from the notch</li>
+      <li><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>The pill is tinted by the album's own colors</li>
+      <li><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Tap to jump straight to the exact browser tab playing</li>
+      <li><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Controls follow you to the lock screen</li>
+    </ul>
+  </div>
+  <div class="pmedia rv"><div class="vframe"><video class="lazyvid" data-src="assets/music.mp4" poster="assets/music-poster.jpg" muted loop playsinline preload="none"></video></div></div>
+</div></div></section>
 
-    <div class="grid">
-      <div class="card">
-        <div class="icon-tile">♪</div>
-        <h3>Music</h3>
-        <p>See what's playing in Spotify, Apple Music, YouTube, anything. The album art changes with the song. Skip, pause, change volume right from the top.</p>
+<!-- PILLAR 2: VOICE (spotlighted, the standout differentiator) -->
+<section id="voice" class="spot"><div class="wrap"><div class="pillar flip">
+  <div class="ptext rv">
+    <span class="chip">The one only nox has</span>
+    <p class="kick">Voice to text · on-device</p>
+    <h3 class="disp">Press Fn. Talk. It's typed anywhere.</h3>
+    <p>nox transcribes your voice with Whisper running on the Apple Neural Engine, tidies the filler and punctuation with on-device AI, and types it at your cursor in any app. No cloud, no account. Your audio never leaves your Mac.</p>
+    <ul class="plist">
+      <li><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Works in any app, from your browser to your terminal</li>
+      <li><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Learns your names, projects and jargon over time</li>
+      <li><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Select any text and "Polish" to rewrite it in place</li>
+      <li><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Your music keeps playing and never cuts out</li>
+    </ul>
+  </div>
+  <div class="pmedia rv"><div class="vframe"><video class="lazyvid" data-src="assets/voice.mp4" poster="assets/voice-poster.jpg" muted loop playsinline preload="none"></video></div></div>
+</div></div></section>
+
+<!-- PILLAR 3: FILES -->
+<section id="files"><div class="wrap"><div class="pillar">
+  <div class="ptext rv">
+    <p class="kick">Files &amp; AirDrop</p>
+    <h3 class="disp">Drag to the notch. Send it anywhere.</h3>
+    <p>Drag any file, screenshot or browser image toward the notch and it blooms into two zones. Stash it in a tray, or AirDrop it on the spot. The fastest hand-off between your Mac and everything else you own.</p>
+    <ul class="plist">
+      <li><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Two-zone drop: Save or AirDrop, decided as you let go</li>
+      <li><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Screenshots are caught and filed automatically</li>
+      <li><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Copy the text out of any image, on-device</li>
+      <li><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Your clipboard, organized without lifting a finger</li>
+    </ul>
+  </div>
+  <div class="pmedia rv"><div class="vframe"><video class="lazyvid" data-src="assets/files.mp4" poster="assets/files-poster.jpg" muted loop playsinline preload="none"></video></div></div>
+</div></div></section>
+
+<!-- PILLAR 4: VIDEO DOWNLOADS -->
+<section id="download" class="spot"><div class="wrap"><div class="pillar flip">
+  <div class="ptext rv">
+    <p class="kick">Video downloads</p>
+    <h3 class="disp">Paste a link. Keep the video.</h3>
+    <p>Copy a video link, hand it to the notch, and nox pulls the file down to your Mac in the background. Watch it offline whenever you want, with no converter sites and no browser extensions.</p>
+    <ul class="plist">
+      <li><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Paste a link, the notch grabs the video</li>
+      <li><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Downloads run quietly in the background</li>
+      <li><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Saved straight to your Mac, ready offline</li>
+      <li><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>No sketchy converter sites, no extensions</li>
+    </ul>
+  </div>
+  <div class="pmedia rv"><div class="vframe"><video class="lazyvid" data-src="assets/videodl.mp4" poster="assets/videodl-poster.jpg" muted loop playsinline preload="none"></video></div></div>
+</div></div></section>
+
+
+
+
+
+<!-- EVERYTHING ELSE. Alcove-style animated feature grid (condensed from former pillars 4 to 7 + HUD) -->
+<section id="more"><div class="wrap">
+  <div class="sec-head rv"><p class="kick">Everything else it does</p><h2 class="h2 disp" style="margin-top:14px">A whole toolkit, hiding in the notch.</h2></div>
+  <div class="bgrid" id="bgrid">
+    <div class="rv"><div class="glow bcard"><span class="fi"><svg viewBox="0 0 24 24"><path d="M12 4v10m0 0l-4-4m4 4l4-4M5 19h14"/></svg></span><h4>Download any video</h4><p>yt-dlp built in. YouTube, TikTok, X and more, as editor-ready 1080p MP4.</p></div></div>
+    <div class="rv"><div class="glow bcard"><span class="fi"><svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 5.5l1 1 2-2M4 11.5l1 1 2-2M4 17.5l1 1 2-2"/></svg></span><h4>Notes &amp; tasks</h4><p>Markdown notes, a floating pad, and brain-dumps parsed into tasks. All local.</p></div></div>
+    <div class="rv"><div class="glow bcard"><span class="fi"><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5zM5 9h14M9 3v4M15 3v4"/></svg></span><h4>Calendar &amp; meetings</h4><p>Your next event, with one-tap join for Zoom, Meet and Teams.</p></div></div>
+    <div class="rv"><div class="glow bcard"><span class="fi"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg></span><h4>Focus &amp; Study</h4><p>A Pomodoro in the pill, daily goals, and a weekly streak.</p></div></div>
+    <div class="rv"><div class="glow bcard"><span class="fi"><svg viewBox="0 0 24 24"><path d="M5 9v6h4l5 4V5L9 9H5z"/><path d="M17 9a4 4 0 010 6"/></svg></span><h4>Volume &amp; brightness</h4><p>A clean notch banner that replaces Apple's floating square overlay.</p></div></div>
+    <div class="rv"><div class="glow bcard"><span class="fi"><svg viewBox="0 0 24 24"><rect x="3" y="8" width="16" height="8" rx="2"/><path d="M21 11v2M7 11v2M10 11v2"/></svg></span><h4>Battery &amp; AirPods</h4><p>Charging status and AirPods battery, surfaced, then gone.</p></div></div>
+    <div class="rv"><div class="glow bcard"><span class="fi"><svg viewBox="0 0 24 24"><path d="M4 9V5h4M16 4h4v4M20 15v4h-4M8 20H4v-4"/></svg></span><h4>Screenshots</h4><p>Every capture caught, filed, and confirmed at the notch.</p></div></div>
+    <div class="rv"><div class="glow bcard"><span class="fi"><svg viewBox="0 0 24 24"><path d="M4 8h10M18 8h2M4 16h2M10 16h10M14 6v4M8 14v4"/></svg></span><h4>Yours to shape</h4><p>14 settings for accent color, shortcuts, and exactly what surfaces.</p></div></div>
+  </div>
+  <p class="rv" style="text-align:center;color:var(--g4);font-size:14px;margin-top:26px">Plus a lock-screen player, a teleprompter, and Bluetooth alerts.</p>
+</div></section>
+
+<!-- WHY -->
+<section id="why"><div class="wrap">
+  <div class="sec-head rv"><p class="kick">Why nox</p><h2 class="h2 disp" style="margin-top:14px">Powerful, but barely there.</h2></div>
+  <div class="why">
+    <div class="rv"><div class="wcard"><div class="wi"><svg viewBox="0 0 24 24"><path d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div><h4>Native to macOS</h4><p>Pure Swift, no Electron, no web views. It sits at near-zero CPU when idle, so you forget it's running until you need it.</p></div></div>
+    <div class="rv"><div class="wcard"><div class="wi"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7l8-4z"/></svg></div><h4>Private by default</h4><p>Transcription and AI run on your Mac, not the cloud. No account, no tracking. Your audio, files and notes never leave the device.</p></div></div>
+    <div class="rv"><div class="wcard"><div class="wi"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div><h4>Made to disappear</h4><p>Everything rises out of the notch and tucks back in. One ambient surface instead of a dozen floating windows fighting for space.</p></div></div>
+  </div>
+</div></section>
+
+<!-- PRIVACY -->
+<section id="privacy"><div class="wrap">
+  <div class="rv" style="text-align:center;max-width:760px;margin:0 auto">
+    <p class="kick">Private by design</p>
+    <h2 class="h2 disp" style="margin-top:14px">Your stuff stays on your Mac.</h2>
+    <p class="lede" style="margin-top:18px">When you talk, your voice becomes text right on your Mac. Nothing goes online. nox doesn't track what you do, doesn't ask you to make an account, and doesn't have a server we send your stuff to. The only thing nox ever sends online is a quick check for updates. That's it.</p>
+  </div>
+  <div class="privgrid">
+    <div class="rv"><div class="glow privcard">
+      <h4 class="privh">What nox keeps on your Mac</h4>
+      <div class="privrows">
+        <div class="privrow"><div class="pt">Notes</div><div class="pp">~/Library/Application Support/nox/notes.db</div></div>
+        <div class="privrow"><div class="pt">Screenshots you drop in</div><div class="pp">~/Library/Application Support/nox/Images/</div></div>
+        <div class="privrow"><div class="pt">Videos you saved</div><div class="pp">~/Library/Application Support/nox/Videos/</div></div>
+        <div class="privrow"><div class="pt">Files you parked</div><div class="pp">~/Library/Application Support/nox/Files/</div></div>
+        <div class="privrow"><div class="pt">Settings and hotkeys</div><div class="pp">app.trynox plist</div></div>
+        <div class="privrow"><div class="pt">Cached album art</div><div class="pp">in memory only, never written</div></div>
       </div>
-      <div class="card">
-        <div class="icon-tile">⌥</div>
-        <h3>Talk instead of typing</h3>
-        <p>Hold one key and speak. Your words become text. No internet needed. Your voice never leaves your Mac. Nothing recorded, nothing sent anywhere.</p>
+    </div></div>
+    <div class="rv"><div class="glow privcard">
+      <h4 class="privh">What nox never collects</h4>
+      <ul class="privlist">
+        <li>Account info. There is no account.</li>
+        <li>Your name, email, or phone.</li>
+        <li>Telemetry, analytics, crash reports.</li>
+        <li>What you typed, said, or pasted.</li>
+        <li>Which apps you use, when, or for how long.</li>
+        <li>Anything from your other tabs or windows.</li>
+      </ul>
+      <p class="privnote">The only thing nox ever asks the internet for is "any updates?" once every few hours.</p>
+    </div></div>
+  </div>
+  <p class="privfoot rv">Drag <code>nox.app</code> to Trash. Everything above goes with it.</p>
+</div></section>
+
+<!-- INTERACTIVE DEMO -->
+<section class="demo"><div class="wrap">
+  <p class="kick rv">Try it right here</p>
+  <h2 class="h2 disp rv" style="margin-top:14px">It lives where your eyes already are.</h2>
+  <div class="psst rv" style="margin-top:18px"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M5.06 3.024C4.804 1.238 6.858.052 8.276 1.168l17.117 13.466c1.47 1.159.688 3.522-1.182 3.574l-7.03.19a1.998 1.998 0 0 0-1.65.953l-3.68 5.993c-.98 1.594-3.418 1.089-3.685-.764L5.06 3.024Z"/></svg> Psst. It's interactive. Hover the notch, then hit play.</div>
+  <div class="stage scaleup">
+    <div class="menubar">
+      <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.05 12.04c-.03-2.6 2.12-3.85 2.22-3.91-1.21-1.77-3.09-2.01-3.76-2.04-1.6-.16-3.12.94-3.93.94-.81 0-2.06-.92-3.39-.89-1.74.03-3.35 1.01-4.25 2.57-1.81 3.14-.46 7.79 1.3 10.34.86 1.25 1.89 2.65 3.24 2.6 1.3-.05 1.79-.84 3.36-.84 1.57 0 2.01.84 3.39.81 1.4-.02 2.29-1.27 3.15-2.53.99-1.45 1.4-2.85 1.42-2.92-.03-.01-2.72-1.04-2.75-4.13zM14.69 4.6c.72-.87 1.2-2.08 1.07-3.29-1.03.04-2.28.69-3.02 1.56-.66.77-1.24 2-1.08 3.18 1.15.09 2.32-.58 3.03-1.45z"/></svg>
+      <span class="app">Finder</span>
+      <span class="mi">File</span><span class="mi">Edit</span><span class="mi">View</span><span class="mi">Go</span>
+      <span class="sp"></span>
+      <span class="stat">
+        <svg viewBox="0 0 26 13" width="23" height="11.5" aria-hidden="true"><rect x="1" y="1.4" width="20" height="10.2" rx="3" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="1.1"/><rect x="2.7" y="3" width="14" height="7" rx="1.4"/><rect x="22.4" y="4.4" width="1.8" height="4.2" rx="0.9" fill="rgba(255,255,255,0.55)"/></svg>
+        <svg viewBox="0 0 20 15" width="17" height="13" aria-hidden="true"><path d="M2 5.2A12 12 0 0 1 18 5.2M4.6 8A8 8 0 0 1 15.4 8M7.2 10.7A4 4 0 0 1 12.8 10.7" fill="none" stroke="rgba(255,255,255,0.86)" stroke-width="1.5" stroke-linecap="round"/><circle cx="10" cy="12.7" r="1.1"/></svg>
+        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M10.5 3a7.5 7.5 0 0 1 5.93 12.1l4.23 4.24-1.41 1.41-4.24-4.23A7.5 7.5 0 1 1 10.5 3zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11z"/></svg>
+        <svg viewBox="0 0 22 16" width="18" height="13" aria-hidden="true"><path d="M2 5h18M2 11h18" stroke="rgba(255,255,255,0.86)" stroke-width="1.6" stroke-linecap="round"/><circle cx="7" cy="5" r="2.4"/><circle cx="15" cy="11" r="2.4"/></svg>
+        <span class="clk">Tue 9:41 AM</span>
+      </span>
+    </div>
+    <div class="dock" aria-hidden="true">
+      <a tabindex="-1" aria-label="Finder"><svg viewBox="0 0 64 64"><defs><linearGradient id="dkF" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2aa8ff"/><stop offset="1" stop-color="#0a6ee6"/></linearGradient></defs><rect width="64" height="64" rx="15" fill="url(#dkF)"/><path d="M32 8C19 8 9 18.4 9 32s10 24 23 24z" fill="#fff" fill-opacity=".15"/><circle cx="23" cy="27" r="2.7" fill="#fff"/><circle cx="41" cy="27" r="2.7" fill="#fff"/><path d="M22 40c6 4.6 14 4.6 20 0" fill="none" stroke="#fff" stroke-width="2.7" stroke-linecap="round"/></svg></a>
+      <a tabindex="-1" aria-label="Safari"><svg viewBox="0 0 64 64"><defs><radialGradient id="dkS" cx=".5" cy=".42" r=".75"><stop offset="0" stop-color="#39c2ff"/><stop offset="1" stop-color="#127ae6"/></radialGradient></defs><rect width="64" height="64" rx="15" fill="url(#dkS)"/><circle cx="32" cy="32" r="21" fill="#0d5bb5" fill-opacity=".5"/><circle cx="32" cy="32" r="21" fill="none" stroke="#fff" stroke-width="2.1"/><g stroke="#fff" stroke-width="1.5" stroke-linecap="round" opacity=".85"><path d="M32 11.5v3.4M32 49.1v3.4M11.5 32h3.4M49.1 32h3.4"/></g><path d="M32 32 47 17l-9 17z" fill="#ff5247"/><path d="M32 32 17 47l9-17z" fill="#fff"/></svg></a>
+      <a tabindex="-1" aria-label="Messages"><svg viewBox="0 0 64 64"><defs><linearGradient id="dkM" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5df77a"/><stop offset="1" stop-color="#15b431"/></linearGradient></defs><rect width="64" height="64" rx="15" fill="url(#dkM)"/><path d="M32 16c-10.5 0-19 6.7-19 15 0 4.8 2.8 9 7.2 11.7-.6 2.3-2 4.8-3.7 6.5 3.7.2 7-1.4 9.2-3.2 2 .5 4.1.8 6.3.8 10.5 0 19-6.7 19-15.8S42.5 16 32 16z" fill="#fff"/></svg></a>
+      <a tabindex="-1" aria-label="Music"><svg viewBox="0 0 64 64"><defs><linearGradient id="dkU" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fc5c7a"/><stop offset="1" stop-color="#f9263f"/></linearGradient></defs><rect width="64" height="64" rx="15" fill="url(#dkU)"/><path d="M25 45.2V25.2l16-3.3v15.4a5.2 5.2 0 1 0 2.5 4.4V17.7a1.6 1.6 0 0 0-2-1.55l-18.4 3.8A1.6 1.6 0 0 0 22 21.5v18.3A5.2 5.2 0 1 0 25 45.2z" fill="#fff"/></svg></a>
+      <a tabindex="-1" aria-label="Calendar"><svg viewBox="0 0 64 64"><rect width="64" height="64" rx="15" fill="#fff"/><path d="M0 16C0 7.7 6.7 3 15 3h34c8.3 0 15 4.7 15 13v5.5H0z" fill="#fb3b30"/><text x="32" y="17.4" font-family="-apple-system,Helvetica,Arial,sans-serif" font-size="9.2" font-weight="700" fill="#fff" text-anchor="middle" letter-spacing=".5">TUE</text><text x="32" y="53" font-family="-apple-system,Helvetica,Arial,sans-serif" font-size="31" font-weight="600" fill="#1c1c1e" text-anchor="middle">9</text></svg></a>
+      <a tabindex="-1" aria-label="Mail"><svg viewBox="0 0 64 64"><defs><linearGradient id="dkL" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2ab6ff"/><stop offset="1" stop-color="#0676f5"/></linearGradient></defs><rect width="64" height="64" rx="15" fill="url(#dkL)"/><rect x="12" y="20.5" width="40" height="23" rx="5.5" fill="#fff"/><path d="M14.5 24 32 35.5 49.5 24" fill="none" stroke="#0676f5" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+      <a tabindex="-1" aria-label="Settings"><svg viewBox="0 0 64 64"><defs><linearGradient id="dkG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b2b8c2"/><stop offset="1" stop-color="#6e7686"/></linearGradient></defs><rect width="64" height="64" rx="15" fill="url(#dkG)"/><circle cx="32" cy="32" r="6.8" fill="none" stroke="#fff" stroke-width="3.3"/><g stroke="#fff" stroke-width="3.3" stroke-linecap="round"><path d="M32 13v6M32 45v6M13 32h6M45 32h6M18.4 18.4l4.2 4.2M41.4 41.4l4.2 4.2M45.6 18.4l-4.2 4.2M22.6 41.4l-4.2 4.2"/></g></svg></a>
+    </div>
+    <div class="notch" id="notch" role="button" tabindex="0" aria-label="Demo notch, hover to expand">
+      <div class="nrest">
+        <div class="nart"></div>
+        <div class="nwave"><i style="animation-delay:0s"></i><i style="animation-delay:.26s"></i><i style="animation-delay:.5s"></i><i style="animation-delay:.16s"></i></div>
       </div>
-      <div class="card">
-        <div class="icon-tile">⤓</div>
-        <h3>Drag files in</h3>
-        <p>Drag a photo, a video, or any file up to the dark cutout. nox holds it for you. Drop it anywhere later, straight from up there.</p>
-      </div>
-      <div class="card">
-        <div class="icon-tile">▶</div>
-        <h3>Save videos from the web</h3>
-        <p>Watching a video in your browser? Hit a keyboard shortcut. nox saves it to your Mac so you can watch it later, even without internet.</p>
-      </div>
-      <div class="card">
-        <div class="icon-tile">▦</div>
-        <h3>Your next meeting</h3>
-        <p>About to have a meeting? nox shows it at the top with a "Join" button. It only reads your calendar. It never adds, edits, or shares anything.</p>
-      </div>
-      <div class="card">
-        <div class="icon-tile">⚡</div>
-        <h3>Little reminders</h3>
-        <p>Plugged in your charger? Got an AirDrop? AirPods just connected? Took a screenshot? nox shows a small note up top instead of beeping at you.</p>
-      </div>
+      <div class="slab"><div class="slabin">
+        <div class="inforow">
+          <div class="bart"></div>
+          <div class="smeta"><div class="t">Sleepwalker</div><div class="a">Aries</div><div class="al">Glass Jaw</div></div>
+          <div class="swave"><i style="animation-delay:0s"></i><i style="animation-delay:.26s"></i><i style="animation-delay:.5s"></i><i style="animation-delay:.16s"></i></div>
+        </div>
+        <div class="sprog"><div class="ptrack"><i id="pbar"></i></div><div class="ptime"><span id="tcur">0:00</span><span id="trem">-0:17</span></div></div>
+        <div class="strans">
+          <button class="tb" id="prevBtn" aria-label="Previous"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6v12M19 6l-9 6 9 6z"/></svg></button>
+          <button class="tb tbp" id="playBtn" aria-label="Play"><svg viewBox="0 0 24 24" aria-hidden="true"><path id="playPath" d="M8 5l11 7-11 7z"/></svg></button>
+          <button class="tb" id="nextBtn" aria-label="Next"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6v12M5 6l9 6-9 6z"/></svg></button>
+        </div>
+        <div style="text-align:center"><span class="sbadge"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h3l4 3V6L7 9H4z"/></svg>Now playing</span></div>
+      </div></div>
     </div>
   </div>
-</section>
+  <audio id="demoAudio" src="assets/demo-track.mp3" loop preload="none"></audio>
+  <p class="tip rv">Hover the notch above. On your Mac it does this for <b>real</b>. Music, dictation, drops, downloads, timers and more.</p>
+</div></section>
 
-<!-- ── Why nox ─────────────────────────────────────────────── -->
-<!--
-  Editorial principles layout — completely different visual
-  language from the Features cards above. Big lavender display
-  numerals, no card frames, generous whitespace. Reads like a
-  manifesto page rather than a SaaS feature grid.
-  Final CTA banner pulls the section together with the download.
--->
-<section id="why">
-  <div class="wrap">
-    <div class="section-head">
-      <span class="section-eyebrow">Why nox</span>
-      <h2>Four small promises.</h2>
-      <p>Everything you'd want from a Mac app, nothing you wouldn't.</p>
-    </div>
-
-    <ol class="principles">
-      <li>
-        <span class="num">01</span>
-        <div>
-          <h3>It's free.</h3>
-          <p>One email so we can ping you when it goes paid. That's it. No sign up, no trial timer counting down, no card on file.</p>
-        </div>
-      </li>
-      <li>
-        <span class="num">02</span>
-        <div>
-          <h3>It feels like the Mac.</h3>
-          <p>Pure Swift. Tiny binary. Zero CPU when nothing is happening. Not a window stuck on top of your screen, part of it.</p>
-        </div>
-      </li>
-      <li>
-        <span class="num">03</span>
-        <div>
-          <h3>Your stuff stays here.</h3>
-          <p>Your notes, your screenshots, your downloads, all on your machine. Nothing in the cloud. Nothing to leak. Nothing to ask permission for.</p>
-        </div>
-      </li>
-      <li>
-        <span class="num">04</span>
-        <div>
-          <h3>It updates itself.</h3>
-          <p>When a new version ships, nox quietly grabs it in the background. You wake up tomorrow on the latest version without doing a thing.</p>
-        </div>
-      </li>
-    </ol>
-
-    <!-- Side-by-side comparison. Same feature inventory, but each
-         row also shows whether the three other notch apps offer
-         that feature. No links to their sites; names are flat
-         text labels only. ○ glyph means "not offered" (instead
-         of ✕ which reads as a vote-against). -->
-    <div class="compare-table liquid-glass">
-      <div class="head">
-        <span class="feat">What you get</span>
-        <span class="self">nox</span>
-        <span>Alcove</span>
-        <span>NotchNook</span>
-        <span>Boring Notch</span>
-      </div>
-
-      <div class="row">
-        <div class="feat">
-          <span class="label">Music</span>
-          <span class="sub">See what's playing in Spotify, Apple Music, YouTube, anything. Skip a track without breaking your flow.</span>
-        </div>
-        <span class="self"><span class="yes">✓</span></span>
-        <span><span class="yes">✓</span></span>
-        <span><span class="yes">✓</span></span>
-        <span><span class="yes">✓</span></span>
-      </div>
-
-      <div class="row">
-        <div class="feat">
-          <span class="label">Calendar</span>
-          <span class="sub">Today's events sit next to your music. Connected to Apple Calendar. Read only, never edits.</span>
-        </div>
-        <span class="self"><span class="yes">✓</span></span>
-        <span><span class="no">○</span></span>
-        <span><span class="yes">✓</span></span>
-        <span><span class="yes">✓</span></span>
-      </div>
-
-      <div class="row">
-        <div class="feat">
-          <span class="label">Drag and drop</span>
-          <span class="sub">Drag any file up to the dark cutout. nox holds it for you. Drop it later, anywhere you need.</span>
-        </div>
-        <span class="self"><span class="yes">✓</span></span>
-        <span><span class="no">○</span></span>
-        <span><span class="yes">✓</span></span>
-        <span><span class="yes">✓</span></span>
-      </div>
-
-      <div class="row">
-        <div class="feat">
-          <span class="label">AirDrop pill</span>
-          <span class="sub">A small pill appears when a transfer starts. Watch progress without opening Finder.</span>
-        </div>
-        <span class="self"><span class="yes">✓</span></span>
-        <span><span class="no">○</span></span>
-        <span><span class="yes">✓</span></span>
-        <span><span class="no">○</span></span>
-      </div>
-
-      <div class="row">
-        <div class="feat">
-          <span class="label">Take notes while watching</span>
-          <span class="sub">Type alongside any video without leaving the page. Notes save to your timeline automatically.</span>
-        </div>
-        <span class="self"><span class="yes">✓</span></span>
-        <span><span class="no">○</span></span>
-        <span><span class="no">○</span></span>
-        <span><span class="no">○</span></span>
-      </div>
-
-      <div class="row">
-        <div class="feat">
-          <span class="label">Save videos</span>
-          <span class="sub">Paste a YouTube link. Get a clean mp4 ready for your editor in seconds.</span>
-        </div>
-        <span class="self"><span class="yes">✓</span></span>
-        <span><span class="no">○</span></span>
-        <span><span class="yes">✓</span></span>
-        <span><span class="no">○</span></span>
-      </div>
-
-      <div class="row">
-        <div class="feat">
-          <span class="label">Voice to text</span>
-          <span class="sub">Hold the hotkey, speak, your words appear in whatever app you were typing in. Runs on your Mac, no internet.</span>
-        </div>
-        <span class="self"><span class="yes">✓</span></span>
-        <span><span class="no">○</span></span>
-        <span><span class="no">○</span></span>
-        <span><span class="no">○</span></span>
-      </div>
-
-      <div class="row">
-        <div class="feat">
-          <span class="label">Auto-updates</span>
-          <span class="sub">When a new version ships, nox grabs it in the background. You always have the latest fixes.</span>
-        </div>
-        <span class="self"><span class="yes">✓</span></span>
-        <span><span class="yes">✓</span></span>
-        <span><span class="no">○</span></span>
-        <span><span class="no">○</span></span>
-      </div>
-
-      <div class="row price-row">
-        <div class="feat">
-          <span class="label">Price</span>
-          <span class="sub">What it costs to use. nox stays free during beta, with a fair one-time price planned for v1.0.</span>
-        </div>
-        <span class="self"><strong>Free</strong></span>
-        <span>$17</span>
-        <span>$25 or $3/mo</span>
-        <span>Free</span>
-      </div>
-    </div>
-
-    <p class="compare-note">Based on what each app says on its own website. nox is the only notch app with voice to text and the only one that lets you take notes while watching a video.</p>
+<!-- FAQ -->
+<section><div class="wrap">
+  <h2 class="h2 disp rv" style="text-align:center">Questions? Answers.</h2>
+  <div class="faq" id="faq">
+    <details class="qa rv"><summary>Do I need a Mac with a notch?</summary><p>No. A notch makes it feel native, but nox works on any modern Mac. It draws its own pill region at the top-center of the screen where a notch would be.</p></details>
+    <details class="qa rv"><summary>Is my data private?</summary><p>By design. Voice transcription and the AI clean-up run entirely on your Mac (Whisper on the Apple Neural Engine), and your audio file is deleted the moment it's transcribed. Your files, screenshots and notes are stored locally. The only things that ever touch the network are optional features you turn on with your own API key, and checking for app updates.</p></details>
+    <details class="qa rv"><summary>Will it slow my Mac down?</summary><p>No. nox is native Swift and sits at essentially 0% CPU when you're not using it. It only wakes when you reach for it, and it suspends its background helpers when nothing's playing.</p></details>
+    <details class="qa rv"><summary>Which Macs are supported?</summary><p>macOS 15 or later. Apple Silicon is recommended, since that's what runs the on-device Whisper and AI features fastest. The download is about 16 MB.</p></details>
+    <details class="qa rv"><summary>What can play in the music pill?</summary><p>Spotify, Apple Music, Apple Podcasts, and anything playing in a browser. That covers YouTube, SoundCloud, Twitch and Vimeo, across Chrome, Safari, Arc, Brave, Edge and others. It keeps working on recent macOS versions where some notch apps stopped detecting media.</p></details>
+    <details class="qa rv"><summary>Is it really free?</summary><p>Yes. While we're testing, every feature is unlocked, with no account and no credit card. Early testers will be looked after when we settle on pricing later.</p></details>
   </div>
-</section>
+</div></section>
 
-<!-- ── Privacy ──────────────────────────────────────────────── -->
-<section id="privacy" class="privacy">
-  <div class="wrap">
-    <span class="eyebrow-chip">A clear promise</span>
-    <h2>Your stuff stays on your Mac.</h2>
-    <p>
-      When you talk, your voice becomes text right on your Mac. Nothing goes online. nox doesn't track what you do, doesn't ask you to make an account, and doesn't have a server we send your stuff to. The only thing nox ever sends online is a quick check for new updates. That's it.
-    </p>
+<!-- FINAL -->
+<section class="final"><div class="wrap">
+  <h2 class="h1 disp rv" style="font-size:clamp(34px,5vw,64px)">Glance up.<br>Everything's there.</h2>
+  <p class="lede rv" style="max-width:480px;margin:22px auto 0">Free while we're testing. No account, no credit card. Just download and reach up.</p>
+  <div class="rv" style="margin-top:32px"><a class="btn btn-acc morph" href="download.html" data-tally-open="xX9Apd" data-tally-layout="modal" data-tally-overlay="1" aria-label="Download nox for Mac"><span class="m-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.37 7.648c-.114.088-2.11 1.213-2.11 3.715 0 2.894 2.54 3.918 2.616 3.944-.011.062-.403 1.402-1.34 2.767-.834 1.201-1.706 2.4-3.032 2.4s-1.667-.77-3.198-.77c-1.492 0-2.022.796-3.235.796-1.214 0-2.06-1.112-3.033-2.477C4.911 16.42 4 13.93 4 11.566c0-3.791 2.465-5.802 4.891-5.802 1.29 0 2.364.847 3.173.847.77 0 1.972-.897 3.438-.897.556 0 2.553.05 3.867 1.934Zm-4.564-3.54c.607-.719 1.036-1.718 1.036-2.716 0-.138-.012-.279-.037-.392-.987.037-2.161.657-2.87 1.478-.555.632-1.074 1.63-1.074 2.643 0 .152.026.304.037.353.063.011.164.025.266.025.885 0 1.998-.593 2.642-1.39Z"/></svg></span><span class="m-tx">Download nox for Mac</span><span class="m-ar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12h15m0 0l-6.75-6.75M19.5 12l-6.75 6.75"/></svg></span></a></div>
+  <p class="micro rv">No credit card · No sign-up · No catch</p>
+</div></section>
+</main>
 
-    <!-- "What we store" panel — itemizes EVERY piece of data
-         that nox writes to the Mac so users can see the full
-         scope at a glance. Two-column grid of "kept on your
-         Mac" vs "never collected" so the boundary reads as
-         binary and definitive, not weasel-worded. -->
-    <div class="storage-grid">
-      <div class="storage-card liquid-glass">
-        <h3>What nox keeps on your Mac</h3>
-        <ul>
-          <li><span class="lab">Notes</span><span class="loc">~/Library/Application Support/nox/notes.db</span></li>
-          <li><span class="lab">Screenshots you drop in</span><span class="loc">~/Library/Application Support/nox/Images/</span></li>
-          <li><span class="lab">Videos you saved</span><span class="loc">~/Library/Application Support/nox/Videos/</span></li>
-          <li><span class="lab">Files you parked</span><span class="loc">~/Library/Application Support/nox/Files/</span></li>
-          <li><span class="lab">Settings and hotkeys</span><span class="loc">app.trynox plist</span></li>
-          <li><span class="lab">Cached album art</span><span class="loc">in memory only, never written</span></li>
-        </ul>
-        <p class="storage-foot">Drag <code>nox.app</code> to Trash. Everything above goes with it.</p>
-      </div>
-
-      <div class="storage-card liquid-glass">
-        <h3>What nox never collects</h3>
-        <ul class="bad">
-          <li>Account info. There is no account.</li>
-          <li>Your name, email, or phone.</li>
-          <li>Telemetry, analytics, crash reports.</li>
-          <li>What you typed, said, or pasted.</li>
-          <li>Which apps you use, when, or for how long.</li>
-          <li>Anything from your other tabs or windows.</li>
-        </ul>
-        <p class="storage-foot">The only thing nox ever asks the internet for is "any updates?" once every few hours.</p>
-      </div>
-    </div>
+<footer><div class="wrap">
+  <div class="foot">
+    <div class="lead-col"><div class="brand"><img src="assets/app-icon-512.png" alt="nox" />nox</div><p style="font-size:13.5px;color:var(--g3);line-height:1.6">The Dynamic Island your Mac never got.<br>Native, private, one glance up.</p></div>
+    <div><h4>Surfaces</h4><a href="#music">Now Playing</a><a href="#voice">Dictation</a><a href="#files">Files &amp; AirDrop</a><a href="#more">Notes &amp; tasks</a></div>
+    <div><h4>Product</h4><a href="download.html">Download</a><a href="features.html">All features</a><a href="#why">Why nox</a></div>
+    <div><h4>Support</h4><a href="mailto:hello@trynox.app">hello@trynox.app</a><a href="#">Privacy</a><a href="#">Terms</a></div>
   </div>
-</section>
-
-<!-- ── FAQ ──────────────────────────────────────────────────── -->
-<!--
-  Inspired by NotchNook's card grid pattern but in our typeface
-  and case. Each Q + A is always visible (not collapsed) so
-  scanning is faster. Two-column grid at desktop, single at
-  phone widths.
--->
-<section id="faq" class="faq">
-  <div class="wrap">
-    <div class="section-head">
-      <span class="section-eyebrow">Common questions</span>
-      <h2>Everything you might wonder.</h2>
-      <p>Quick answers. Email us if anything is missing.</p>
-    </div>
-
-    <div class="faq-grid">
-      <div class="faq-card liquid-glass">
-        <h3>Does it work on Macs without a notch?</h3>
-        <p>Yes. On non-notched MacBooks and external displays the panel sits at the top center of the screen and behaves the same way. The notch is a nice landmark, not a requirement.</p>
-      </div>
-
-      <div class="faq-card liquid-glass">
-        <h3>How do I open the panel?</h3>
-        <p>Move your cursor to the dark cutout. The panel grows out. Move your cursor away to close it. You can also press <code>⌥&nbsp;Space</code> from anywhere.</p>
-      </div>
-
-      <div class="faq-card liquid-glass">
-        <h3>Which music apps does it work with?</h3>
-        <p>Spotify, Apple Music, YouTube in any browser, podcasts, audiobooks, anything that publishes Now Playing info to macOS. Skip and pause work for Spotify and Apple Music. For everything else you still see what's playing.</p>
-      </div>
-
-      <div class="faq-card liquid-glass">
-        <h3>Will it slow my Mac down?</h3>
-        <p>No. Tiny native binary. Zero CPU when nothing is happening. No background polling, no telemetry. Built to feel like part of the Mac, not a window stuck on top of it.</p>
-      </div>
-
-      <div class="faq-card liquid-glass">
-        <h3>Does it support multiple monitors?</h3>
-        <p>Yes. nox follows whichever screen has your focused window. Plug in a second display and it shows up on whichever notch you're working with.</p>
-      </div>
-
-      <div class="faq-card liquid-glass">
-        <h3>What permissions does it ask for?</h3>
-        <p>All optional. Calendar to show today's events. Microphone for voice to text. Accessibility so the hotkey works system wide. Deny any one and the rest still works.</p>
-      </div>
-
-      <div class="faq-card liquid-glass">
-        <h3>How do I uninstall it?</h3>
-        <p>Drag <code>nox.app</code> to Trash. Everything nox kept on your Mac (notes, screenshots, videos, settings) sits inside the app's container, so it goes with it. Nothing left behind.</p>
-      </div>
-
-      <div class="faq-card liquid-glass">
-        <h3>What does it cost?</h3>
-        <p>Free while we're testing. One time price at v1.0. We will email beta users the number first. No subscription, no in app upgrades, no "pro" tier. Buy it once, own it forever.</p>
-      </div>
-
-      <div class="faq-card liquid-glass">
-        <h3>Can I get my notes out?</h3>
-        <p>Yes. Notes export as plain Markdown. Screenshots and videos are already plain files on disk. You always own your stuff and can take it anywhere.</p>
-      </div>
-    </div>
-
-    <p class="faq-foot">Still wondering? <a href="mailto:hello@trynox.app">hello@trynox.app</a></p>
-  </div>
-</section>
-
-<!-- ── Final CTA ────────────────────────────────────────────── -->
-<section class="cta">
-  <div class="wrap">
-    <h2>Give it a try.</h2>
-    <p>Download it. Drag the icon into your Applications folder. Open it. That's the whole setup.</p>
-    <button class="btn btn-primary btn-large" type="button" data-tally-open="xX9Apd" data-tally-layout="modal" data-tally-overlay="1" data-tally-emoji-text="🌙" data-tally-emoji-animation="wave">
-      <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.463 1.58-1.518 3.12-.945 1.34-1.94 2.71-3.43 2.71-1.517 0-1.9-.88-3.63-.88-1.698 0-2.302.91-3.67.91-1.49 0-2.534-1.32-3.43-2.64-1.911-2.81-3.39-7.94-1.41-11.4.954-1.69 2.717-2.78 4.66-2.81 1.46-.03 2.83.96 3.71.96.88 0 2.55-.96 4.31-.82.74.03 2.81.3 4.13 2.25-.11.07-2.47 1.44-2.44 4.31.04 3.43 3.01 4.57 3.04 4.59-.07.04-2.84-1.41-3.5-2.91z"/></svg>
-      Download nox 1.9.29
-    </button>
-  </div>
-</section>
-
-<footer>
-  <div class="wrap">
-    <div>© 2026 left-society. nox is a Mac app.</div>
-    <div class="links">
-      <a href="https://github.com/left-society/nox/releases">What's new</a>
-      <a href="https://github.com/left-society/nox/issues">Something broken?</a>
-      <a href="mailto:hello@trynox.app">Email us</a>
-    </div>
-  </div>
-</footer>
+  <div class="copy"><span>© 2026 nox · Made for people who'd rather do than dig.</span><span>trynox.app</span></div>
+</div></footer>
 
 <script>
-/*  ----------------------------------------------------------------
-    Per-card liquid-glass displacement filter.
+const nav=document.getElementById('nav');
+const onScroll=()=>nav.classList.toggle('float',scrollY>40);
+addEventListener('scroll',onScroll,{passive:true});onScroll();
 
-    Direct port of the technique from
-    github.com/nikdelvin/liquid-glass (LiquidGlass.astro +
-    utils/liquidGlass.ts). The earlier attempt used global
-    feTurbulence + feDisplacementMap, which warped the backdrop
-    everywhere and produced the visible purple-blob artifacts
-    over the radial glow. That's wrong. The real technique:
+const hl=document.getElementById('headline');
+let _wi=0;hl.innerHTML=hl.textContent.split(/(\s+)/).map(t=>/\s/.test(t)?t:`<span class="word" style="animation-delay:${(_wi++)*55+120}ms">${t}</span>`).join('');
 
-    1) Build a custom displacement map (NOT noise-based) with:
-         - solid mid-gray (#808080 = "no displacement")
-         - inner solid #808080 rect inset by `depth` pixels with
-           rounded corners and a `blur(depth)` filter — this is
-           what creates the soft edge falloff
-         - OUTER linear gradients in R (left→right) and G
-           (top→bottom) channels mixed via screen — these encode
-           the X and Y displacement vectors
-       Result: in the middle of the card the backdrop stays
-       sharp; only the edges bend, exactly like a physical
-       glass lens with rounded corners.
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{threshold:.12,rootMargin:'0px 0px -6% 0px'});
+document.querySelectorAll('.rv,.scaleup').forEach(el=>io.observe(el));
 
-    2) Run feDisplacementMap with that map as in2:
-         scale = strength controls bend amount; xChannelSelector=R
-         and yChannelSelector=G match the displacement-vector
-         encoding in the map.
+// lazy-load + play pillar videos only when near/in view
+const vio=new IntersectionObserver(es=>es.forEach(e=>{const v=e.target;
+  if(e.isIntersecting){ if(!v.src&&v.dataset.src){v.src=v.dataset.src;} v.play().catch(()=>{}); }
+  else { v.pause(); }
+}),{rootMargin:'250px 0px'});
+document.querySelectorAll('video.lazyvid').forEach(v=>vio.observe(v));
+document.querySelectorAll('#bgrid .rv,#faq .rv').forEach((c,i)=>c.style.transitionDelay=(i%4*60)+'ms');
 
-    3) Apply the resulting filter via
-         backdrop-filter: url('data:image/svg+xml;...#displace')
-       so the FILTER, not the source content, runs on the
-       backdrop behind the card.
+document.querySelectorAll('.glow').forEach(c=>c.addEventListener('mousemove',e=>{const r=c.getBoundingClientRect();c.style.setProperty('--mx',(e.clientX-r.left)+'px');c.style.setProperty('--my',(e.clientY-r.top)+'px')}));
 
-    Each .liquid-glass card has its own dimensions, so the
-    filter SVG is regenerated per card (and on resize) with
-    that card's actual width/height/border-radius.  ---------- */
-(function() {
-  // Detect support — Safari currently ignores url() inside
-  // backdrop-filter and silently falls back. We bail out for
-  // unsupported browsers and let the CSS frosted-blur stand.
-  const supportsBackdropFilterUrl = (() => {
-    const t = document.createElement('div');
-    t.style.cssText = "backdrop-filter: url(#x)";
-    return t.style.backdropFilter === "url(#x)" ||
-           t.style.backdropFilter === 'url("#x")';
-  })();
-  if (!supportsBackdropFilterUrl) return;
+// duplicate alive row for seamless marquee
+const ar=document.getElementById('aliveRow');ar.innerHTML+=ar.innerHTML;
 
-  // Tunable defaults. The library's defaults are tuned for
-  // larger glass surfaces (full-page panels). For 4-up
-  // pricing cards I dial strength down so the bend reads as
-  // subtle refraction at the edges, not a fishbowl.
-  const DEPTH = 10;       // px of edge bevel
-  const STRENGTH = 60;    // displacement scale in feDisplacementMap
-
-  function displacementMapURI(width, height, radius, depth) {
-    // Edge gradient stops — clamped slightly inward of the
-    // border by 15% of the radius/dimension ratio so the
-    // displacement vectors die off cleanly into the rounded
-    // corners.
-    const ys = Math.ceil((radius / height) * 15);
-    const ye = Math.floor(100 - (radius / height) * 15);
-    const xs = Math.ceil((radius / width) * 15);
-    const xe = Math.floor(100 - (radius / width) * 15);
-    const innerW = width - 2 * depth;
-    const innerH = height - 2 * depth;
-    const svg =
-      '<svg height="' + height + '" width="' + width +
-      '" viewBox="0 0 ' + width + ' ' + height +
-      '" xmlns="http://www.w3.org/2000/svg">' +
-      '<style>.mix{mix-blend-mode:screen}</style>' +
-      '<defs>' +
-        '<linearGradient id="Y" x1="0" x2="0" y1="' + ys + '%" y2="' + ye + '%">' +
-          '<stop offset="0%" stop-color="#0F0"/>' +
-          '<stop offset="100%" stop-color="#000"/>' +
-        '</linearGradient>' +
-        '<linearGradient id="X" x1="' + xs + '%" x2="' + xe + '%" y1="0" y2="0">' +
-          '<stop offset="0%" stop-color="#F00"/>' +
-          '<stop offset="100%" stop-color="#000"/>' +
-        '</linearGradient>' +
-      '</defs>' +
-      // Neutral base — #808080 means "do not displace".
-      '<rect x="0" y="0" height="' + height + '" width="' + width + '" fill="#808080"/>' +
-      '<g filter="blur(2px)">' +
-        // Slight blue cast helps the displacement-vector field.
-        '<rect x="0" y="0" height="' + height + '" width="' + width + '" fill="#000080"/>' +
-        // Y displacement gradient (encoded in green channel).
-        '<rect x="0" y="0" height="' + height + '" width="' + width + '" fill="url(#Y)" class="mix"/>' +
-        // X displacement gradient (encoded in red channel).
-        '<rect x="0" y="0" height="' + height + '" width="' + width + '" fill="url(#X)" class="mix"/>' +
-        // Inner neutral rect blurred — this is what kills the
-        // displacement in the middle of the card.
-        '<rect x="' + depth + '" y="' + depth + '" height="' + innerH + '" width="' + innerW +
-        '" fill="#808080" rx="' + radius + '" ry="' + radius + '" filter="blur(' + depth + 'px)"/>' +
-      '</g>' +
-      '</svg>';
-    return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
-  }
-
-  function filterURI(width, height, radius, depth, strength) {
-    const dispMap = displacementMapURI(width, height, radius, depth);
-    const svg =
-      '<svg height="' + height + '" width="' + width +
-      '" viewBox="0 0 ' + width + ' ' + height +
-      '" xmlns="http://www.w3.org/2000/svg">' +
-      '<defs>' +
-        '<filter id="d" color-interpolation-filters="sRGB">' +
-          '<feImage x="0" y="0" height="' + height + '" width="' + width +
-          '" href="' + dispMap + '" result="m"/>' +
-          '<feDisplacementMap in="SourceGraphic" in2="m" scale="' + strength +
-          '" xChannelSelector="R" yChannelSelector="G"/>' +
-        '</filter>' +
-      '</defs>' +
-      '</svg>';
-    return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg) + '#d';
-  }
-
-  function applyGlass(el) {
-    const r = el.getBoundingClientRect();
-    const w = Math.round(r.width);
-    const h = Math.round(r.height);
-    if (!w || !h) return;
-    const cs = getComputedStyle(el);
-    const radius = parseFloat(cs.borderTopLeftRadius) || 20;
-    const uri = filterURI(w, h, radius, DEPTH, STRENGTH);
-    // The filter URL goes BEFORE the blur so the backdrop
-    // is displaced first, then frosted slightly. saturate
-    // amplifies the colors that come through; brightness
-    // lifts the whole thing a hair.
-    el.style.backdropFilter =
-      "url('" + uri + "') blur(2px) saturate(160%) brightness(1.05)";
-  }
-
-  function init() {
-    const cards = document.querySelectorAll('.liquid-glass');
-    cards.forEach(el => {
-      applyGlass(el);
-      // Recompute on resize — different viewport widths change
-      // card dimensions which need a fresh filter.
-      if (window.ResizeObserver) {
-        const ro = new ResizeObserver(() => applyGlass(el));
-        ro.observe(el);
-      }
-    });
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
-})();
+const notch=document.getElementById('notch');
+notch.addEventListener('mouseenter',()=>notch.classList.add('open'));
+notch.addEventListener('mouseleave',()=>notch.classList.remove('open'));
+notch.addEventListener('click',()=>notch.classList.toggle('open'));
+notch.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();notch.classList.toggle('open')}});
+/* real audio: hit play to hear an original ambient loop; waveform + progress sync to it */
+const A=document.getElementById('demoAudio'),playBtn=document.getElementById('playBtn'),playPath=document.getElementById('playPath'),pbar=document.getElementById('pbar'),tcur=document.getElementById('tcur'),trem=document.getElementById('trem');
+const I_PLAY='M8 5l11 7-11 7z',I_PAUSE='M9 5h3.1v14H9zM14.9 5H18v14h-3.1z';
+const fmt=s=>{s=Math.max(0,Math.floor(s||0));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+function reflect(p){notch.classList.toggle('playing',p);playPath.setAttribute('d',p?I_PAUSE:I_PLAY);playBtn.setAttribute('aria-label',p?'Pause':'Play')}
+notch.querySelectorAll('.strans .tb,.sbadge').forEach(el=>el.addEventListener('click',e=>e.stopPropagation()));
+playBtn.addEventListener('click',()=>{A.paused?A.play().catch(()=>{}):A.pause()});
+document.getElementById('prevBtn').addEventListener('click',()=>{A.currentTime=0});
+document.getElementById('nextBtn').addEventListener('click',()=>{A.currentTime=0});
+A.addEventListener('play',()=>reflect(true));
+A.addEventListener('pause',()=>reflect(false));
+A.addEventListener('timeupdate',()=>{const d=A.duration||0,c=A.currentTime||0;if(d){pbar.style.width=(c/d*100).toFixed(1)+'%';tcur.textContent=fmt(c);trem.textContent='-'+fmt(d-c)}});
+A.addEventListener('loadedmetadata',()=>{trem.textContent='-'+fmt(A.duration)});
 </script>
-
-<script>
-/*  ----------------------------------------------------------------
-    Floating-pill nav: scroll-driven morph.
-
-    Vanilla port of /Users/apple/Caption app/caption-app/src/
-    components/landing/AnimatedNav.tsx (Subedit's nav, itself a
-    port of reapollo's "Navigation Menu" pattern from 21st.dev).
-
-    The original uses framer-motion with a spring transition:
-        { type: 'spring', damping: 22, stiffness: 260 }
-
-    To match the EXACT spring feel without bringing in
-    framer-motion's 50KB+ runtime, this script implements the
-    same damped-spring ODE that framer-motion uses internally
-    (see framer-motion/src/animation/generators/spring.ts).
-    Per-frame integration via requestAnimationFrame, with the
-    same critical-damping ratio math, gives visually identical
-    motion to the React version at a fraction of the size.
-    ----------------------------------------------------------------  */
-(() => {
-  const header = document.getElementById("navHeader");
-  if (!header) return;
-
-  const brand         = header.querySelector(".brand");
-  const brandName     = header.querySelector(".brand-name");
-  const navLinks      = header.querySelector(".nav-links");
-  const navCta        = header.querySelector(".nav-cta");
-  const collapsedMark = header.querySelector(".collapsed-mark");
-
-  const COLLAPSE_AT = 150;
-  const EXPAND_SCROLL_THRESHOLD = 80;
-
-  /*  Spring physics matched to framer-motion's defaults for
-      the AnimatedNav layout transition. Damping ratio
-      ζ = damping / (2 * sqrt(stiffness * mass)) = 22 / (2*16.12) ≈ 0.68
-      → underdamped, visible bounce, settles in ~600ms. */
-  const SPRING_STIFFNESS = 260;
-  const SPRING_DAMPING   = 22;
-  const SPRING_MASS      = 1;
-
-  /*  Per-element animator. Each element has its own current
-      value + velocity for the property being animated. RAF tick
-      reads dt, computes spring force + damping force, integrates
-      Verlet-style. Settles when both position error and velocity
-      drop below their thresholds. */
-  const activeAnimators = new WeakMap();
-
-  function springAnimate(el, property, target, options = {}) {
-    const {
-      stiffness = SPRING_STIFFNESS,
-      damping   = SPRING_DAMPING,
-      mass      = SPRING_MASS,
-      delay     = 0,
-      onUpdate,
-    } = options;
-
-    /*  Cancel any in-flight animator on this element/property
-        so a fast scroll-flicker doesn't stack two springs. */
-    const key = el.__springKey = (el.__springKey || {});
-    if (key[property]) key[property].cancelled = true;
-
-    /*  Read current value as the starting point. For width we
-        read offsetWidth; for opacity / x / scale we track in
-        the element's __springState so we don't have to parse
-        computed styles every tick. */
-    const state = (el.__springState = el.__springState || {});
-    let current = state[property];
-    if (current === undefined) {
-      if (property === "width") current = el.offsetWidth;
-      else if (property === "opacity") current = parseFloat(getComputedStyle(el).opacity) || 1;
-      else current = 0;
-    }
-
-    let velocity = 0;
-    let lastTime = null;
-    let elapsed = 0;
-    const handle = { cancelled: false };
-    key[property] = handle;
-
-    const apply = (v) => {
-      state[property] = v;
-      if (onUpdate) {
-        onUpdate(v);
-        return;
-      }
-      if (property === "width") {
-        el.style.width = v + "px";
-      } else if (property === "opacity") {
-        el.style.opacity = v;
-      } else if (property === "x") {
-        const sc = state.scale ?? 1;
-        el.style.transform = `translateX(${v}px) scale(${sc})`;
-      } else if (property === "scale") {
-        const x = state.x ?? 0;
-        el.style.transform = `translateX(${x}px) scale(${v})`;
-      }
-    };
-
-    const tick = (now) => {
-      if (handle.cancelled) return;
-      if (lastTime === null) {
-        lastTime = now;
-        requestAnimationFrame(tick);
-        return;
-      }
-      const rawDt = (now - lastTime) / 1000;
-      lastTime = now;
-      elapsed += rawDt;
-
-      if (elapsed < delay) {
-        requestAnimationFrame(tick);
-        return;
-      }
-
-      // Clamp dt so a tab-switch doesn't blow up the integrator.
-      const dt = Math.min(rawDt, 1 / 30);
-
-      const force      = -stiffness * (current - target);
-      const dampForce  = -damping * velocity;
-      const accel      = (force + dampForce) / mass;
-      velocity        += accel * dt;
-      current         += velocity * dt;
-
-      apply(current);
-
-      const positionError = Math.abs(current - target);
-      const velocityMag   = Math.abs(velocity);
-      // Per-property settle thresholds — width is in pixels so
-      // 0.5 is fine; opacity is 0–1 so we need a finer threshold.
-      const posThresh = property === "opacity" || property === "scale" ? 0.001 : 0.5;
-      const velThresh = property === "opacity" || property === "scale" ? 0.01  : 1.0;
-
-      if (positionError < posThresh && velocityMag < velThresh) {
-        current = target;
-        apply(current);
-        return;
-      }
-      requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-  }
-
-  let isCollapsed = false;
-  let collapseY = 0;
-  let lastY = window.scrollY;
-  let cachedExpandedWidth = 0;
-
-  function collapse() {
-    if (isCollapsed) return;
-    isCollapsed = true;
-    collapseY = window.scrollY;
-    cachedExpandedWidth = header.offsetWidth;
-
-    header.classList.add("collapsed");
-
-    // Header morphs to 44px with the spring. Lock the start
-    // frame as inline style first so the spring has a known
-    // starting numeric value.
-    header.style.width = cachedExpandedWidth + "px";
-    void header.offsetHeight;
-    springAnimate(header, "width", 44);
-
-    /*  Stagger child fade-outs (matches framer-motion variants
-        in the original AnimatedNav). Order: nav-cta (0ms),
-        nav-links (50ms), brand badge (100ms). */
-    springAnimate(navCta,   "opacity", 0, { delay: 0    });
-    springAnimate(navCta,   "x",     -12, { delay: 0    });
-    springAnimate(navCta,   "scale", 0.96, { delay: 0   });
-    springAnimate(navLinks, "opacity", 0, { delay: 0.05 });
-    springAnimate(navLinks, "x",     -12, { delay: 0.05 });
-    springAnimate(navLinks, "scale", 0.96, { delay: 0.05 });
-    springAnimate(brand,    "opacity", 0, { delay: 0.10 });
-    springAnimate(brand,    "x",     -20, { delay: 0.10 });
-
-    /*  Crossfade in the collapsed-mark. Slight delay so it
-        appears AFTER the brand badge starts fading out.
-        Subedit uses delay: 0.18 here (collapsedMarkVariants). */
-    springAnimate(collapsedMark, "opacity", 1, { delay: 0.18 });
-    springAnimate(collapsedMark, "scale",   1, { delay: 0.18 });
-  }
-
-  function expand() {
-    if (!isCollapsed) return;
-    isCollapsed = false;
-
-    header.classList.remove("collapsed");
-
-    /*  Spring back to the cached expanded width. After the
-        spring settles, clear the inline width so the pill
-        goes back to auto-sizing on content. */
-    springAnimate(header, "width", cachedExpandedWidth, {
-      onUpdate: (v) => {
-        header.style.width = v + "px";
-        if (Math.abs(v - cachedExpandedWidth) < 0.5) {
-          // Settled — drop the inline width on the next tick.
-          requestAnimationFrame(() => {
-            header.style.width = "";
-          });
-        }
-      },
-    });
-
-    /*  Crossfade out the collapsed-mark first so the brand
-        badge has somewhere to materialize back in. */
-    springAnimate(collapsedMark, "opacity", 0);
-    springAnimate(collapsedMark, "scale",   0.85);
-
-    /*  Reverse stagger on expand. Order: brand badge first
-        (180ms), nav-links (240ms), nav-cta (300ms). */
-    springAnimate(brand,    "opacity", 1, { delay: 0.18 });
-    springAnimate(brand,    "x",       0, { delay: 0.18 });
-    springAnimate(navLinks, "opacity", 1, { delay: 0.24 });
-    springAnimate(navLinks, "x",       0, { delay: 0.24 });
-    springAnimate(navLinks, "scale",   1, { delay: 0.24 });
-    springAnimate(navCta,   "opacity", 1, { delay: 0.30 });
-    springAnimate(navCta,   "x",       0, { delay: 0.30 });
-    springAnimate(navCta,   "scale",   1, { delay: 0.30 });
-  }
-
-  const setCollapsed = (next) => (next ? collapse() : expand());
-
-  const onScroll = () => {
-    const y = window.scrollY;
-    const goingDown = y > lastY;
-    const goingUp = y < lastY;
-
-    if (!isCollapsed && goingDown && y > COLLAPSE_AT) {
-      setCollapsed(true);
-    } else if (
-      isCollapsed &&
-      goingUp &&
-      collapseY - y > EXPAND_SCROLL_THRESHOLD
-    ) {
-      setCollapsed(false);
-    }
-    /*  Always-expand at the very top of the page so the user
-        lands on a clean expanded pill regardless of where they
-        scrolled before. */
-    if (y < 24) setCollapsed(false);
-
-    lastY = y;
-  };
-
-  /*  Click the collapsed circle to expand instantly. The brand
-      and nav-cta links inside intercept clicks (e.stopPropagation
-      via :not handler) so navigating still works at the expanded
-      state. */
-  header.addEventListener("click", (e) => {
-    if (!isCollapsed) return;
-    /*  In collapsed mode, the inner elements have pointer-events:
-        none, so any click on the header is intent to expand. */
-    e.preventDefault();
-    setCollapsed(false);
-  });
-
-  /*  rAF-throttled scroll listener so we don't fight a 120Hz
-      ProMotion scroll. */
-  let rafPending = false;
-  window.addEventListener(
-    "scroll",
-    () => {
-      if (rafPending) return;
-      rafPending = true;
-      requestAnimationFrame(() => {
-        onScroll();
-        rafPending = false;
-      });
-    },
-    { passive: true }
-  );
-})();
-</script>
-
 </body>
 </html>
