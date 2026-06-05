@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Privacy Policy — nox</title>
+<meta name="description" content="How nox handles your data. Short version: dictation and AI run on‑device, there's no account, and nox doesn't send your content to a server." />
+<meta property="og:title" content="nox — Privacy Policy" />
+<meta property="og:url" content="https://trynox.app/privacy.html" />
+<link rel="icon" href="assets/favicon.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+:root{--bg:#000;--acc:#C5A3FF;--acc-rgb:197,163,255;--g1:#f5f5f7;--g2:#c7c7cc;--g3:#98989d;--g4:#6e6e73;
+  --line:rgba(255,255,255,0.08);--card:rgba(255,255,255,0.045);--max:1140px}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--g1);overflow-x:hidden;
+  font:16px/1.7 -apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--acc);text-decoration:none}a:hover{text-decoration:underline}
+nav.bar{position:sticky;top:0;z-index:50;backdrop-filter:blur(18px);background:rgba(0,0,0,0.6);border-bottom:1px solid var(--line)}
+.bar-in{max-width:var(--max);margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:24px}
+.brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:17px;letter-spacing:-0.02em;color:var(--g1)}
+.brand img{width:26px;height:26px;border-radius:7px}
+.nlinks{display:flex;gap:22px;margin-left:8px}
+.nlinks a{color:var(--g3);font-size:14px;font-weight:500}.nlinks a:hover{color:var(--g1);text-decoration:none}
+.spacer{flex:1}
+.btn-acc{background:var(--acc);color:#0a0a0a;font-weight:600;font-size:14px;padding:8px 16px;border-radius:999px}
+.btn-acc:hover{background:#d8c0ff;text-decoration:none}
+@media(max-width:820px){.nlinks{display:none}}
+.doc{max-width:760px;margin:0 auto;padding:56px 24px 110px}
+h1{font-size:clamp(30px,5vw,42px);letter-spacing:-0.04em;font-weight:600;color:var(--g1)}
+.upd{color:var(--g4);font-size:14px;margin-top:8px}
+.summary{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:26px 0 8px;color:var(--g2)}
+.summary b{color:var(--g1)}
+h2{font-size:21px;letter-spacing:-0.02em;font-weight:600;color:var(--g1);margin:36px 0 4px}
+h3{font-size:15px;font-weight:600;color:var(--g1);margin:18px 0 2px}
+p{color:var(--g2);margin:10px 0}
+ul{margin:10px 0 10px 4px;list-style:none}
+li{color:var(--g2);position:relative;padding-left:20px;margin:6px 0}
+li::before{content:"";position:absolute;left:4px;top:12px;width:5px;height:5px;border-radius:50%;background:var(--acc);opacity:.7}
+li b{color:var(--g1)}
+footer{border-top:1px solid var(--line);padding:40px 0;color:var(--g4);font-size:13px}
+.fin{max-width:var(--max);margin:0 auto;padding:0 24px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.fin a{color:var(--g3)}.fin a:hover{color:var(--g1)}
+</style>
+</head>
+<body>
+
+<nav class="bar"><div class="bar-in">
+  <a class="brand" href="/"><img src="assets/app-icon-512.png" alt="nox" />nox</a>
+  <div class="nlinks"><a href="features.html">Features</a><a href="docs.html">Docs</a><a href="index.html#why">Why nox</a></div>
+  <div class="spacer"></div>
+  <a class="btn-acc" href="download.html" data-tally-open="xX9Apd" data-tally-layout="modal" data-tally-overlay="1">Download free</a>
+</div></nav>
+
+<div class="doc">
+  <h1>Privacy Policy</h1>
+  <p class="upd">Last updated: 5 June 2026</p>
+
+  <div class="summary"><b>The short version.</b> nox is built to keep your data on your Mac. Dictation and AI run <b>on‑device</b>, there is <b>no account</b> to create, and the app does <b>not</b> upload your music, voice, files, or notes to any server. The only personal data we collect is the email address you choose to give us on the website to download the app.</div>
+
+  <p>This policy explains what information nox (“we”, “us”) processes, why, and your choices. It covers both the macOS app and the website at trynox.app.</p>
+
+  <h2>1. The nox app</h2>
+  <p>nox runs locally on your Mac. The features that touch sensitive data do so entirely on your device — the results are not transmitted to us.</p>
+  <ul>
+    <li><b>Microphone (dictation).</b> Audio is captured only while you are actively dictating and is transcribed on‑device by a local speech model. The audio is not stored after transcription and is never sent off your Mac.</li>
+    <li><b>Accessibility.</b> Used to detect your cursor reaching the notch and to read media keys. nox does not log or transmit what you type or do in other apps.</li>
+    <li><b>Calendar (optional).</b> If you enable it, dated tasks are written to your local system Calendar via Apple's EventKit. nox does not read or upload your existing calendar data beyond what's needed to create or remove those events.</li>
+    <li><b>Files.</b> Files you drag onto the notch are handled locally so you can stage and AirDrop them. They are not uploaded to us.</li>
+    <li><b>Now Playing.</b> Track metadata is read from macOS only to display playback controls in the notch. Album artwork may be fetched from Apple's public iTunes lookup when the source doesn't provide it.</li>
+    <li><b>Network.</b> The app makes network requests only to: check for updates (signed app updates), fetch the album artwork mentioned above, and download a video when you explicitly paste a link (which contacts the site you chose, not us).</li>
+  </ul>
+  <p>nox contains <b>no advertising, no third‑party trackers, and no analytics SDKs</b>, and it works without an account.</p>
+
+  <h2>2. The website (trynox.app)</h2>
+  <ul>
+    <li><b>Download request.</b> When you ask to download nox, our form provider (Tally) collects the email address you enter so we can send updates about the app. You can ask us to delete it at any time.</li>
+    <li><b>Basic web logs.</b> Like most sites, our host may record standard, non‑identifying request logs (e.g. page, time, approximate region) to keep the site running and understand traffic. We do not use this to build advertising profiles.</li>
+  </ul>
+
+  <h2>3. Service providers</h2>
+  <p>We rely on a small number of reputable providers, each handling only what's described above: <b>Apple</b> (app notarization, EventKit, iTunes artwork lookup), <b>GitHub</b> (hosting the app download and update feed), and <b>Tally</b> (the website email form). We do not sell your data to anyone.</p>
+
+  <h2>4. Data retention &amp; your choices</h2>
+  <p>On‑device data stays under your control — uninstalling nox removes its local data. For the email you gave us on the website, you can request access or deletion any time by emailing <a href="mailto:hello@trynox.app">hello@trynox.app</a>.</p>
+
+  <h2>5. Children</h2>
+  <p>nox is not directed to children under 13, and we do not knowingly collect their personal information.</p>
+
+  <h2>6. Changes</h2>
+  <p>We may update this policy as the app evolves. Material changes will be reflected here with a new “last updated” date.</p>
+
+  <h2>7. Contact</h2>
+  <p>Questions about privacy? Email <a href="mailto:hello@trynox.app">hello@trynox.app</a>.</p>
+</div>
+
+<footer><div class="fin">
+  <span>© 2026 nox · trynox.app</span>
+  <span><a href="features.html">Features</a> · <a href="docs.html">Docs</a> · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="mailto:hello@trynox.app">Contact</a></span>
+</div></footer>
+
+</body>
+</html>
