@@ -6,6 +6,19 @@
         <description>nox app updates</description>
         <language>en</language>
         <item>
+            <title>nox 1.10.1</title>
+            <pubDate>Fri, 05 Jun 2026 23:20:26 +0600</pubDate>
+            <sparkle:version>45</sparkle:version>
+            <sparkle:shortVersionString>1.10.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://trynox.app/release-notes-1.10.1.html</sparkle:releaseNotesLink>
+            <enclosure
+                url="https://github.com/left-society/nox/releases/download/v1.10.1/nox.1.10.1.dmg"
+                length="129006774"
+                type="application/octet-stream"
+                sparkle:edSignature="N6YbufwxezlPYgH2I7yhrugPPoeq0ejmK+Bs9dAU0ezhEWezHRj7TruBwPt8QhFbbtXXZ7UMhqP645uGA2HODw==" />
+        </item>
+        <item>
             <title>nox 1.10.0</title>
             <pubDate>Fri, 05 Jun 2026 14:02:23 +0600</pubDate>
             <sparkle:version>39</sparkle:version>
